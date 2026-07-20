@@ -1,0 +1,9 @@
+{
+  "name": "cuts-salon",
+  "github": {
+    "enabled": false
+  },
+  "buildCommand": "bash build.sh",
+  "outputDirectory": "build/web",
+  "framework": null
+}
