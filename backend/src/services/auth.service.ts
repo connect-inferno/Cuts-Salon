@@ -1,5 +1,5 @@
 import prisma from '../utils/prisma';
-import { comparePassword } from '../utils/hash';
+import { comparePassword, hashPassword } from '../utils/hash';
 import { generateToken } from '../utils/jwt';
 
 export class AuthService {
@@ -83,5 +83,21 @@ export class AuthService {
         slug: user.salon.slug,
       },
     };
+  }
+
+  static async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const isCurrentValid = await comparePassword(currentPassword, user.passwordHash);
+    if (!isCurrentValid) {
+      throw new Error('Current password is incorrect');
+    }
+
+    const passwordHash = await hashPassword(newPassword);
+    await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+    return { success: true };
   }
 }

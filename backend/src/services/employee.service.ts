@@ -124,4 +124,19 @@ export class EmployeeService {
       data: input,
     });
   }
+
+  // Owner-initiated reset - no email/SMS infra exists yet for a true
+  // self-service "forgot password" flow, so the owner (who already issues
+  // employee credentials at creation time) resets them directly instead.
+  static async resetPassword(salonId: string, employeeProfileId: string, newPassword: string) {
+    const db = getScopedPrisma(salonId);
+    const profile = await db.employeeProfile.findUnique({ where: { id: employeeProfileId } });
+    if (!profile) {
+      throw new Error('Employee not found');
+    }
+
+    const passwordHash = await hashPassword(newPassword);
+    await prisma.user.update({ where: { id: profile.userId }, data: { passwordHash } });
+    return { success: true };
+  }
 }

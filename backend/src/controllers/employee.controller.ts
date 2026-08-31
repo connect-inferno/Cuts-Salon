@@ -24,6 +24,10 @@ const updateEmployeeSchema = z.object({
   active: z.boolean().optional(),
 });
 
+const resetPasswordSchema = z.object({
+  newPassword: z.string().min(8, 'Password must be at least 8 characters'),
+});
+
 export class EmployeeController {
   static async create(req: AuthRequest, res: Response) {
     try {
@@ -57,6 +61,19 @@ export class EmployeeController {
         return res.status(400).json({ error: error.errors[0].message });
       }
       return res.status(400).json({ error: error.message || 'Failed to update employee' });
+    }
+  }
+
+  static async resetPassword(req: AuthRequest, res: Response) {
+    try {
+      const parsed = resetPasswordSchema.parse(req.body);
+      const result = await EmployeeService.resetPassword(req.user!.salonId, req.params.id, parsed.newPassword);
+      return res.status(200).json(result);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors[0].message });
+      }
+      return res.status(400).json({ error: error.message || 'Failed to reset password' });
     }
   }
 }
