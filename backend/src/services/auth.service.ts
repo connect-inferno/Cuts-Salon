@@ -4,11 +4,11 @@ import { generateToken } from '../utils/jwt';
 
 export class AuthService {
   static async login(email: string, password: string) {
-    // Find user
     const user = await prisma.user.findUnique({
       where: { email },
       include: {
         employeeProfile: true,
+        salon: true,
       },
     });
 
@@ -16,15 +16,18 @@ export class AuthService {
       throw new Error('Invalid email or password');
     }
 
-    // Verify password
+    if (!user.salon.active) {
+      throw new Error('This salon account is inactive');
+    }
+
     const isPasswordValid = await comparePassword(password, user.passwordHash);
     if (!isPasswordValid) {
       throw new Error('Invalid email or password');
     }
 
-    // Generate token
     const token = generateToken({
       userId: user.id,
+      salonId: user.salonId,
       role: user.role,
     });
 
@@ -42,6 +45,11 @@ export class AuthService {
           active: user.employeeProfile.active,
         } : null,
       },
+      salon: {
+        id: user.salon.id,
+        name: user.salon.name,
+        slug: user.salon.slug,
+      },
     };
   }
 
@@ -50,6 +58,7 @@ export class AuthService {
       where: { id: userId },
       include: {
         employeeProfile: true,
+        salon: true,
       },
     });
 
@@ -68,6 +77,11 @@ export class AuthService {
         roleTitle: user.employeeProfile.roleTitle,
         active: user.employeeProfile.active,
       } : null,
+      salon: {
+        id: user.salon.id,
+        name: user.salon.name,
+        slug: user.salon.slug,
+      },
     };
   }
 }

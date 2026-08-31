@@ -5,6 +5,7 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d'; // For simple MVP we 
 
 interface TokenPayload {
   userId: string;
+  salonId: string;
   role: string;
 }
 

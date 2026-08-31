@@ -4,6 +4,7 @@ import { verifyToken } from '../utils/jwt';
 export interface AuthRequest extends Request {
   user?: {
     userId: string;
+    salonId: string;
     role: string;
   };
 }
