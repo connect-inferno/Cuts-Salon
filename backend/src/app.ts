@@ -4,6 +4,9 @@ import dotenv from 'dotenv';
 import path from 'path';
 import authRoutes from './routes/auth.routes';
 import onboardingRoutes from './routes/onboarding.routes';
+import customerRoutes from './routes/customer.routes';
+import employeeRoutes from './routes/employee.routes';
+import billRoutes from './routes/bill.routes';
 
 dotenv.config();
 
@@ -17,6 +20,9 @@ app.use(express.static(path.join(__dirname, '../public')));
 // Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/onboarding', onboardingRoutes);
+app.use('/api/v1/customers', customerRoutes);
+app.use('/api/v1/employees', employeeRoutes);
+app.use('/api/v1/bills', billRoutes);
 
 // Root Welcome Endpoint
 app.get('/', (req, res) => {
