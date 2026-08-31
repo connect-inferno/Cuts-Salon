@@ -1,4 +1,4 @@
-import { Prisma, BillItemType, PaymentMethod } from '@prisma/client';
+import { Prisma, BillItemType, PaymentMethod, TargetType, TargetStatus } from '@prisma/client';
 import { getScopedPrisma } from '../utils/scopedPrisma';
 
 interface BillItemInput {
@@ -170,6 +170,35 @@ export class BillService {
                 amount: item.calculatedCommission,
               },
             });
+
+            const targetType = item.type === BillItemType.SERVICE ? TargetType.SERVICE_VOLUME : TargetType.PRODUCT_SALES_COUNT;
+            const progressIncrement = item.type === BillItemType.SERVICE
+              ? round2(item.unitPrice * item.quantity - item.discountAmount)
+              : item.quantity;
+            const now = new Date();
+            // endDate is often just a date (stored at midnight) - compare
+            // against the start of today rather than the exact instant so
+            // a target ending "today" still counts as active all day.
+            const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+            const activeTargets = await tx.salesTarget.findMany({
+              where: {
+                employeeId: item.employeeId,
+                type: targetType,
+                status: TargetStatus.ACTIVE,
+                startDate: { lte: now },
+                endDate: { gte: todayStart },
+              },
+            });
+            for (const target of activeTargets) {
+              const newProgress = round2(Number(target.progressValue) + progressIncrement);
+              await tx.salesTarget.update({
+                where: { id: target.id },
+                data: {
+                  progressValue: newProgress,
+                  status: newProgress >= Number(target.targetValue) ? TargetStatus.ACHIEVED : undefined,
+                },
+              });
+            }
 
             if (item.type === BillItemType.PRODUCT && item.inventoryItemId) {
               await tx.inventoryItem.update({

@@ -100,6 +100,18 @@ export class EmployeeService {
     }));
   }
 
+  // Resolves the EmployeeProfile for the logged-in user - attendance,
+  // salary, commissions, and discount requests all need "which employee
+  // am I" from req.user.userId rather than a client-supplied employeeId.
+  static async getProfileForUser(salonId: string, userId: string) {
+    const db = getScopedPrisma(salonId);
+    const profile = await db.employeeProfile.findUnique({ where: { userId } });
+    if (!profile) {
+      throw new Error('No employee profile found for this user');
+    }
+    return profile;
+  }
+
   static async update(salonId: string, id: string, input: UpdateEmployeeInput) {
     const db = getScopedPrisma(salonId);
     const profile = await db.employeeProfile.findUnique({ where: { id } });
