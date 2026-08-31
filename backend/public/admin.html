@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Cuts Salon SaaS - Admin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --border: #2a2f3a;
+    --text: #e6e8eb;
+    --muted: #9aa3b2;
+    --accent: #6c8cff;
+    --danger: #ff6b6b;
+    --ok: #37c992;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 32px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
+  .layout { display: grid; grid-template-columns: 380px 1fr; gap: 24px; align-items: start; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+  .panel h2 { font-size: 14px; margin: 0 0 16px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  label { display: block; font-size: 13px; margin: 12px 0 4px; color: var(--muted); }
+  input {
+    width: 100%;
+    padding: 9px 10px;
+    background: #0d0f13;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 14px;
+  }
+  input:focus { outline: 1px solid var(--accent); }
+  button {
+    margin-top: 18px;
+    width: 100%;
+    padding: 10px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .msg { margin-top: 12px; font-size: 13px; padding: 8px 10px; border-radius: 6px; display: none; }
+  .msg.error { background: rgba(255,107,107,0.12); color: var(--danger); display: block; }
+  .msg.ok { background: rgba(55,201,146,0.12); color: var(--ok); display: block; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; }
+  .salon-cell { display: flex; align-items: center; gap: 10px; }
+  .logo { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; background: #0d0f13; border: 1px solid var(--border); }
+  .badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; }
+  .badge.active { background: rgba(55,201,146,0.15); color: var(--ok); }
+  .badge.inactive { background: rgba(255,107,107,0.15); color: var(--danger); }
+  code { color: var(--muted); font-size: 12px; }
+  .toprow { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .toprow button { width: auto; margin: 0; padding: 6px 14px; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>Cuts Salon SaaS &mdash; Admin</h1>
+<p class="sub">Internal onboarding tool. Not for salon staff use.</p>
+
+<div class="layout">
+
+  <div class="panel">
+    <h2>Connection</h2>
+    <label>Backend URL</label>
+    <input id="apiBase" placeholder="https://cuts-salon-backend.onrender.com" />
+    <label>Onboarding secret</label>
+    <input id="secret" type="password" placeholder="ONBOARDING_SECRET" />
+
+    <h2 style="margin-top:24px">New salon</h2>
+    <label>Salon name</label>
+    <input id="salonName" placeholder="Modern Glamour Salon" />
+    <label>Slug / salon ID (optional, auto-generated from name)</label>
+    <input id="slug" placeholder="modern-glamour" />
+    <label>Phone</label>
+    <input id="phone" placeholder="9876543210" />
+    <label>Address</label>
+    <input id="address" placeholder="123 Fashion Street, City Centre" />
+    <label>Logo URL (optional)</label>
+    <input id="logoUrl" placeholder="https://.../logo.png" />
+    <label>Owner email</label>
+    <input id="ownerEmail" placeholder="owner@thissalon.com" />
+    <label>Owner password</label>
+    <input id="ownerPassword" type="password" placeholder="min 8 characters" />
+
+    <button id="createBtn">Create salon</button>
+    <div id="createMsg" class="msg"></div>
+  </div>
+
+  <div class="panel">
+    <div class="toprow">
+      <h2 style="margin:0">Salons</h2>
+      <button id="refreshBtn" class="secondary">Refresh</button>
+    </div>
+    <div id="listMsg" class="msg"></div>
+    <table>
+      <thead>
+        <tr><th>Salon</th><th>Slug</th><th>Owner</th><th>Status</th><th>Created</th></tr>
+      </thead>
+      <tbody id="salonRows">
+        <tr><td colspan="5" style="color:var(--muted)">Enter connection details and click Refresh.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  // Convenience only - persists in this browser so you don't retype it
+  // every visit. Never sent anywhere except your own backend's API.
+  $('apiBase').value = localStorage.getItem('cs_apiBase') || location.origin;
+  $('secret').value = localStorage.getItem('cs_secret') || '';
+
+  function persistConnection() {
+    localStorage.setItem('cs_apiBase', $('apiBase').value.trim());
+    localStorage.setItem('cs_secret', $('secret').value);
+  }
+
+  function showMsg(el, text, ok) {
+    el.textContent = text;
+    el.className = 'msg ' + (ok ? 'ok' : 'error');
+  }
+
+  async function apiFetch(path, options = {}) {
+    const base = $('apiBase').value.trim().replace(/\/$/, '');
+    const secret = $('secret').value;
+    const res = await fetch(base + path, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-onboarding-secret': secret,
+        ...(options.headers || {}),
+      },
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || ('Request failed (' + res.status + ')'));
+    return body;
+  }
+
+  async function loadSalons() {
+    const listMsg = $('listMsg');
+    listMsg.style.display = 'none';
+    try {
+      const salons = await apiFetch('/api/v1/onboarding/salons');
+      const rows = $('salonRows');
+      if (!salons.length) {
+        rows.innerHTML = '<tr><td colspan="5" style="color:var(--muted)">No salons yet.</td></tr>';
+        return;
+      }
+      rows.innerHTML = salons.map((s) => `
+        <tr>
+          <td>
+            <div class="salon-cell">
+              ${s.logoUrl ? `<img class="logo" src="${escapeAttr(s.logoUrl)}" onerror="this.style.visibility='hidden'" />` : `<div class="logo"></div>`}
+              <span>${escapeHtml(s.name)}</span>
+            </div>
+          </td>
+          <td><code>${escapeHtml(s.slug)}</code></td>
+          <td>${s.ownerEmail ? escapeHtml(s.ownerEmail) : '<span style="color:var(--muted)">-</span>'}</td>
+          <td><span class="badge ${s.active ? 'active' : 'inactive'}">${s.active ? 'Active' : 'Inactive'}</span></td>
+          <td>${new Date(s.createdAt).toLocaleDateString()}</td>
+        </tr>
+      `).join('');
+    } catch (err) {
+      showMsg(listMsg, err.message, false);
+    }
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function escapeAttr(str) { return escapeHtml(str); }
+
+  $('createBtn').addEventListener('click', async () => {
+    persistConnection();
+    const createMsg = $('createMsg');
+    createMsg.style.display = 'none';
+
+    const payload = {
+      salonName: $('salonName').value.trim(),
+      slug: $('slug').value.trim() || undefined,
+      phone: $('phone').value.trim() || undefined,
+      address: $('address').value.trim() || undefined,
+      logoUrl: $('logoUrl').value.trim() || undefined,
+      ownerEmail: $('ownerEmail').value.trim(),
+      ownerPassword: $('ownerPassword').value,
+    };
+
+    if (!payload.salonName || !payload.ownerEmail || !payload.ownerPassword) {
+      showMsg(createMsg, 'Salon name, owner email, and owner password are required.', false);
+      return;
+    }
+
+    $('createBtn').disabled = true;
+    try {
+      const result = await apiFetch('/api/v1/onboarding/salons', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      showMsg(createMsg, `Created "${result.salon.name}" (slug: ${result.salon.slug}). Owner can log in with ${result.owner.email}.`, true);
+      ['salonName','slug','phone','address','logoUrl','ownerEmail','ownerPassword'].forEach((id) => $(id).value = '');
+      loadSalons();
+    } catch (err) {
+      showMsg(createMsg, err.message, false);
+    } finally {
+      $('createBtn').disabled = false;
+    }
+  });
+
+  $('refreshBtn').addEventListener('click', () => { persistConnection(); loadSalons(); });
+
+  if ($('secret').value) loadSalons();
+</script>
+
+</body>
+</html>

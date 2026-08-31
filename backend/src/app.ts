@@ -1,7 +1,9 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
 import authRoutes from './routes/auth.routes';
+import onboardingRoutes from './routes/onboarding.routes';
 
 dotenv.config();
 
@@ -10,9 +12,11 @@ const app = express();
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(express.static(path.join(__dirname, '../public')));
 
 // Routes
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/onboarding', onboardingRoutes);
 
 // Root Welcome Endpoint
 app.get('/', (req, res) => {
