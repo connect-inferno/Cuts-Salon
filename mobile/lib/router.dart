@@ -46,16 +46,39 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(
         path: '/login',
-        builder: (context, state) => const LoginScreen(),
+        pageBuilder: (context, state) => _fadeSlidePage(state, const LoginScreen()),
       ),
       GoRoute(
         path: '/owner/dashboard',
-        builder: (context, state) => const OwnerDashboard(),
+        pageBuilder: (context, state) => _fadeSlidePage(state, const OwnerDashboard()),
       ),
       GoRoute(
         path: '/employee/dashboard',
-        builder: (context, state) => const EmployeeDashboard(),
+        pageBuilder: (context, state) => _fadeSlidePage(state, const EmployeeDashboard()),
       ),
     ],
   );
 });
+
+// Fade + subtle upward slide for top-level route changes (login <->
+// dashboards) - matches the AppPageSwitcher transition used for in-app
+// tab/screen switching so navigation feels consistent everywhere.
+CustomTransitionPage _fadeSlidePage(GoRouterState state, Widget child) {
+  return CustomTransitionPage(
+    key: state.pageKey,
+    child: child,
+    transitionDuration: const Duration(milliseconds: 320),
+    reverseTransitionDuration: const Duration(milliseconds: 220),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+      final slide = Tween<Offset>(
+        begin: const Offset(0, 0.03),
+        end: Offset.zero,
+      ).animate(curved);
+      return FadeTransition(
+        opacity: curved,
+        child: SlideTransition(position: slide, child: child),
+      );
+    },
+  );
+}

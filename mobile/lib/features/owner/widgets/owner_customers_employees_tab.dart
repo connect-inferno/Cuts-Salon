@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../theme.dart';
 import '../../salon_state.dart';
+import '../../../widgets/app_page_switcher.dart';
 
 // --- CUSTOMERS TAB ---
 
@@ -271,26 +272,30 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
 
         if (isMobile) {
           if (_selectedCustomer != null) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(left: 16.0, top: 8.0),
-                  child: TextButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _selectedCustomer = null;
-                      });
-                    },
-                    icon: const Icon(Icons.arrow_back),
-                    label: const Text('Back to Customers Directory'),
+            return AppPageSwitcher(
+              key: const ValueKey('mobile-detail'),
+              child: Column(
+                key: ValueKey('customer-${_selectedCustomer!.id}'),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(left: 16.0, top: 8.0),
+                    child: TextButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _selectedCustomer = null;
+                        });
+                      },
+                      icon: const Icon(Icons.arrow_back),
+                      label: const Text('Back to Customers Directory'),
+                    ),
                   ),
-                ),
-                Expanded(child: _buildCustomerProfile(ref)),
-              ],
+                  Expanded(child: _buildCustomerProfile(ref)),
+                ],
+              ),
             );
           }
-          return listColumn;
+          return AppPageSwitcher(key: const ValueKey('mobile-list'), child: listColumn);
         }
 
         return Row(
@@ -299,18 +304,24 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
             Expanded(flex: 1, child: listColumn),
             Expanded(
               flex: 1,
-              child: _selectedCustomer == null
-                  ? const Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.person_pin_circle_outlined, size: 64, color: Colors.grey),
-                          SizedBox(height: 12),
-                          Text('Select a customer to view profile details'),
-                        ],
+              child: AppPageSwitcher(
+                child: _selectedCustomer == null
+                    ? const Center(
+                        key: ValueKey('empty'),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.person_pin_circle_outlined, size: 64, color: Colors.grey),
+                            SizedBox(height: 12),
+                            Text('Select a customer to view profile details'),
+                          ],
+                        ),
+                      )
+                    : Container(
+                        key: ValueKey('customer-${_selectedCustomer!.id}'),
+                        child: _buildCustomerProfile(ref),
                       ),
-                    )
-                  : _buildCustomerProfile(ref),
+              ),
             ),
           ],
         );
@@ -818,26 +829,30 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
 
         if (isMobile) {
           if (_selectedEmployee != null) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(left: 16.0, top: 8.0),
-                  child: TextButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _selectedEmployee = null;
-                      });
-                    },
-                    icon: const Icon(Icons.arrow_back_rounded, size: 18),
-                    label: const Text('Back to Staff List'),
+            return AppPageSwitcher(
+              key: const ValueKey('mobile-detail'),
+              child: Column(
+                key: ValueKey('employee-${_selectedEmployee!.id}'),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(left: 16.0, top: 8.0),
+                    child: TextButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _selectedEmployee = null;
+                        });
+                      },
+                      icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                      label: const Text('Back to Staff List'),
+                    ),
                   ),
-                ),
-                Expanded(child: _buildEmployeeProfile(ref)),
-              ],
+                  Expanded(child: _buildEmployeeProfile(ref)),
+                ],
+              ),
             );
           }
-          return listColumn;
+          return AppPageSwitcher(key: const ValueKey('mobile-list'), child: listColumn);
         }
 
         return Row(
@@ -845,18 +860,24 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
             Expanded(flex: 1, child: listColumn),
             Expanded(
               flex: 1,
-              child: _selectedEmployee == null
-                  ? const Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.badge_outlined, size: 56, color: AppTheme.slateLight),
-                          SizedBox(height: 12),
-                          Text('Select an employee to view details & metrics', style: TextStyle(color: AppTheme.slateMedium)),
-                        ],
+              child: AppPageSwitcher(
+                child: _selectedEmployee == null
+                    ? const Center(
+                        key: ValueKey('empty'),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.badge_outlined, size: 56, color: AppTheme.slateLight),
+                            SizedBox(height: 12),
+                            Text('Select an employee to view details & metrics', style: TextStyle(color: AppTheme.slateMedium)),
+                          ],
+                        ),
+                      )
+                    : Container(
+                        key: ValueKey('employee-${_selectedEmployee!.id}'),
+                        child: _buildEmployeeProfile(ref),
                       ),
-                    )
-                  : _buildEmployeeProfile(ref),
+              ),
             ),
           ],
         );

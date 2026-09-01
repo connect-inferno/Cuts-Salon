@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../theme.dart';
 import '../auth/auth_provider.dart';
 import '../salon_state.dart';
+import '../../widgets/app_page_switcher.dart';
 
 const double _kMobileBreakpoint = 800;
 
@@ -345,6 +346,10 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
   }
 
   Widget _buildEmployeeTabContent(Employee profile, SalonState state) {
+    return AppPageSwitcher(child: _buildEmployeeTabContentRaw(profile, state));
+  }
+
+  Widget _buildEmployeeTabContentRaw(Employee profile, SalonState state) {
     switch (_activeTabIndex) {
       case 0:
         return _EmployeeDashboardTab(
@@ -368,7 +373,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
       case 6:
         return _EmployeeProfileTab(profile: profile);
       default:
-        return const Center(child: Text('Coming Soon Screen'));
+        return const Center(key: ValueKey('fallback'), child: Text('Coming Soon Screen'));
     }
   }
 }

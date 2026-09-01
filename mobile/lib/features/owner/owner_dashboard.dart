@@ -7,6 +7,7 @@ import 'widgets/owner_customers_employees_tab.dart';
 import 'widgets/owner_billing_inventory_expenses_tab.dart';
 import 'widgets/owner_management_tabs.dart';
 import 'widgets/chart_widgets.dart';
+import '../../widgets/app_page_switcher.dart';
 
 const double kOwnerMobileBreakpoint = 900;
 
@@ -441,9 +442,14 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
   }
 
   Widget _buildActiveTabContent() {
+    return AppPageSwitcher(child: _buildActiveTabContentRaw());
+  }
+
+  Widget _buildActiveTabContentRaw() {
     switch (_activeTabIndex) {
       case 0:
         return OwnerDashboardTab(
+          key: const ValueKey('dashboard'),
           onTabSelected: (idx) {
             setState(() {
               _activeTabIndex = idx;
@@ -451,27 +457,27 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
           },
         );
       case 1:
-        return const OwnerCustomersTab();
+        return const OwnerCustomersTab(key: ValueKey('customers'));
       case 2:
-        return const OwnerEmployeesTab();
+        return const OwnerEmployeesTab(key: ValueKey('employees'));
       case 3:
-        return const OwnerAttendanceTab();
+        return const OwnerAttendanceTab(key: ValueKey('attendance'));
       case 4:
-        return const OwnerBillingTab();
+        return const OwnerBillingTab(key: ValueKey('billing'));
       case 5:
-        return const OwnerInventoryTab();
+        return const OwnerInventoryTab(key: ValueKey('inventory'));
       case 6:
-        return const OwnerExpensesTab();
+        return const OwnerExpensesTab(key: ValueKey('expenses'));
       case 7:
-        return const OwnerReportsTab();
+        return const OwnerReportsTab(key: ValueKey('reports'));
       case 8:
-        return const OwnerBranchTab();
+        return const OwnerBranchTab(key: ValueKey('branch'));
       case 9:
-        return const OwnerDiscountsTab();
+        return const OwnerDiscountsTab(key: ValueKey('discounts'));
       case 10:
-        return const OwnerSettingsTab();
+        return const OwnerSettingsTab(key: ValueKey('settings'));
       default:
-        return const Center(child: Text('Coming Soon Screen'));
+        return const Center(key: ValueKey('fallback'), child: Text('Coming Soon Screen'));
     }
   }
 }
