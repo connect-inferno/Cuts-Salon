@@ -12,6 +12,7 @@ const createEmployeeSchema = z.object({
   productCommissionPct: z.number().min(0).max(100),
   email: z.string().email('Invalid email address'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
+  branchId: z.string().uuid('Invalid branch id'),
 });
 
 const updateEmployeeSchema = z.object({
@@ -22,6 +23,7 @@ const updateEmployeeSchema = z.object({
   serviceCommissionPct: z.number().min(0).max(100).optional(),
   productCommissionPct: z.number().min(0).max(100).optional(),
   active: z.boolean().optional(),
+  branchId: z.string().uuid().optional(),
 });
 
 const resetPasswordSchema = z.object({
@@ -44,7 +46,8 @@ export class EmployeeController {
 
   static async list(req: AuthRequest, res: Response) {
     try {
-      const result = await EmployeeService.list(req.user!.salonId);
+      const branchId = typeof req.query.branchId === 'string' ? req.query.branchId : undefined;
+      const result = await EmployeeService.list(req.user!.salonId, branchId);
       return res.status(200).json(result);
     } catch (error: any) {
       return res.status(400).json({ error: error.message || 'Failed to list employees' });

@@ -57,7 +57,18 @@ export class OnboardingService {
         },
       });
 
-      return { salon, owner };
+      // Every salon needs at least one branch before it can have any
+      // employees, customers, or bills (all require a branchId).
+      const branch = await tx.branch.create({
+        data: {
+          salonId: salon.id,
+          name: 'Main Branch',
+          address: input.address,
+          phone: input.phone,
+        },
+      });
+
+      return { salon, owner, branch };
     });
 
     return {
@@ -71,6 +82,10 @@ export class OnboardingService {
         id: result.owner.id,
         email: result.owner.email,
         role: result.owner.role,
+      },
+      branch: {
+        id: result.branch.id,
+        name: result.branch.name,
       },
     };
   }

@@ -19,6 +19,7 @@ model Salon {
   updatedAt DateTime @updatedAt
 
   users             User[]
+  branches          Branch[]
   employeeProfiles  EmployeeProfile[]
   customers         Customer[]
   serviceCategories ServiceCategory[]
@@ -34,6 +35,27 @@ model Salon {
   expenses          Expense[]
   discountRequests  DiscountRequest[]
   settings          Settings?
+}
+
+model Branch {
+  id        String   @id @default(uuid())
+  salonId   String
+  salon     Salon    @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  name      String
+  address   String?
+  phone     String?
+  managerId String?
+  manager   EmployeeProfile? @relation("BranchManager", fields: [managerId], references: [id], onDelete: SetNull)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  employees EmployeeProfile[] @relation("BranchEmployees")
+  customers Customer[]
+  bills     Bill[]
+
+  @@unique([salonId, name])
+  @@index([salonId])
 }
 
 model User {
@@ -59,6 +81,8 @@ model EmployeeProfile {
   id                   String             @id @default(uuid())
   salonId              String
   salon                Salon              @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  branchId             String
+  branch               Branch             @relation("BranchEmployees", fields: [branchId], references: [id], onDelete: Restrict)
   userId               String             @unique
   user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   name                 String
@@ -77,15 +101,19 @@ model EmployeeProfile {
   salesTargets         SalesTarget[]
   billItems            BillItem[]
   stockTransactions    StockTransaction[]
+  managedBranches      Branch[]           @relation("BranchManager")
 
   @@unique([salonId, phone])
   @@index([salonId])
+  @@index([branchId])
 }
 
 model Customer {
   id        String    @id @default(uuid())
   salonId   String
   salon     Salon     @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  branchId  String
+  branch    Branch    @relation(fields: [branchId], references: [id], onDelete: Restrict)
   name      String
   phone     String
   email     String?
@@ -99,6 +127,7 @@ model Customer {
 
   @@unique([salonId, phone])
   @@index([salonId])
+  @@index([branchId])
 }
 
 model ServiceCategory {
@@ -180,6 +209,8 @@ model Bill {
   id               String            @id @default(uuid())
   salonId          String
   salon            Salon             @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  branchId         String
+  branch           Branch            @relation(fields: [branchId], references: [id], onDelete: Restrict)
   invoiceNumber    String
   customerId       String
   customer         Customer          @relation(fields: [customerId], references: [id])
@@ -198,6 +229,7 @@ model Bill {
   @@unique([salonId, invoiceNumber])
   @@index([salonId, createdAt])
   @@index([customerId])
+  @@index([branchId])
 }
 
 enum PaymentMethod {

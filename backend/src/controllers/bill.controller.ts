@@ -16,6 +16,7 @@ const billItemSchema = z.object({
 
 const createBillSchema = z.object({
   customerId: z.string().uuid(),
+  branchId: z.string().uuid('Invalid branch id'),
   paymentMethod: z.enum(['CASH', 'CARD', 'UPI']),
   discountAmount: z.number().nonnegative().optional(),
   items: z.array(billItemSchema).min(1, 'At least one item is required'),
@@ -39,7 +40,8 @@ export class BillController {
     try {
       const from = typeof req.query.from === 'string' ? req.query.from : undefined;
       const to = typeof req.query.to === 'string' ? req.query.to : undefined;
-      const result = await BillService.list(req.user!.salonId, from, to);
+      const branchId = typeof req.query.branchId === 'string' ? req.query.branchId : undefined;
+      const result = await BillService.list(req.user!.salonId, from, to, branchId);
       return res.status(200).json(result);
     } catch (error: any) {
       return res.status(400).json({ error: error.message || 'Failed to list bills' });

@@ -12,6 +12,7 @@ interface CreateEmployeeInput {
   productCommissionPct: number;
   email: string;
   password: string;
+  branchId: string;
 }
 
 interface UpdateEmployeeInput {
@@ -22,6 +23,7 @@ interface UpdateEmployeeInput {
   serviceCommissionPct?: number;
   productCommissionPct?: number;
   active?: boolean;
+  branchId?: string;
 }
 
 export class EmployeeService {
@@ -35,6 +37,11 @@ export class EmployeeService {
     const existingPhone = await db.employeeProfile.findFirst({ where: { phone: input.phone } });
     if (existingPhone) {
       throw new Error('An employee with this phone number already exists');
+    }
+
+    const branch = await db.branch.findUnique({ where: { id: input.branchId } });
+    if (!branch) {
+      throw new Error('Branch not found');
     }
 
     const passwordHash = await hashPassword(input.password);
@@ -52,6 +59,7 @@ export class EmployeeService {
       const profile = await tx.employeeProfile.create({
         data: {
           salonId,
+          branchId: input.branchId,
           userId: user.id,
           name: input.name,
           phone: input.phone,
@@ -75,14 +83,16 @@ export class EmployeeService {
         phone: result.profile.phone,
         roleTitle: result.profile.roleTitle,
         active: result.profile.active,
+        branchId: result.profile.branchId,
       },
     };
   }
 
-  static async list(salonId: string) {
+  static async list(salonId: string, branchId?: string) {
     const db = getScopedPrisma(salonId);
     const profiles = await db.employeeProfile.findMany({
-      include: { user: { select: { email: true } } },
+      where: branchId ? { branchId } : undefined,
+      include: { user: { select: { email: true } }, branch: { select: { name: true } } },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -97,6 +107,8 @@ export class EmployeeService {
       baseSalary: p.baseSalary,
       serviceCommissionPct: p.serviceCommissionPct,
       productCommissionPct: p.productCommissionPct,
+      branchId: p.branchId,
+      branchName: p.branch.name,
     }));
   }
 
@@ -117,6 +129,13 @@ export class EmployeeService {
     const profile = await db.employeeProfile.findUnique({ where: { id } });
     if (!profile) {
       throw new Error('Employee not found');
+    }
+
+    if (input.branchId) {
+      const branch = await db.branch.findUnique({ where: { id: input.branchId } });
+      if (!branch) {
+        throw new Error('Branch not found');
+      }
     }
 
     return db.employeeProfile.update({

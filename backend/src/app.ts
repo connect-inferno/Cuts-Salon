@@ -18,6 +18,7 @@ import discountRequestRoutes from './routes/discountRequest.routes';
 import salaryRoutes from './routes/salary.routes';
 import commissionRoutes from './routes/commission.routes';
 import dashboardRoutes from './routes/dashboard.routes';
+import branchRoutes from './routes/branch.routes';
 
 dotenv.config();
 
@@ -45,6 +46,7 @@ app.use('/api/v1/discount-requests', discountRequestRoutes);
 app.use('/api/v1/salary', salaryRoutes);
 app.use('/api/v1/commissions', commissionRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
+app.use('/api/v1/branches', branchRoutes);
 
 // Root Welcome Endpoint
 app.get('/', (req, res) => {

@@ -3,6 +3,7 @@ import prisma from './prisma';
 // Models that carry a salonId column and must never be queried/written
 // without being scoped to the caller's salon.
 const TENANT_SCOPED_MODELS = new Set([
+  'Branch',
   'EmployeeProfile',
   'Customer',
   'ServiceCategory',

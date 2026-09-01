@@ -8,6 +8,7 @@ interface CustomerInput {
   dob?: string;
   notes?: string;
   isVip?: boolean;
+  branchId: string;
 }
 
 export class CustomerService {
@@ -18,9 +19,15 @@ export class CustomerService {
       throw new Error('A customer with this phone number already exists');
     }
 
+    const branch = await db.branch.findUnique({ where: { id: input.branchId } });
+    if (!branch) {
+      throw new Error('Branch not found');
+    }
+
     return db.customer.create({
       data: {
         salonId,
+        branchId: input.branchId,
         name: input.name,
         phone: input.phone,
         email: input.email,
@@ -32,17 +39,20 @@ export class CustomerService {
     });
   }
 
-  static async list(salonId: string, search?: string) {
+  static async list(salonId: string, search?: string, branchId?: string) {
     const db = getScopedPrisma(salonId);
     return db.customer.findMany({
-      where: search
-        ? {
-            OR: [
-              { name: { contains: search, mode: 'insensitive' } },
-              { phone: { contains: search } },
-            ],
-          }
-        : undefined,
+      where: {
+        branchId,
+        ...(search
+          ? {
+              OR: [
+                { name: { contains: search, mode: 'insensitive' } },
+                { phone: { contains: search } },
+              ],
+            }
+          : {}),
+      },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -63,6 +73,13 @@ export class CustomerService {
       throw new Error('Customer not found');
     }
 
+    if (input.branchId) {
+      const branch = await db.branch.findUnique({ where: { id: input.branchId } });
+      if (!branch) {
+        throw new Error('Branch not found');
+      }
+    }
+
     return db.customer.update({
       where: { id },
       data: {
@@ -73,6 +90,7 @@ export class CustomerService {
         dob: input.dob ? new Date(input.dob) : undefined,
         notes: input.notes,
         isVip: input.isVip,
+        branchId: input.branchId,
       },
     });
   }

@@ -14,6 +14,7 @@ interface BillItemInput {
 
 interface CreateBillInput {
   customerId: string;
+  branchId: string;
   paymentMethod: PaymentMethod;
   discountAmount?: number;
   items: BillItemInput[];
@@ -44,6 +45,11 @@ export class BillService {
     const customer = await db.customer.findUnique({ where: { id: input.customerId } });
     if (!customer) {
       throw new Error('Customer not found');
+    }
+
+    const branch = await db.branch.findUnique({ where: { id: input.branchId } });
+    if (!branch) {
+      throw new Error('Branch not found');
     }
 
     const settings = await db.settings.findUnique({ where: { salonId } });
@@ -134,6 +140,7 @@ export class BillService {
           const bill = await tx.bill.create({
             data: {
               salonId,
+              branchId: input.branchId,
               invoiceNumber,
               customerId: input.customerId,
               subTotal,
@@ -237,10 +244,11 @@ export class BillService {
     throw lastError instanceof Error ? lastError : new Error('Failed to generate a unique invoice number');
   }
 
-  static async list(salonId: string, from?: string, to?: string) {
+  static async list(salonId: string, from?: string, to?: string, branchId?: string) {
     const db = getScopedPrisma(salonId);
     return db.bill.findMany({
       where: {
+        branchId,
         createdAt: {
           gte: from ? new Date(from) : undefined,
           lte: to ? new Date(to) : undefined,
