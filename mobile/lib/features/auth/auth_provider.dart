@@ -1,10 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../../core/api_client.dart';
 import 'auth_state.dart';
 import 'auth_service.dart';
 
-final authServiceProvider = Provider<AuthService>((ref) => AuthService());
-final secureStorageProvider = Provider<FlutterSecureStorage>((ref) => const FlutterSecureStorage());
+final authServiceProvider = Provider<AuthService>((ref) => AuthService(ref.read(apiClientProvider)));
 
 class AuthController extends Notifier<AuthState> {
   @override
@@ -12,6 +11,22 @@ class AuthController extends Notifier<AuthState> {
     // Start auto login validation asynchronously
     Future.microtask(() => _tryAutoLogin());
     return AuthState();
+  }
+
+  AuthState _stateFromUser(String token, Map<String, dynamic> user, Map<String, dynamic>? salon) {
+    final profile = user['profile'] as Map<String, dynamic>?;
+    return AuthState(
+      token: token,
+      userId: user['id'] as String?,
+      email: user['email'] as String?,
+      name: profile?['name'] as String? ?? (user['role'] == 'OWNER' ? 'Owner' : 'Staff'),
+      role: user['role'] as String?,
+      employeeProfileId: profile?['id'] as String?,
+      branchId: profile?['branchId'] as String?,
+      salonId: salon?['id'] as String?,
+      salonName: salon?['name'] as String?,
+      isLoading: false,
+    );
   }
 
   Future<void> _tryAutoLogin() async {
@@ -25,14 +40,8 @@ class AuthController extends Notifier<AuthState> {
 
     try {
       final authService = ref.read(authServiceProvider);
-      final user = await authService.getMe(token);
-      state = AuthState(
-        token: token,
-        email: user['email'],
-        name: user['profile']?['name'] ?? 'Owner Account',
-        role: user['role'],
-        isLoading: false,
-      );
+      final user = await authService.getMe();
+      state = _stateFromUser(token, user, user['salon'] as Map<String, dynamic>?);
     } catch (e) {
       await storage.delete(key: 'auth_token');
       state = AuthState(error: e.toString(), isLoading: false);
@@ -44,22 +53,16 @@ class AuthController extends Notifier<AuthState> {
     try {
       final authService = ref.read(authServiceProvider);
       final storage = ref.read(secureStorageProvider);
-      
+
       final result = await authService.login(email, password);
-      final token = result['token'];
-      final user = result['user'];
+      final token = result['token'] as String;
+      final user = result['user'] as Map<String, dynamic>;
+      final salon = result['salon'] as Map<String, dynamic>?;
 
       await storage.write(key: 'auth_token', value: token);
-
-      state = AuthState(
-        token: token,
-        email: user['email'],
-        name: user['profile']?['name'] ?? 'Owner Account',
-        role: user['role'],
-        isLoading: false,
-      );
+      state = _stateFromUser(token, user, salon);
     } catch (e) {
-      state = AuthState(error: e.toString().replaceAll('Exception: ', ''), isLoading: false);
+      state = AuthState(error: e.toString(), isLoading: false);
     }
   }
 

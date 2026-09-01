@@ -43,6 +43,7 @@ export class AuthService {
           phone: user.employeeProfile.phone,
           roleTitle: user.employeeProfile.roleTitle,
           active: user.employeeProfile.active,
+          branchId: user.employeeProfile.branchId,
         } : null,
       },
       salon: {
@@ -76,6 +77,7 @@ export class AuthService {
         phone: user.employeeProfile.phone,
         roleTitle: user.employeeProfile.roleTitle,
         active: user.employeeProfile.active,
+        branchId: user.employeeProfile.branchId,
       } : null,
       salon: {
         id: user.salon.id,

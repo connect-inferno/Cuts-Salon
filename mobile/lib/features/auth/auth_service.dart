@@ -1,58 +1,26 @@
+import '../../core/api_client.dart';
+
 class AuthService {
-  AuthService();
+  final ApiClient _client;
+  AuthService(this._client);
 
   Future<Map<String, dynamic>> login(String email, String password) async {
-    // Simulate minor network delay
-    await Future.delayed(const Duration(milliseconds: 600));
-
-    if (password != 'password123') {
-      throw Exception('Invalid password. Use "password123" for demo.');
-    }
-
-    final isOwner = email.toLowerCase().contains('owner');
-    final isEmployee = email.toLowerCase().contains('employee');
-
-    if (!isOwner && !isEmployee) {
-      throw Exception('Invalid email. Use owner@salon.com or employee@salon.com');
-    }
-
-    if (isOwner) {
-      return {
-        'token': 'mock_owner_token',
-        'user': {
-          'email': email,
-          'role': 'OWNER',
-          'profile': {'name': 'Alex Mercer'},
-        }
-      };
-    } else {
-      return {
-        'token': 'mock_employee_token',
-        'user': {
-          'email': email,
-          'role': 'EMPLOYEE',
-          'profile': {'name': 'Sarah Connor'},
-        }
-      };
-    }
+    final data = await _client.post('/api/v1/auth/login', data: {
+      'email': email,
+      'password': password,
+    });
+    return data as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> getMe(String token) async {
-    await Future.delayed(const Duration(milliseconds: 100));
-    if (token == 'mock_owner_token') {
-      return {
-        'email': 'owner@salon.com',
-        'role': 'OWNER',
-        'profile': {'name': 'Alex Mercer'},
-      };
-    } else if (token == 'mock_employee_token') {
-      return {
-        'email': 'employee@salon.com',
-        'role': 'EMPLOYEE',
-        'profile': {'name': 'Sarah Connor'},
-      };
-    }
-    throw Exception('Invalid token');
+  Future<Map<String, dynamic>> getMe() async {
+    final data = await _client.get('/api/v1/auth/me');
+    return data as Map<String, dynamic>;
+  }
+
+  Future<void> changePassword(String currentPassword, String newPassword) async {
+    await _client.post('/api/v1/auth/change-password', data: {
+      'currentPassword': currentPassword,
+      'newPassword': newPassword,
+    });
   }
 }
-
