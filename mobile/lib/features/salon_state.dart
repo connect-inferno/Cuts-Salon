@@ -438,6 +438,37 @@ class SalonStateNotifier extends Notifier<SalonState> {
     );
   }
 
+  void addEmployee(
+    String name,
+    String role,
+    String email,
+    String phone,
+    double currentSalary,
+    double commissionRate,
+    double dailyTarget,
+  ) {
+    final newEmp = Employee(
+      id: 'emp_${state.employees.length + 1}',
+      name: name,
+      role: role.isEmpty ? 'Hair Stylist' : role,
+      email: email,
+      phone: phone.isEmpty ? '+91 98765 43210' : phone,
+      avatarUrl: '',
+      attendanceRate: 100.0,
+      performanceRate: 90.0,
+      currentSalary: currentSalary,
+      commissionRate: commissionRate,
+      dailyTarget: dailyTarget,
+      completedTarget: 0.0,
+      status: 'Present',
+    );
+
+    state = state.copyWith(
+      employees: [newEmp, ...state.employees],
+      totalEmployeesDisplayCount: state.totalEmployeesDisplayCount + 1,
+    );
+  }
+
   void createBill({
     required String customerName,
     required List<String> services,

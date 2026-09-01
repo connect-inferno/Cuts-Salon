@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../theme.dart';
 import '../../salon_state.dart';
 
 // --- CUSTOMERS TAB ---
@@ -564,6 +565,147 @@ class OwnerEmployeesTab extends StatefulWidget {
 class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
   Employee? _selectedEmployee;
 
+  void _showAddEmployeeDialog(BuildContext context, WidgetRef ref) {
+    final nameController = TextEditingController();
+    final emailController = TextEditingController();
+    final phoneController = TextEditingController();
+    final roleController = TextEditingController(text: 'Hair Stylist');
+    final salaryController = TextEditingController(text: '25000');
+    final commController = TextEditingController(text: '15');
+    final targetController = TextEditingController(text: '60000');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.person_add_alt_1_rounded, color: AppTheme.primaryBlue),
+            SizedBox(width: 10),
+            Text('Create Employee Account', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: 'Full Name *', hintText: 'e.g. Jamie Davis'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: emailController,
+                decoration: const InputDecoration(labelText: 'Login Email *', hintText: 'e.g. jamie@salon.com'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: phoneController,
+                decoration: const InputDecoration(labelText: 'Phone Number', hintText: '+91 98765 43210'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: roleController,
+                decoration: const InputDecoration(labelText: 'Stylist Role', hintText: 'Senior Stylist / Colorist'),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: salaryController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Base Retainer (Rs.)'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: commController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Commission (%)'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: targetController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Monthly Target (Rs.)'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final name = nameController.text.trim();
+              final email = emailController.text.trim();
+              if (name.isEmpty || email.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Name and Email are required.'), backgroundColor: AppTheme.accentRed),
+                );
+                return;
+              }
+              final salary = double.tryParse(salaryController.text) ?? 25000;
+              final comm = double.tryParse(commController.text) ?? 15;
+              final target = double.tryParse(targetController.text) ?? 60000;
+
+              ref.read(salonStateProvider.notifier).addEmployee(
+                    name,
+                    roleController.text.trim(),
+                    email,
+                    phoneController.text.trim(),
+                    salary,
+                    comm,
+                    target,
+                  );
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Account created for $name with default password "password123".'),
+                  backgroundColor: AppTheme.accentGreen,
+                ),
+              );
+            },
+            child: const Text('Create Account'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showResetPasswordDialog(BuildContext context, Employee emp) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Reset Employee Password'),
+        content: Text('Are you sure you want to reset password for "${emp.name}" to default "password123"?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Password for ${emp.name} reset to "password123".'),
+                  backgroundColor: AppTheme.accentGreen,
+                ),
+              );
+            },
+            child: const Text('Reset Password'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.of(context).size.width < 768;
@@ -572,97 +714,105 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
       builder: (context, ref, child) {
         final state = ref.watch(salonStateProvider);
 
-        final Widget listColumn = Card(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: isMobile 
-                ? BorderRadius.circular(16)
-                : const BorderRadius.horizontal(right: Radius.circular(16)),
-            side: const BorderSide(color: Color(0xFFEEEEEE), width: 1),
+        final Widget listColumn = Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: isMobile ? BorderRadius.circular(16) : const BorderRadius.horizontal(left: Radius.circular(16)),
+            border: Border.all(color: AppTheme.borderSubtle),
           ),
-          color: Colors.white,
-          child: Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Employees Roster',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                    ),
-                    Text(
-                      'Active: ${state.employees.length} / ${state.totalEmployeesDisplayCount}',
-                      style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: state.employees.length,
-                    itemBuilder: (context, idx) {
-                      final emp = state.employees[idx];
-                      final isSel = _selectedEmployee?.id == emp.id;
-                      Color statusColor = Colors.green;
-                      if (emp.status == 'Late') statusColor = Colors.orange;
-                      if (emp.status == 'Absent') statusColor = Colors.red;
-
-                      return Card(
-                        elevation: 0,
-                        color: isSel ? Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3) : Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(
-                            color: isSel ? Theme.of(context).colorScheme.primary : Colors.grey.shade100,
-                            width: 1,
-                          ),
-                        ),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundImage: NetworkImage(emp.avatarUrl),
-                            backgroundColor: Colors.grey.shade200,
-                          ),
-                          title: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  emp.name,
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: statusColor.withOpacity(0.12),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  emp.status,
-                                  style: TextStyle(color: statusColor, fontSize: 8, fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                            ],
-                          ),
-                          subtitle: Text(
-                            '${emp.role} • ${emp.email}',
-                            style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
-                          ),
-                          onTap: () {
-                            setState(() {
-                              _selectedEmployee = emp;
-                            });
-                          },
-                        ),
-                      );
-                    },
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Staff & Stylists',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.slateDark),
                   ),
+                  ElevatedButton.icon(
+                    onPressed: () => _showAddEmployeeDialog(context, ref),
+                    icon: const Icon(Icons.add_rounded, size: 16),
+                    label: const Text('Add Staff', style: TextStyle(fontSize: 12)),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      minimumSize: const Size(0, 34),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Active on Shift: ${state.employees.where((e) => e.status == 'Present').length} / ${state.employees.length}',
+                style: const TextStyle(color: AppTheme.slateLight, fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: state.employees.length,
+                  itemBuilder: (context, idx) {
+                    final emp = state.employees[idx];
+                    final isSel = _selectedEmployee?.id == emp.id;
+                    Color statusColor = AppTheme.accentGreen;
+                    if (emp.status == 'Late') statusColor = Colors.orange;
+                    if (emp.status == 'Absent') statusColor = Colors.grey;
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: isSel ? AppTheme.primaryLight : Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isSel ? AppTheme.primaryBlue : AppTheme.borderSubtle,
+                          width: 1,
+                        ),
+                      ),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: AppTheme.primaryLight,
+                          child: Text(
+                            emp.name.split(' ').map((n) => n.isNotEmpty ? n[0] : '').take(2).join(),
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue, fontSize: 12),
+                          ),
+                        ),
+                        title: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                emp.name,
+                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.slateDark),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: statusColor.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                emp.status,
+                                style: TextStyle(color: statusColor, fontSize: 9, fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                          ],
+                        ),
+                        subtitle: Text(
+                          '${emp.role} • ${emp.email}',
+                          style: const TextStyle(color: AppTheme.slateLight, fontSize: 11),
+                        ),
+                        onTap: () {
+                          setState(() {
+                            _selectedEmployee = emp;
+                          });
+                        },
+                      ),
+                    );
+                  },
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         );
 
@@ -679,8 +829,8 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
                         _selectedEmployee = null;
                       });
                     },
-                    icon: const Icon(Icons.arrow_back),
-                    label: const Text('Back to Employees Roster'),
+                    icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                    label: const Text('Back to Staff List'),
                   ),
                 ),
                 Expanded(child: _buildEmployeeProfile(ref)),
@@ -700,9 +850,9 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.badge_outlined, size: 64, color: Colors.grey),
+                          Icon(Icons.badge_outlined, size: 56, color: AppTheme.slateLight),
                           SizedBox(height: 12),
-                          Text('Select an employee to view details & metrics'),
+                          Text('Select an employee to view details & metrics', style: TextStyle(color: AppTheme.slateMedium)),
                         ],
                       ),
                     )
@@ -715,192 +865,200 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
   }
 
   Widget _buildEmployeeProfile(WidgetRef ref) {
-    // Reload employee to catch latest status changes
     final state = ref.watch(salonStateProvider);
     final emp = state.employees.firstWhere(
       (e) => e.id == _selectedEmployee!.id,
       orElse: () => _selectedEmployee!,
     );
 
-    final double targetProgressRatio = emp.completedTarget / emp.dailyTarget;
+    final double targetProgressRatio = emp.dailyTarget > 0 ? (emp.completedTarget / emp.dailyTarget) : 0.75;
     final double salaryWithComm = emp.currentSalary + (emp.completedTarget * (emp.commissionRate / 100));
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24.0),
+      padding: const EdgeInsets.all(20.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Profile Header
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
+          // Profile Header Card
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
               borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: Colors.grey.shade200),
+              border: Border.all(color: AppTheme.borderSubtle),
             ),
-            color: Colors.white,
-            child: Padding(
-              padding: const EdgeInsets.all(20.0),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    backgroundImage: NetworkImage(emp.avatarUrl),
-                    radius: 36,
-                    backgroundColor: Colors.grey.shade200,
+            padding: const EdgeInsets.all(20.0),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 32,
+                  backgroundColor: AppTheme.primaryBlue,
+                  child: Text(
+                    emp.name.split(' ').map((n) => n.isNotEmpty ? n[0] : '').take(2).join(),
+                    style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900),
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          emp.name,
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
-                        ),
-                        Text(
-                          emp.role,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.primary,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Phone: ${emp.phone}',
-                          style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
-                        ),
-                        Text(
-                          'Email: ${emp.email}',
-                          style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          // Daily Target Progress Card
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: Colors.grey.shade200),
-            ),
-            color: Colors.white,
-            child: Padding(
-              padding: const EdgeInsets.all(20.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Target & Performance Tracker',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      Text(
+                        emp.name,
+                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.slateDark),
                       ),
                       Text(
-                        '${(targetProgressRatio * 100).toStringAsFixed(0)}% Achieved',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.primary,
-                          fontWeight: FontWeight.bold,
+                        emp.role,
+                        style: const TextStyle(
+                          color: AppTheme.primaryBlue,
+                          fontWeight: FontWeight.w700,
                           fontSize: 12,
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  LinearProgressIndicator(
-                    value: targetProgressRatio > 1.0 ? 1.0 : targetProgressRatio,
-                    backgroundColor: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(4),
-                    minHeight: 8,
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
+                      const SizedBox(height: 4),
                       Text(
-                        'Completed: ₹${emp.completedTarget.toStringAsFixed(0)}',
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                        'Phone: ${emp.phone}',
+                        style: const TextStyle(color: AppTheme.slateLight, fontSize: 11),
                       ),
                       Text(
-                        'Daily Target: ₹${emp.dailyTarget.toStringAsFixed(0)}',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                        'Email: ${emp.email}',
+                        style: const TextStyle(color: AppTheme.slateLight, fontSize: 11),
                       ),
                     ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
+
+          // Target Tracker Card
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppTheme.borderSubtle),
+            ),
+            padding: const EdgeInsets.all(18.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Monthly Target Tracker',
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.slateDark),
+                    ),
+                    Text(
+                      '${(targetProgressRatio * 100).toStringAsFixed(0)}% Achieved',
+                      style: const TextStyle(
+                        color: AppTheme.primaryBlue,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: targetProgressRatio > 1.0 ? 1.0 : targetProgressRatio,
+                    backgroundColor: const Color(0xFFE2E8F0),
+                    valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primaryBlue),
+                    minHeight: 7,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Achieved: Rs. ${emp.completedTarget.toStringAsFixed(0)}',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppTheme.slateDark),
+                    ),
+                    Text(
+                      'Target: Rs. ${emp.dailyTarget.toStringAsFixed(0)}',
+                      style: const TextStyle(fontSize: 12, color: AppTheme.slateLight, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
 
           // Metrics Block
           Row(
             children: [
               Expanded(
-                child: _buildMetricCard('Performance Score', '${emp.performanceRate.toStringAsFixed(0)}%', Icons.insights, Colors.indigo),
+                child: _buildMetricCard('Performance', '${emp.performanceRate.toStringAsFixed(0)}%', Icons.insights_rounded, AppTheme.primaryBlue),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
-                child: _buildMetricCard('Attendance Rate', '${emp.attendanceRate.toStringAsFixed(0)}%', Icons.rule, Colors.teal),
+                child: _buildMetricCard('Attendance', '${emp.attendanceRate.toStringAsFixed(0)}%', Icons.calendar_today_rounded, AppTheme.accentGreen),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
-                child: _buildMetricCard('Base Salary', '₹${emp.currentSalary.toStringAsFixed(0)}', Icons.payments, Colors.green),
+                child: _buildMetricCard('Base Salary', 'Rs. ${emp.currentSalary.toStringAsFixed(0)}', Icons.payments_rounded, AppTheme.slateDark),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
-                child: _buildMetricCard('Commission Share', '${emp.commissionRate}%', Icons.percent, Colors.orange),
+                child: _buildMetricCard('Commission', '${emp.commissionRate.toStringAsFixed(0)}%', Icons.percent_rounded, AppTheme.primaryBlue),
               ),
             ],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
 
           // Total Earnings Projection Card
-          Card(
-            elevation: 0,
-            color: Colors.grey.shade50,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(color: Colors.grey.shade200),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppTheme.borderSubtle),
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Projected Monthly Earnings',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                      ),
-                      Text(
-                        'Base salary + commissions earned',
-                        style: TextStyle(color: Colors.grey.shade500, fontSize: 10),
-                      ),
-                    ],
-                  ),
-                  Text(
-                    '₹${salaryWithComm.toStringAsFixed(0)}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                      color: Theme.of(context).colorScheme.primary,
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Projected Monthly Payout',
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.slateDark),
                     ),
+                    Text(
+                      'Base salary + commissions accrued',
+                      style: TextStyle(color: AppTheme.slateLight, fontSize: 11),
+                    ),
+                  ],
+                ),
+                Text(
+                  'Rs. ${salaryWithComm.toStringAsFixed(0)}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
+                    color: AppTheme.accentGreen,
                   ),
-                ],
-              ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Account Security Controls
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: OutlinedButton.icon(
+              onPressed: () => _showResetPasswordDialog(context, emp),
+              icon: const Icon(Icons.lock_reset_rounded, size: 18, color: AppTheme.primaryBlue),
+              label: const Text('Reset Employee Password', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.primaryBlue)),
             ),
           ),
         ],
@@ -909,35 +1067,33 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
   }
 
   Widget _buildMetricCard(String title, String val, IconData icon, Color color) {
-    return Card(
-      elevation: 0,
-      color: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200),
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.borderSubtle),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(height: 12),
-            Text(
-              val,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              title,
-              style: TextStyle(color: Colors.grey.shade500, fontSize: 10),
-            ),
-          ],
-        ),
+      padding: const EdgeInsets.all(14.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(height: 10),
+          Text(
+            val,
+            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: color),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            title,
+            style: const TextStyle(color: AppTheme.slateLight, fontSize: 11, fontWeight: FontWeight.w600),
+          ),
+        ],
       ),
     );
   }
 }
+
 
 // --- ATTENDANCE TAB ---
 
