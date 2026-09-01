@@ -10,7 +10,7 @@ class AuthController extends Notifier<AuthState> {
   @override
   AuthState build() {
     // Start auto login validation asynchronously
-    _tryAutoLogin();
+    Future.microtask(() => _tryAutoLogin());
     return AuthState();
   }
 
