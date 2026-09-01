@@ -103,6 +103,11 @@ class Employee {
   final double performanceRate;
   final double currentSalary;
   final double commissionRate;
+  // Backend has two separate commission rates (services vs. products sold).
+  // Default to commissionRate so the many existing mock employees (and any
+  // display widget still reading the single rate) keep working unchanged.
+  final double serviceCommissionPct;
+  final double productCommissionPct;
   final double dailyTarget;
   final double completedTarget;
   final String status; // 'Present', 'Absent', 'Late'
@@ -118,10 +123,13 @@ class Employee {
     required this.performanceRate,
     required this.currentSalary,
     required this.commissionRate,
+    double? serviceCommissionPct,
+    double? productCommissionPct,
     required this.dailyTarget,
     required this.completedTarget,
     required this.status,
-  });
+  })  : serviceCommissionPct = serviceCommissionPct ?? commissionRate,
+        productCommissionPct = productCommissionPct ?? commissionRate;
 
   Employee copyWith({
     String? id,
@@ -134,6 +142,8 @@ class Employee {
     double? performanceRate,
     double? currentSalary,
     double? commissionRate,
+    double? serviceCommissionPct,
+    double? productCommissionPct,
     double? dailyTarget,
     double? completedTarget,
     String? status,
@@ -149,6 +159,8 @@ class Employee {
       performanceRate: performanceRate ?? this.performanceRate,
       currentSalary: currentSalary ?? this.currentSalary,
       commissionRate: commissionRate ?? this.commissionRate,
+      serviceCommissionPct: serviceCommissionPct ?? this.serviceCommissionPct,
+      productCommissionPct: productCommissionPct ?? this.productCommissionPct,
       dailyTarget: dailyTarget ?? this.dailyTarget,
       completedTarget: completedTarget ?? this.completedTarget,
       status: status ?? this.status,
@@ -444,9 +456,11 @@ class SalonStateNotifier extends Notifier<SalonState> {
     String email,
     String phone,
     double currentSalary,
-    double commissionRate,
-    double dailyTarget,
-  ) {
+    double serviceCommissionPct,
+    double productCommissionPct,
+    double dailyTarget, {
+    String? password,
+  }) {
     final newEmp = Employee(
       id: 'emp_${state.employees.length + 1}',
       name: name,
@@ -457,7 +471,9 @@ class SalonStateNotifier extends Notifier<SalonState> {
       attendanceRate: 100.0,
       performanceRate: 90.0,
       currentSalary: currentSalary,
-      commissionRate: commissionRate,
+      commissionRate: serviceCommissionPct,
+      serviceCommissionPct: serviceCommissionPct,
+      productCommissionPct: productCommissionPct,
       dailyTarget: dailyTarget,
       completedTarget: 0.0,
       status: 'Present',

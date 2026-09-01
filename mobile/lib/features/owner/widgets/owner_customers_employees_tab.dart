@@ -579,114 +579,148 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
   void _showAddEmployeeDialog(BuildContext context, WidgetRef ref) {
     final nameController = TextEditingController();
     final emailController = TextEditingController();
+    final passwordController = TextEditingController();
     final phoneController = TextEditingController();
     final roleController = TextEditingController(text: 'Hair Stylist');
     final salaryController = TextEditingController(text: '25000');
-    final commController = TextEditingController(text: '15');
+    final serviceCommController = TextEditingController(text: '15');
+    final productCommController = TextEditingController(text: '5');
     final targetController = TextEditingController(text: '60000');
+    bool obscurePassword = true;
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.person_add_alt_1_rounded, color: AppTheme.primaryBlue),
-            SizedBox(width: 10),
-            Text('Create Employee Account', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
             children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(labelText: 'Full Name *', hintText: 'e.g. Jamie Davis'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: emailController,
-                decoration: const InputDecoration(labelText: 'Login Email *', hintText: 'e.g. jamie@salon.com'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: phoneController,
-                decoration: const InputDecoration(labelText: 'Phone Number', hintText: '+91 98765 43210'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: roleController,
-                decoration: const InputDecoration(labelText: 'Stylist Role', hintText: 'Senior Stylist / Colorist'),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: salaryController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Base Retainer (Rs.)'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: TextField(
-                      controller: commController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Commission (%)'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: targetController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Monthly Target (Rs.)'),
-              ),
+              Icon(Icons.person_add_alt_1_rounded, color: AppTheme.primaryBlue),
+              SizedBox(width: 10),
+              Text('Create Employee Account', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final name = nameController.text.trim();
-              final email = emailController.text.trim();
-              if (name.isEmpty || email.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Name and Email are required.'), backgroundColor: AppTheme.accentRed),
-                );
-                return;
-              }
-              final salary = double.tryParse(salaryController.text) ?? 25000;
-              final comm = double.tryParse(commController.text) ?? 15;
-              final target = double.tryParse(targetController.text) ?? 60000;
-
-              ref.read(salonStateProvider.notifier).addEmployee(
-                    name,
-                    roleController.text.trim(),
-                    email,
-                    phoneController.text.trim(),
-                    salary,
-                    comm,
-                    target,
-                  );
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Account created for $name with default password "password123".'),
-                  backgroundColor: AppTheme.accentGreen,
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(labelText: 'Full Name *', hintText: 'e.g. Jamie Davis'),
                 ),
-              );
-            },
-            child: const Text('Create Account'),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: emailController,
+                  decoration: const InputDecoration(labelText: 'Login Email *', hintText: 'e.g. jamie@salon.com'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: passwordController,
+                  obscureText: obscurePassword,
+                  decoration: InputDecoration(
+                    labelText: 'Login Password *',
+                    hintText: 'min 8 characters',
+                    suffixIcon: IconButton(
+                      icon: Icon(obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 20),
+                      onPressed: () => setDialogState(() => obscurePassword = !obscurePassword),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: phoneController,
+                  decoration: const InputDecoration(labelText: 'Phone Number', hintText: '+91 98765 43210'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: roleController,
+                  decoration: const InputDecoration(labelText: 'Stylist Role', hintText: 'Senior Stylist / Colorist'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: salaryController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Base Retainer (Rs.)'),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: serviceCommController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(labelText: 'Service Commission (%)'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextField(
+                        controller: productCommController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(labelText: 'Product Commission (%)'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: targetController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Monthly Target (Rs.)'),
+                ),
+              ],
+            ),
           ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final name = nameController.text.trim();
+                final email = emailController.text.trim();
+                final password = passwordController.text;
+                if (name.isEmpty || email.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Name and Email are required.'), backgroundColor: AppTheme.accentRed),
+                  );
+                  return;
+                }
+                if (password.length < 8) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Password must be at least 8 characters.'), backgroundColor: AppTheme.accentRed),
+                  );
+                  return;
+                }
+                final salary = double.tryParse(salaryController.text) ?? 25000;
+                final serviceComm = double.tryParse(serviceCommController.text) ?? 15;
+                final productComm = double.tryParse(productCommController.text) ?? 5;
+                final target = double.tryParse(targetController.text) ?? 60000;
+
+                ref.read(salonStateProvider.notifier).addEmployee(
+                      name,
+                      roleController.text.trim(),
+                      email,
+                      phoneController.text.trim(),
+                      salary,
+                      serviceComm,
+                      productComm,
+                      target,
+                      password: password,
+                    );
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Account created for $name. They can log in with the password you just set.'),
+                    backgroundColor: AppTheme.accentGreen,
+                  ),
+                );
+              },
+              child: const Text('Create Account'),
+            ),
+          ],
+        ),
       ),
     );
   }
