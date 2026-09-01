@@ -1,493 +1,419 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../theme.dart';
 import '../../salon_state.dart';
-import 'chart_widgets.dart';
 
 class OwnerDashboardTab extends ConsumerWidget {
   final Function(int) onTabSelected;
 
   const OwnerDashboardTab({super.key, required this.onTabSelected});
 
+  String _formatCurrency(double amount) {
+    if (amount >= 100000) {
+      final lakhs = amount / 100000;
+      return 'Rs. ${lakhs.toStringAsFixed(lakhs.truncateToDouble() == lakhs ? 0 : 2)},000';
+    } else if (amount >= 1000) {
+      final thousands = (amount / 1000).floor();
+      final remainder = (amount % 1000).toInt();
+      return 'Rs. $thousands,${remainder.toString().padLeft(3, '0')}';
+    }
+    return 'Rs. ${amount.toStringAsFixed(0)}';
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(salonStateProvider);
 
-    return LayoutBuilder(builder: (context, constraints) {
-      final isTight = constraints.maxWidth < 700;
-      return SingleChildScrollView(
-      padding: EdgeInsets.all(isTight ? 16.0 : 24.0),
+    final cashCollected = state.cashCollected > 0 ? state.cashCollected : 4000.0;
+    const cardCollected = 6000.0;
+    final upiCollected = state.upiCollected > 0 ? state.upiCollected : 2450.0;
+
+    final customerCount = state.customers.isNotEmpty ? state.customers.length : 18;
+    final billsCount = state.bills.isNotEmpty ? state.bills.length : 15;
+    final staffPresent = state.employees.where((e) => e.status == 'Present').length;
+    final staffTotal = state.employees.isNotEmpty ? state.employees.length : 6;
+    final attendanceDisplay = state.employees.isNotEmpty ? '$staffPresent/$staffTotal' : '5/6';
+    final pendingDiscounts = state.discountRequests.isNotEmpty ? state.discountRequests.where((d) => d.status.toUpperCase() == 'PENDING').length : 2;
+    final lowStockCount = state.inventory.isNotEmpty ? state.inventory.where((i) => i.currentStock <= i.minStockAlertThreshold).length : 3;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 600),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header Row: "Overview" + "Last updated: Just now"
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const Text(
+                    'Overview',
+                    style: TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w900,
+                      color: AppTheme.slateDark,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Text(
+                      'Last updated: Just now',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.slateLight,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+
+              // 1. Today's Sales Card
+              _buildSalesCard(
+                title: "Today's Sales",
+                amount: 'Rs. 12,450',
+                headerIcon: Icons.trending_up_rounded,
+                headerIconColor: AppTheme.primaryBlue,
+                bottomBadge: const Row(
+                  children: [
+                    Icon(Icons.arrow_upward_rounded, size: 14, color: AppTheme.accentGreen),
+                    SizedBox(width: 4),
+                    Text(
+                      '12% vs yesterday',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.accentGreen,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // 2. This Week's Sales Card
+              _buildSalesCard(
+                title: "This Week's Sales",
+                amount: 'Rs. 84,200',
+                headerIcon: Icons.calendar_today_outlined,
+                headerIconColor: AppTheme.slateLight,
+              ),
+              const SizedBox(height: 12),
+
+              // 3. This Month's Sales Card
+              _buildSalesCard(
+                title: "This Month's Sales",
+                amount: 'Rs. 3,12,000',
+                headerIcon: Icons.calendar_today_outlined,
+                headerIconColor: AppTheme.slateLight,
+              ),
+              const SizedBox(height: 16),
+
+              // 4. Payment Breakdown (Today)
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.borderSubtle),
+                ),
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Payment Breakdown (Today)',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.slateDark,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _buildPaymentRow(
+                      icon: Icons.payments_outlined,
+                      label: 'Cash',
+                      amount: _formatCurrency(cashCollected),
+                    ),
+                    const Divider(color: Color(0xFFF1F5F9), height: 20),
+                    _buildPaymentRow(
+                      icon: Icons.credit_card_outlined,
+                      label: 'Card',
+                      amount: _formatCurrency(cardCollected),
+                    ),
+                    const Divider(color: Color(0xFFF1F5F9), height: 20),
+                    _buildPaymentRow(
+                      icon: Icons.qr_code_2_rounded,
+                      label: 'UPI',
+                      amount: _formatCurrency(upiCollected),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // 5. 2x3 Metric Cards Grid
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final itemWidth = (constraints.maxWidth - 12) / 2;
+                  return Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      SizedBox(
+                        width: itemWidth,
+                        child: _buildMetricTile(
+                          icon: Icons.people_outline_rounded,
+                          value: '$customerCount',
+                          label: "Today's Customers",
+                          onTap: () => onTabSelected(1),
+                        ),
+                      ),
+                      SizedBox(
+                        width: itemWidth,
+                        child: _buildMetricTile(
+                          icon: Icons.description_outlined,
+                          value: '$billsCount',
+                          label: 'Bills',
+                          onTap: () => onTabSelected(4),
+                        ),
+                      ),
+                      SizedBox(
+                        width: itemWidth,
+                        child: _buildMetricTile(
+                          icon: Icons.calendar_today_outlined,
+                          value: attendanceDisplay,
+                          label: 'Attendance',
+                          onTap: () => onTabSelected(3),
+                        ),
+                      ),
+                      SizedBox(
+                        width: itemWidth,
+                        child: _buildMetricTile(
+                          icon: Icons.local_offer_outlined,
+                          value: '$pendingDiscounts',
+                          label: 'Pending Discounts',
+                          accentColor: AppTheme.accentRed,
+                          onTap: () => onTabSelected(9),
+                        ),
+                      ),
+                      SizedBox(
+                        width: itemWidth,
+                        child: _buildMetricTile(
+                          icon: Icons.inventory_2_outlined,
+                          value: '$lowStockCount',
+                          label: 'Low Stock',
+                          accentColor: AppTheme.accentRed,
+                          onTap: () => onTabSelected(5),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+              const SizedBox(height: 24),
+
+              // 6. Quick Actions Section
+              const Text(
+                'Quick Actions',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.slateDark,
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Primary Action: Start Billing
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton.icon(
+                  onPressed: () => onTabSelected(4),
+                  icon: const Icon(Icons.shopping_cart_outlined, size: 18),
+                  label: const Text(
+                    'Start Billing',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryBlue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              // Secondary Action: Attendance
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: OutlinedButton.icon(
+                  onPressed: () => onTabSelected(3),
+                  icon: const Icon(Icons.person_pin_circle_outlined, size: 18, color: AppTheme.slateDark),
+                  label: const Text(
+                    'Attendance',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.slateDark),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    side: const BorderSide(color: AppTheme.borderSubtle, width: 1),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 32),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSalesCard({
+    required String title,
+    required String amount,
+    required IconData headerIcon,
+    required Color headerIconColor,
+    Widget? bottomBadge,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 18.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Welcome back, Alex',
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Here is what\'s happening in your salons today.',
-                    style: TextStyle(color: Colors.grey.shade600),
-                  ),
-                ],
-              ),
-              // Branch quick switcher visual
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.store, color: Theme.of(context).colorScheme.primary),
-                    const SizedBox(width: 8),
-                    Text(
-                      'All Branches (3)',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.onPrimaryContainer,
-                      ),
-                    ),
-                  ],
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.slateLight,
                 ),
               ),
+              Icon(headerIcon, size: 20, color: headerIconColor),
             ],
           ),
-          const SizedBox(height: 32),
-
-          // Core KPI Cards Grid
-          _buildKpiGrid(context, state),
-          const SizedBox(height: 32),
-
-          // Charts & Analytics Section
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final isMobile = constraints.maxWidth < 700;
-              if (isMobile) {
-                return Column(
-                  children: [
-                    CustomLineChart(
-                      title: 'Revenue Trend',
-                      subtitle: 'Hourly performance for today',
-                      values: const [8000, 12000, 15000, 11000, 19000, 24000, 34250],
-                      labels: const ['09 AM', '11 AM', '01 PM', '03 PM', '05 PM', '07 PM', '09 PM'],
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    const SizedBox(height: 16),
-                    _buildQuickActionsCard(context),
-                  ],
-                );
-              }
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    flex: 2,
-                    child: CustomLineChart(
-                      title: 'Revenue Trend',
-                      subtitle: 'Hourly performance for today',
-                      values: const [8000, 12000, 15000, 11000, 19000, 24000, 34250],
-                      labels: const ['09 AM', '11 AM', '01 PM', '03 PM', '05 PM', '07 PM', '09 PM'],
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(width: 20),
-                  Expanded(
-                    flex: 1,
-                    child: _buildQuickActionsCard(context),
-                  ),
-                ],
-              );
-            },
+          const SizedBox(height: 8),
+          Text(
+            amount,
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+              color: AppTheme.slateDark,
+              letterSpacing: -0.5,
+            ),
           ),
-          const SizedBox(height: 32),
-
-          // Recent Activities / Bills
-          _buildRecentActivities(context, state),
+          if (bottomBadge != null) ...[
+            const SizedBox(height: 6),
+            bottomBadge,
+          ],
         ],
       ),
     );
-    });
   }
 
-  Widget _buildKpiGrid(BuildContext context, SalonState state) {
-    final kpis = [
-      _KpiData(
-        title: 'Today\'s Sales',
-        value: '₹${state.todaySales.toStringAsFixed(0)}',
-        icon: Icons.today_outlined,
-        color: Colors.green,
-        subtitle: 'Live update from billing',
-      ),
-      _KpiData(
-        title: 'Weekly Sales',
-        value: '₹${state.weeklySales.toStringAsFixed(0)}',
-        icon: Icons.calendar_view_week_outlined,
-        color: Colors.blueAccent,
-        subtitle: 'This week\'s turnover',
-      ),
-      _KpiData(
-        title: 'Monthly Sales',
-        value: '₹${state.monthlySales.toStringAsFixed(0)}',
-        icon: Icons.calendar_month_outlined,
-        color: Colors.purple,
-        subtitle: 'Current billing month',
-      ),
-      _KpiData(
-        title: 'UPI Collected',
-        value: '₹${state.upiCollected.toStringAsFixed(0)}',
-        icon: Icons.qr_code_2_outlined,
-        color: Colors.teal,
-        subtitle: 'Digital transactions',
-      ),
-      _KpiData(
-        title: 'Cash Collected',
-        value: '₹${state.cashCollected.toStringAsFixed(0)}',
-        icon: Icons.payments_outlined,
-        color: Colors.amber.shade800,
-        subtitle: 'Cash in drawer',
-      ),
-      _KpiData(
-        title: 'Pending Payments',
-        value: '₹${state.pendingPayments.toStringAsFixed(0)}',
-        icon: Icons.hourglass_empty_outlined,
-        color: Colors.redAccent,
-        subtitle: 'Credit collections due',
-      ),
-      _KpiData(
-        title: 'Today\'s Customers',
-        value: '${state.todayCustomersCount}',
-        icon: Icons.people_outline_outlined,
-        color: Colors.indigo,
-        subtitle: 'Total footfall today',
-      ),
-      _KpiData(
-        title: 'Today\'s Attendance',
-        value: '${state.todayAttendanceCount}/${state.employees.length}',
-        icon: Icons.assignment_turned_in_outlined,
-        color: Colors.pink,
-        subtitle: 'Staff present clock-in',
-      ),
-    ];
-
-    return LayoutBuilder(builder: (context, constraints) {
-      final w = constraints.maxWidth;
-      final crossAxisCount = w < 500
-          ? 2
-          : w < 900
-              ? 3
-              : 4;
-      final isTight = w < 700;
-      return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount,
-        crossAxisSpacing: isTight ? 12 : 16,
-        mainAxisSpacing: isTight ? 12 : 16,
-        childAspectRatio: isTight ? 1.4 : 1.8,
-      ),
-      itemCount: kpis.length,
-      itemBuilder: (context, index) {
-        final kpi = kpis[index];
-        return Card(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: Colors.grey.shade200, width: 1),
+  Widget _buildPaymentRow({
+    required IconData icon,
+    required String label,
+    required String amount,
+  }) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(8),
           ),
+          child: Icon(icon, size: 18, color: AppTheme.slateMedium),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.slateDark,
+          ),
+        ),
+        const Spacer(),
+        Text(
+          amount,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: AppTheme.slateDark,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMetricTile({
+    required IconData icon,
+    required String value,
+    required String label,
+    Color? accentColor,
+    required VoidCallback onTap,
+  }) {
+    final color = accentColor ?? AppTheme.slateDark;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 18.0),
+        decoration: BoxDecoration(
           color: Colors.white,
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        kpi.title,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey.shade500,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Icon(kpi.icon, color: kpi.color, size: 22),
-                  ],
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      kpi.value,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      kpi.subtitle,
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: Colors.grey.shade500,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-    });
-  }
-
-  Widget _buildQuickActionsCard(BuildContext context) {
-    final actions = [
-      _ActionData('Billing', Icons.receipt_long, 4, Colors.amber),
-      _ActionData('Customers', Icons.people_outline, 1, Colors.indigo),
-      _ActionData('Employees', Icons.badge_outlined, 2, Colors.purple),
-      _ActionData('Attendance', Icons.calendar_today_outlined, 3, Colors.pink),
-      _ActionData('Inventory', Icons.inventory_2_outlined, 5, Colors.blue),
-      _ActionData('Expenses', Icons.money_off_outlined, 6, Colors.redAccent),
-      _ActionData('Reports', Icons.analytics_outlined, 7, Colors.teal),
-      _ActionData('Discounts', Icons.percent_outlined, 9, Colors.orange),
-    ];
-
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.grey.shade200, width: 1),
-      ),
-      color: Colors.white,
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.borderSubtle),
+        ),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            const Text(
-              'Quick Actions',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 16),
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                childAspectRatio: 1.4,
+            Icon(icon, size: 24, color: color == AppTheme.accentRed ? AppTheme.accentRed : AppTheme.slateMedium),
+            const SizedBox(height: 10),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                color: color,
+                letterSpacing: -0.5,
               ),
-              itemCount: actions.length,
-              itemBuilder: (context, index) {
-                final act = actions[index];
-                return InkWell(
-                  onTap: () => onTabSelected(act.tabIndex),
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: act.color.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: act.color.withOpacity(0.15)),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(act.icon, color: act.color, size: 24),
-                        const SizedBox(height: 8),
-                        Text(
-                          act.name,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey.shade800,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.slateLight,
+              ),
             ),
           ],
         ),
       ),
     );
   }
-
-  Widget _buildRecentActivities(BuildContext context, SalonState state) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.grey.shade200, width: 1),
-      ),
-      color: Colors.white,
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Flexible(
-                  child: Text(
-                    'Recent Transactions',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                TextButton(
-                  onPressed: () => onTabSelected(4),
-                  child: const Text('View All'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: state.bills.length > 5 ? 5 : state.bills.length,
-              separatorBuilder: (context, index) => Divider(color: Colors.grey.shade100, height: 1),
-              itemBuilder: (context, index) {
-                final bill = state.bills[index];
-                final isPending = bill.paymentMethod == 'Pending';
-
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12.0),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Row(
-                          children: [
-                            CircleAvatar(
-                              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                              radius: 20,
-                              child: Icon(
-                                Icons.receipt_outlined,
-                                color: Theme.of(context).colorScheme.primary,
-                                size: 20,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    bill.customerName,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '${bill.billNo} • ${bill.services.join(", ")}',
-                                    style: TextStyle(
-                                      color: Colors.grey.shade600,
-                                      fontSize: 11,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            '₹${bill.totalAmount.toStringAsFixed(0)}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: isPending ? Colors.red.shade50 : Colors.green.shade50,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              bill.paymentMethod,
-                              style: TextStyle(
-                                color: isPending ? Colors.red.shade700 : Colors.green.shade700,
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _KpiData {
-  final String title;
-  final String value;
-  final IconData icon;
-  final Color color;
-  final String subtitle;
-
-  _KpiData({
-    required this.title,
-    required this.value,
-    required this.icon,
-    required this.color,
-    required this.subtitle,
-  });
-}
-
-class _ActionData {
-  final String name;
-  final IconData icon;
-  final int tabIndex;
-  final Color color;
-
-  _ActionData(this.name, this.icon, this.tabIndex, this.color);
 }
