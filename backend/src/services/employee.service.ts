@@ -88,7 +88,7 @@ export class EmployeeService {
     };
   }
 
-  static async list(salonId: string, branchId?: string) {
+  static async list(salonId: string, requester: { userId: string; role: string }, branchId?: string) {
     const db = getScopedPrisma(salonId);
     const profiles = await db.employeeProfile.findMany({
       where: branchId ? { branchId } : undefined,
@@ -96,20 +96,26 @@ export class EmployeeService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return profiles.map((p) => ({
-      id: p.id,
-      userId: p.userId,
-      email: p.user.email,
-      name: p.name,
-      phone: p.phone,
-      roleTitle: p.roleTitle,
-      active: p.active,
-      baseSalary: p.baseSalary,
-      serviceCommissionPct: p.serviceCommissionPct,
-      productCommissionPct: p.productCommissionPct,
-      branchId: p.branchId,
-      branchName: p.branch.name,
-    }));
+    return profiles.map((p) => {
+      // Every employee needs this list for name lookups (attendance, bills,
+      // discount requests), but pay details are between the owner and that
+      // one employee - never expose a coworker's salary/commission rates.
+      const canSeePay = requester.role === 'OWNER' || p.userId === requester.userId;
+      return {
+        id: p.id,
+        userId: p.userId,
+        email: p.user.email,
+        name: p.name,
+        phone: p.phone,
+        roleTitle: p.roleTitle,
+        active: p.active,
+        baseSalary: canSeePay ? p.baseSalary : null,
+        serviceCommissionPct: canSeePay ? p.serviceCommissionPct : null,
+        productCommissionPct: canSeePay ? p.productCommissionPct : null,
+        branchId: p.branchId,
+        branchName: p.branch.name,
+      };
+    });
   }
 
   // Resolves the EmployeeProfile for the logged-in user - attendance,

@@ -20,6 +20,10 @@ export class AuthService {
       throw new Error('This salon account is inactive');
     }
 
+    if (user.employeeProfile && !user.employeeProfile.active) {
+      throw new Error('This account has been deactivated');
+    }
+
     const isPasswordValid = await comparePassword(password, user.passwordHash);
     if (!isPasswordValid) {
       throw new Error('Invalid email or password');

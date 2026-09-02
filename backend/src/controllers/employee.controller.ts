@@ -47,7 +47,7 @@ export class EmployeeController {
   static async list(req: AuthRequest, res: Response) {
     try {
       const branchId = typeof req.query.branchId === 'string' ? req.query.branchId : undefined;
-      const result = await EmployeeService.list(req.user!.salonId, branchId);
+      const result = await EmployeeService.list(req.user!.salonId, req.user!, branchId);
       return res.status(200).json(result);
     } catch (error: any) {
       return res.status(400).json({ error: error.message || 'Failed to list employees' });

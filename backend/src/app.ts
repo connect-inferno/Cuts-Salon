@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import path from 'path';
 import authRoutes from './routes/auth.routes';
@@ -24,8 +25,34 @@ dotenv.config();
 
 const app = express();
 
-// Middleware
-app.use(cors());
+// Render sits behind a reverse proxy - without this, express-rate-limit
+// sees every request as coming from the same proxy IP.
+app.set('trust proxy', 1);
+
+// Locked down once CORS_ORIGINS is set (comma-separated) on the host - until
+// then this stays open so nothing breaks for whatever's already deployed.
+const corsOrigins = process.env.CORS_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean);
+app.use(cors({ origin: corsOrigins && corsOrigins.length > 0 ? corsOrigins : true }));
+
+// Login is the brute-force/credential-stuffing target; keep it tight.
+// Everything else gets a much looser ceiling just to blunt abuse/scraping.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Please try again in a few minutes.' },
+});
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Please slow down.' },
+});
+app.use('/api/v1/auth/login', loginLimiter);
+app.use('/api/v1', apiLimiter);
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
@@ -62,10 +89,13 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date() });
 });
 
-// Global Error Handler
+// Global Error Handler - every route already catches its own errors and
+// returns a clean message, so anything landing here is unexpected. Log the
+// real error server-side but never echo err.message to the client - it can
+// leak internal details (stack fragments, library/DB error text).
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error(err);
-  res.status(500).json({ error: err.message || 'Internal Server Error' });
+  res.status(500).json({ error: 'Internal Server Error' });
 });
 
 export default app;
