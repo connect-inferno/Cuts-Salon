@@ -254,7 +254,7 @@ export class BillService {
           lte: to ? new Date(to) : undefined,
         },
       },
-      include: { customer: true, items: true },
+      include: { customer: true, items: { include: { service: true, inventoryItem: true, employee: true } } },
       orderBy: { createdAt: 'desc' },
     });
   }
