@@ -26,9 +26,11 @@ export class BranchService {
     if (existing) {
       throw new Error('A branch with this name already exists');
     }
-    return db.branch.create({
+    const branch = await db.branch.create({
       data: { salonId, name: input.name, address: input.address, phone: input.phone },
+      include: { manager: { select: { name: true } } },
     });
+    return this.withStats(salonId, branch);
   }
 
   static async list(salonId: string) {
@@ -69,7 +71,7 @@ export class BranchService {
       }
     }
 
-    return db.branch.update({
+    const updated = await db.branch.update({
       where: { id },
       data: {
         name: input.name,
@@ -78,7 +80,9 @@ export class BranchService {
         managerId: input.managerId,
         active: input.active,
       },
+      include: { manager: { select: { name: true } } },
     });
+    return this.withStats(salonId, updated);
   }
 
   private static async withStats(salonId: string, branch: { id: string; manager: { name: string } | null } & Record<string, any>) {

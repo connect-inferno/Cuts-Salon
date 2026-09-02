@@ -1,11 +1,54 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../theme.dart';
+import '../../data/app_data_provider.dart';
+import '../../data/models.dart';
+import '../../data/repository.dart';
 import '../auth/auth_provider.dart';
-import '../salon_state.dart';
 import '../../widgets/app_page_switcher.dart';
 
 const double _kMobileBreakpoint = 800;
+
+const List<String> _kMonthAbbrevs = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const List<String> _kWeekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+bool _isSameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+
+String _formatDate(DateTime? d) {
+  if (d == null) return '-';
+  return '${d.day} ${_kMonthAbbrevs[d.month - 1]} ${d.year}';
+}
+
+String _formatTime(DateTime? d) {
+  if (d == null) return '-';
+  final hour = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
+  final minute = d.minute.toString().padLeft(2, '0');
+  final period = d.hour >= 12 ? 'PM' : 'AM';
+  return '$hour:$minute $period';
+}
+
+String _greeting(int hour) {
+  if (hour < 12) return 'morning';
+  if (hour < 17) return 'afternoon';
+  return 'evening';
+}
+
+AttendanceRecord? _todayAttendance(AppData state, String employeeId) {
+  final today = DateTime.now();
+  final match = state.attendance.where((a) => a.employeeId == employeeId && a.date != null && _isSameDay(a.date!, today));
+  return match.isEmpty ? null : match.first;
+}
+
+String _targetTypeLabel(String type) {
+  switch (type) {
+    case 'SERVICE_VOLUME':
+      return 'Service Revenue Target';
+    case 'PRODUCT_SALES_COUNT':
+      return 'Product Sales Count Target';
+    default:
+      return type;
+  }
+}
 
 class EmployeeDashboard extends ConsumerStatefulWidget {
   const EmployeeDashboard({super.key});
@@ -37,7 +80,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
     Icons.account_circle_outlined,
   ];
 
-  Widget _buildSidebar(BuildContext context, Employee empProfile, {required bool isMobile}) {
+  Widget _buildSidebar(BuildContext context, EmployeeProfile empProfile, {required bool isMobile}) {
     return Container(
       width: 260,
       decoration: BoxDecoration(
@@ -170,27 +213,43 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
 
   @override
   Widget build(BuildContext context) {
-    final isMobile = MediaQuery.of(context).size.width < _kMobileBreakpoint;
-    final salonState = ref.watch(salonStateProvider);
+    final auth = ref.watch(authControllerProvider);
+    final asyncData = ref.watch(appDataProvider);
 
-    final empProfile = salonState.employees.firstWhere(
-      (e) => e.email.toLowerCase() == 'employee@salon.com',
-      orElse: () => Employee(
-        id: 'emp-1',
-        name: 'Jamie Davis',
-        role: 'Senior Stylist',
-        email: 'employee@salon.com',
-        phone: '+91 98765 43210',
-        avatarUrl: '',
-        attendanceRate: 95.0,
-        performanceRate: 92.0,
-        currentSalary: 25000.0,
-        commissionRate: 15.0,
-        dailyTarget: 60000.0,
-        completedTarget: 45000.0,
-        status: 'Absent',
+    return asyncData.when(
+      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
+      error: (err, st) => Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, color: AppTheme.accentRed, size: 32),
+                const SizedBox(height: 12),
+                Text(err.toString(), textAlign: TextAlign.center, style: const TextStyle(color: AppTheme.slateMedium)),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: () => ref.read(appDataProvider.notifier).refresh(),
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
+      data: (state) {
+        final empProfile = state.employeeById(auth.employeeProfileId ?? '');
+        if (empProfile == null) {
+          return const Scaffold(body: Center(child: Text('Employee profile not found.')));
+        }
+        return _buildScaffold(context, empProfile, state);
+      },
     );
+  }
+
+  Widget _buildScaffold(BuildContext context, EmployeeProfile empProfile, AppData state) {
+    final isMobile = MediaQuery.of(context).size.width < _kMobileBreakpoint;
 
     // Map 5 Bottom Nav Bar Items (Stitch Spec)
     // 0: Dashboard, 1: Billing (index 3), 2: Customers (index 2), 3: Attendance (index 1), 4: Earnings (index 4)
@@ -238,14 +297,6 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
               elevation: 0,
               backgroundColor: Colors.white,
               actions: [
-                IconButton(
-                  icon: const Icon(Icons.notifications_none_rounded, color: AppTheme.slateMedium, size: 22),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('No new notifications')),
-                    );
-                  },
-                ),
                 Padding(
                   padding: const EdgeInsets.only(right: 12.0, left: 4.0),
                   child: InkWell(
@@ -332,12 +383,12 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
           : null,
       body: SafeArea(
         child: isMobile
-            ? _buildEmployeeTabContent(empProfile, salonState)
+            ? _buildEmployeeTabContent(empProfile, state)
             : Row(
                 children: [
                   _buildSidebar(context, empProfile, isMobile: false),
                   Expanded(
-                    child: _buildEmployeeTabContent(empProfile, salonState),
+                    child: _buildEmployeeTabContent(empProfile, state),
                   ),
                 ],
               ),
@@ -345,15 +396,16 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
     );
   }
 
-  Widget _buildEmployeeTabContent(Employee profile, SalonState state) {
+  Widget _buildEmployeeTabContent(EmployeeProfile profile, AppData state) {
     return AppPageSwitcher(child: _buildEmployeeTabContentRaw(profile, state));
   }
 
-  Widget _buildEmployeeTabContentRaw(Employee profile, SalonState state) {
+  Widget _buildEmployeeTabContentRaw(EmployeeProfile profile, AppData state) {
     switch (_activeTabIndex) {
       case 0:
         return _EmployeeDashboardTab(
           profile: profile,
+          state: state,
           onTabSelected: (idx) {
             setState(() {
               _activeTabIndex = idx;
@@ -361,35 +413,67 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
           },
         );
       case 1:
-        return _EmployeeAttendanceTab(profile: profile);
+        return _EmployeeAttendanceTab(profile: profile, state: state);
       case 2:
         return const _EmployeeCustomersTab();
       case 3:
-        return const _EmployeeBillingTab();
+        return _EmployeeBillingTab(profile: profile);
       case 4:
-        return _EmployeeSalaryTab(profile: profile);
+        return _EmployeeSalaryTab(profile: profile, state: state);
       case 5:
-        return _EmployeeTargetTab(profile: profile);
+        return _EmployeeTargetTab(profile: profile, state: state);
       case 6:
-        return _EmployeeProfileTab(profile: profile);
+        return _EmployeeProfileTab(profile: profile, state: state);
       default:
         return const Center(key: ValueKey('fallback'), child: Text('Coming Soon Screen'));
     }
   }
 }
 
-// --- EMPLOYEE DASHBOARD TAB (STITCH SPEC) ---
+// --- EMPLOYEE DASHBOARD TAB ---
 
 class _EmployeeDashboardTab extends ConsumerWidget {
-  final Employee profile;
+  final EmployeeProfile profile;
+  final AppData state;
   final ValueChanged<int> onTabSelected;
 
-  const _EmployeeDashboardTab({required this.profile, required this.onTabSelected});
+  const _EmployeeDashboardTab({required this.profile, required this.state, required this.onTabSelected});
+
+  Future<void> _toggleClock(BuildContext context, WidgetRef ref, bool isClockedIn) async {
+    try {
+      if (isClockedIn) {
+        await ref.read(appDataProvider.notifier).clockOut();
+      } else {
+        await ref.read(appDataProvider.notifier).clockIn();
+      }
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(isClockedIn ? 'Clocked out successfully.' : 'Clocked in successfully!'),
+            backgroundColor: isClockedIn ? Colors.orange.shade800 : AppTheme.accentGreen,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isClockedIn = profile.status == 'Present';
+    final now = DateTime.now();
+    final todayRecord = _todayAttendance(state, profile.id);
+    final isClockedIn = todayRecord != null && todayRecord.clockOut == null;
     final firstName = profile.name.split(' ').first;
+
+    final myBills = state.bills.where((b) => b.items.any((i) => i.employeeId == profile.id)).toList()
+      ..sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
+    final recentBills = myBills.take(3).toList();
+
+    final activeTargets = state.salesTargets.where((t) => t.employeeId == profile.id && t.status == 'ACTIVE');
+    final target = activeTargets.isEmpty ? null : activeTargets.first;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
@@ -411,7 +495,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Good morning, $firstName',
+                      'Good ${_greeting(now.hour)}, $firstName',
                       style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w800,
@@ -420,17 +504,15 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(height: 2),
-                    const Text(
-                      'Today is Tuesday, Oct 24',
-                      style: TextStyle(
+                    Text(
+                      'Today is ${_kWeekdays[now.weekday - 1]}, ${_kMonthAbbrevs[now.month - 1]} ${now.day}',
+                      style: const TextStyle(
                         fontSize: 13,
                         color: AppTheme.slateLight,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
                     const SizedBox(height: 16),
-
-                    // Inner Attendance Card
                     Container(
                       decoration: BoxDecoration(
                         color: const Color(0xFFF8FAFC),
@@ -484,16 +566,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                             width: double.infinity,
                             height: 42,
                             child: ElevatedButton.icon(
-                              onPressed: () {
-                                final newStatus = isClockedIn ? 'Absent' : 'Present';
-                                ref.read(salonStateProvider.notifier).updateEmployeeAttendance(profile.id, newStatus);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(isClockedIn ? 'Clocked out successfully.' : 'Clocked in successfully!'),
-                                    backgroundColor: isClockedIn ? Colors.orange.shade800 : AppTheme.accentGreen,
-                                  ),
-                                );
-                              },
+                              onPressed: () => _toggleClock(context, ref, isClockedIn),
                               icon: Icon(
                                 isClockedIn ? Icons.logout_rounded : Icons.login_rounded,
                                 size: 16,
@@ -520,9 +593,9 @@ class _EmployeeDashboardTab extends ConsumerWidget {
               ),
               const SizedBox(height: 14),
 
-              // 2. New Billing / Checkout Action Banner (Vibrant Blue)
+              // 2. New Billing / Checkout Action Banner
               InkWell(
-                onTap: () => onTabSelected(3), // Quick Billing
+                onTap: () => onTabSelected(3),
                 borderRadius: BorderRadius.circular(16),
                 child: Container(
                   decoration: BoxDecoration(
@@ -636,41 +709,13 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                       ],
                     ),
                     const SizedBox(height: 14),
-
-                    // Bill Item 1
-                    _buildBillItem(
-                      initials: 'SC',
-                      avatarBg: const Color(0xFFDBEAFE),
-                      avatarFg: AppTheme.primaryBlue,
-                      name: 'Sarah Connor',
-                      service: 'Haircut & Styling',
-                      amount: 'Rs. 2,500',
-                      time: '10:45 AM',
-                    ),
-                    const Divider(color: Color(0xFFF1F5F9), height: 16),
-
-                    // Bill Item 2
-                    _buildBillItem(
-                      initials: 'JR',
-                      avatarBg: const Color(0xFFE2E8F0),
-                      avatarFg: AppTheme.slateDark,
-                      name: 'John Reese',
-                      service: 'Beard Trim',
-                      amount: 'Rs. 800',
-                      time: '09:30 AM',
-                    ),
-                    const Divider(color: Color(0xFFF1F5F9), height: 16),
-
-                    // Bill Item 3
-                    _buildBillItem(
-                      initials: 'EW',
-                      avatarBg: AppTheme.primaryLight,
-                      avatarFg: AppTheme.primaryBlue,
-                      name: 'Elena Wayne',
-                      service: 'Hair Color',
-                      amount: 'Rs. 6,200',
-                      time: 'Yesterday',
-                    ),
+                    if (recentBills.isEmpty)
+                      const Text('No bills yet. Start billing to see your activity here.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
+                    else
+                      for (int i = 0; i < recentBills.length; i++) ...[
+                        if (i > 0) const Divider(color: Color(0xFFF1F5F9), height: 16),
+                        _buildBillItem(recentBills[i], profile.id),
+                      ],
                   ],
                 ),
               ),
@@ -702,168 +747,108 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    const Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Achieved (Oct)',
-                              style: TextStyle(fontSize: 11, color: AppTheme.slateLight, fontWeight: FontWeight.w600),
-                            ),
-                            SizedBox(height: 2),
-                            Text(
-                              'Rs. 45,000',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w900,
-                                color: AppTheme.primaryBlue,
-                                letterSpacing: -0.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              'Target',
-                              style: TextStyle(fontSize: 11, color: AppTheme.slateLight, fontWeight: FontWeight.w600),
-                            ),
-                            SizedBox(height: 2),
-                            Text(
-                              'Rs. 60,000',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w800,
-                                color: AppTheme.slateDark,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: const LinearProgressIndicator(
-                        value: 0.75,
-                        minHeight: 7,
-                        backgroundColor: Color(0xFFE2E8F0),
-                        valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryBlue),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    const Align(
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        '75% Completed',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.slateLight,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Tip Callout Box
-                    Container(
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppTheme.borderSubtle),
-                      ),
-                      padding: const EdgeInsets.all(12.0),
-                      child: const Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    if (target == null)
+                      const Text('No active target set. Ask your manager to set one.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
+                    else ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          Icon(
-                            Icons.lightbulb_outline_rounded,
-                            size: 18,
-                            color: AppTheme.primaryBlue,
-                          ),
-                          SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              'You need Rs. 15,000 more to hit your monthly target. Suggest add on services to your next clients!',
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                color: AppTheme.slateMedium,
-                                height: 1.4,
-                                fontWeight: FontWeight.w500,
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Achieved',
+                                style: TextStyle(fontSize: 11, color: AppTheme.slateLight, fontWeight: FontWeight.w600),
                               ),
-                            ),
+                              const SizedBox(height: 2),
+                              Text(
+                                target.progressValue.toStringAsFixed(0),
+                                style: const TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w900,
+                                  color: AppTheme.primaryBlue,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              const Text(
+                                'Target',
+                                style: TextStyle(fontSize: 11, color: AppTheme.slateLight, fontWeight: FontWeight.w600),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                target.targetValue.toStringAsFixed(0),
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppTheme.slateDark,
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // 5. Upcoming Appointments Card
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.borderSubtle),
-                ),
-                padding: const EdgeInsets.all(20.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.calendar_today_outlined, size: 18, color: AppTheme.slateMedium),
-                        SizedBox(width: 8),
-                        Text(
-                          'Upcoming Appointments',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            color: AppTheme.slateDark,
-                          ),
+                      const SizedBox(height: 12),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: target.progressFraction,
+                          minHeight: 7,
+                          backgroundColor: const Color(0xFFE2E8F0),
+                          valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primaryBlue),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Appointment 1
-                    _buildAppointmentItem(
-                      time: '11',
-                      period: 'AM',
-                      clientName: 'Mike Ross',
-                      serviceName: 'Haircut',
-                    ),
-                    const Divider(color: Color(0xFFF1F5F9), height: 16),
-
-                    // Appointment 2
-                    _buildAppointmentItem(
-                      time: '01',
-                      period: 'PM',
-                      clientName: 'Rachel Zane',
-                      serviceName: 'Highlights & Blowdry',
-                    ),
-                    const SizedBox(height: 12),
-
-                    // View Full Schedule Link
-                    Center(
-                      child: GestureDetector(
-                        onTap: () => onTabSelected(1),
-                        child: const Text(
-                          'View Full Schedule',
-                          style: TextStyle(
-                            fontSize: 12,
+                      ),
+                      const SizedBox(height: 6),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          '${(target.progressFraction * 100).toStringAsFixed(0)}% Completed',
+                          style: const TextStyle(
+                            fontSize: 11,
                             fontWeight: FontWeight.w700,
-                            color: AppTheme.primaryBlue,
+                            color: AppTheme.slateLight,
                           ),
                         ),
                       ),
-                    ),
+                      const SizedBox(height: 14),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppTheme.borderSubtle),
+                        ),
+                        padding: const EdgeInsets.all(12.0),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(
+                              Icons.lightbulb_outline_rounded,
+                              size: 18,
+                              color: AppTheme.primaryBlue,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                target.progressValue >= target.targetValue
+                                    ? 'Target achieved! Great work this period.'
+                                    : 'You need ${(target.targetValue - target.progressValue).toStringAsFixed(0)} more to hit your target.',
+                                style: const TextStyle(
+                                  fontSize: 11.5,
+                                  color: AppTheme.slateMedium,
+                                  height: 1.4,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -875,23 +860,23 @@ class _EmployeeDashboardTab extends ConsumerWidget {
     );
   }
 
-  Widget _buildBillItem({
-    required String initials,
-    required Color avatarBg,
-    required Color avatarFg,
-    required String name,
-    required String service,
-    required String amount,
-    required String time,
-  }) {
+  Widget _buildBillItem(Bill bill, String myEmployeeId) {
+    final myItems = bill.items.where((i) => i.employeeId == myEmployeeId).toList();
+    final myTotal = myItems.fold<double>(0, (s, i) => s + (i.unitPrice * i.quantity) - i.discountAmount);
+    final serviceNames = myItems.map((i) => i.serviceName ?? i.productName ?? 'Item').join(', ');
+    final name = bill.customerName ?? 'Customer';
+    final initials = name.split(' ').where((n) => n.isNotEmpty).map((n) => n[0]).take(2).join();
+    final now = DateTime.now();
+    final time = (bill.createdAt != null && _isSameDay(bill.createdAt!, now)) ? _formatTime(bill.createdAt) : _formatDate(bill.createdAt);
+
     return Row(
       children: [
         CircleAvatar(
           radius: 18,
-          backgroundColor: avatarBg,
+          backgroundColor: AppTheme.primaryLight,
           child: Text(
             initials,
-            style: TextStyle(color: avatarFg, fontSize: 11, fontWeight: FontWeight.bold),
+            style: const TextStyle(color: AppTheme.primaryBlue, fontSize: 11, fontWeight: FontWeight.bold),
           ),
         ),
         const SizedBox(width: 12),
@@ -912,11 +897,14 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                 children: [
                   const Icon(Icons.content_cut_rounded, size: 11, color: AppTheme.slateLight),
                   const SizedBox(width: 4),
-                  Text(
-                    service,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppTheme.slateLight,
+                  Expanded(
+                    child: Text(
+                      serviceNames,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppTheme.slateLight,
+                      ),
                     ),
                   ),
                 ],
@@ -928,7 +916,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Text(
-              amount,
+              'Rs. ${myTotal.toStringAsFixed(0)}',
               style: const TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w800,
@@ -948,82 +936,48 @@ class _EmployeeDashboardTab extends ConsumerWidget {
       ],
     );
   }
-
-  Widget _buildAppointmentItem({
-    required String time,
-    required String period,
-    required String clientName,
-    required String serviceName,
-  }) {
-    return Row(
-      children: [
-        Container(
-          width: 44,
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF1F5F9),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Column(
-            children: [
-              Text(
-                time,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  color: AppTheme.slateDark,
-                ),
-              ),
-              Text(
-                period,
-                style: const TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.slateLight,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                clientName,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.slateDark,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                serviceName,
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: AppTheme.slateLight,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
 }
 
-// --- REMAINING SUB-TABS (ATTENDANCE, CUSTOMERS, BILLING, SALARY, TARGET, PROFILE) ---
+// --- ATTENDANCE TAB ---
 
 class _EmployeeAttendanceTab extends ConsumerWidget {
-  final Employee profile;
+  final EmployeeProfile profile;
+  final AppData state;
 
-  const _EmployeeAttendanceTab({required this.profile});
+  const _EmployeeAttendanceTab({required this.profile, required this.state});
+
+  Future<void> _toggleClock(BuildContext context, WidgetRef ref, bool isClockedIn) async {
+    try {
+      if (isClockedIn) {
+        await ref.read(appDataProvider.notifier).clockOut();
+      } else {
+        await ref.read(appDataProvider.notifier).clockIn();
+      }
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(isClockedIn ? 'Successfully clocked out of shift.' : 'Clock in registered successfully!'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: isClockedIn ? Colors.orange.shade800 : AppTheme.accentGreen,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isClockedIn = profile.status == 'Present';
+    final todayRecord = _todayAttendance(state, profile.id);
+    final isClockedIn = todayRecord != null && todayRecord.clockOut == null;
+    final statusLine = todayRecord == null
+        ? 'Tap below to log attendance'
+        : (isClockedIn ? 'You clocked in today at ${_formatTime(todayRecord.clockIn)}' : 'You clocked out today at ${_formatTime(todayRecord.clockOut)}');
+
+    final history = [...state.attendance]..sort((a, b) => (b.date ?? DateTime(0)).compareTo(a.date ?? DateTime(0)));
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -1047,7 +1001,7 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
                 child: Column(
                   children: [
                     Text(
-                      isClockedIn ? 'SHIFT IS ACTIVE' : 'SHIFT NOT STARTED',
+                      isClockedIn ? 'SHIFT IS ACTIVE' : 'SHIFT NOT ACTIVE',
                       style: TextStyle(
                         fontWeight: FontWeight.w800,
                         color: isClockedIn ? AppTheme.accentGreen : AppTheme.slateLight,
@@ -1057,24 +1011,13 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      isClockedIn ? 'You clocked in today at 09:12 AM' : 'Tap below to log attendance',
+                      statusLine,
                       style: const TextStyle(color: AppTheme.slateMedium, fontSize: 13),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 28),
                     InkWell(
-                      onTap: () {
-                        final newStatus = isClockedIn ? 'Absent' : 'Present';
-                        ref.read(salonStateProvider.notifier).updateEmployeeAttendance(profile.id, newStatus);
-
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(isClockedIn ? 'Successfully clocked out of shift.' : 'Clock in registered successfully!'),
-                            behavior: SnackBarBehavior.floating,
-                            backgroundColor: isClockedIn ? Colors.orange.shade800 : AppTheme.accentGreen,
-                          ),
-                        );
-                      },
+                      onTap: () => _toggleClock(context, ref, isClockedIn),
                       borderRadius: BorderRadius.circular(100),
                       child: Container(
                         width: 130,
@@ -1108,6 +1051,45 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
                   ],
                 ),
               ),
+              const SizedBox(height: 20),
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.borderSubtle),
+                ),
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Recent Attendance', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppTheme.slateDark)),
+                    const SizedBox(height: 12),
+                    if (history.isEmpty)
+                      const Text('No attendance records yet.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
+                    else
+                      ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: history.length > 14 ? 14 : history.length,
+                        separatorBuilder: (context, idx) => const Divider(color: Color(0xFFF1F5F9), height: 16),
+                        itemBuilder: (context, idx) {
+                          final rec = history[idx];
+                          Color statusColor = AppTheme.accentGreen;
+                          if (rec.status == 'LATE') statusColor = Colors.orange;
+                          if (rec.status == 'ABSENT') statusColor = AppTheme.accentRed;
+                          return Row(
+                            children: [
+                              Container(width: 8, height: 8, decoration: BoxDecoration(shape: BoxShape.circle, color: statusColor)),
+                              const SizedBox(width: 10),
+                              Expanded(child: Text(_formatDate(rec.date), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600))),
+                              Text(rec.status, style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.w800)),
+                            ],
+                          );
+                        },
+                      ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -1115,6 +1097,8 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
     );
   }
 }
+
+// --- CUSTOMERS TAB ---
 
 class _EmployeeCustomersTab extends StatefulWidget {
   const _EmployeeCustomersTab();
@@ -1130,95 +1114,116 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
   Widget build(BuildContext context) {
     return Consumer(
       builder: (context, ref, child) {
-        final state = ref.watch(salonStateProvider);
-        final filtered = state.customers.where((c) {
-          final q = _searchQuery.toLowerCase();
-          return c.name.toLowerCase().contains(q) || c.phone.contains(q);
-        }).toList();
+        final asyncData = ref.watch(appDataProvider);
+        return asyncData.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (err, st) => Center(child: Text(err.toString())),
+          data: (state) {
+            final q = _searchQuery.toLowerCase();
+            final filtered = state.customers.where((c) => c.name.toLowerCase().contains(q) || c.phone.contains(q)).toList();
 
-        return Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Client Roster', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22, color: AppTheme.slateDark)),
-              const SizedBox(height: 4),
-              const Text('Search clients and view past history.', style: TextStyle(color: AppTheme.slateLight, fontSize: 13)),
-              const SizedBox(height: 16),
-              TextField(
-                onChanged: (val) => setState(() => _searchQuery = val),
-                decoration: const InputDecoration(
-                  hintText: 'Search by client name or phone...',
-                  prefixIcon: Icon(Icons.search_rounded, size: 20, color: AppTheme.slateLight),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Expanded(
-                child: filtered.isEmpty
-                    ? const Center(child: Text('No clients found.'))
-                    : ListView.builder(
-                        itemCount: filtered.length,
-                        itemBuilder: (context, index) {
-                          final c = filtered[index];
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: AppTheme.borderSubtle),
-                            ),
-                            child: ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: AppTheme.primaryLight,
-                                child: Text(
-                                  c.name.isNotEmpty ? c.name[0] : 'C',
-                                  style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue),
+            return Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Client Roster', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22, color: AppTheme.slateDark)),
+                  const SizedBox(height: 4),
+                  const Text('Search clients and view their spending history.', style: TextStyle(color: AppTheme.slateLight, fontSize: 13)),
+                  const SizedBox(height: 16),
+                  TextField(
+                    onChanged: (val) => setState(() => _searchQuery = val),
+                    decoration: const InputDecoration(
+                      hintText: 'Search by client name or phone...',
+                      prefixIcon: Icon(Icons.search_rounded, size: 20, color: AppTheme.slateLight),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? const Center(child: Text('No clients found.'))
+                        : ListView.builder(
+                            itemCount: filtered.length,
+                            itemBuilder: (context, index) {
+                              final c = filtered[index];
+                              final custBills = state.bills.where((b) => b.customerId == c.id).toList()
+                                ..sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
+                              final totalSpent = custBills.fold<double>(0, (s, b) => s + b.finalAmount);
+                              final lastVisit = custBills.isEmpty ? 'Never' : _formatDate(custBills.first.createdAt);
+
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 10),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: AppTheme.borderSubtle),
                                 ),
-                              ),
-                              title: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                              subtitle: Text('${c.phone} • Last visit: ${c.lastVisitDate}', style: const TextStyle(fontSize: 12, color: AppTheme.slateLight)),
-                              trailing: Text('Rs. ${c.totalSpent.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w800, color: AppTheme.slateDark)),
-                            ),
-                          );
-                        },
-                      ),
+                                child: ListTile(
+                                  leading: CircleAvatar(
+                                    backgroundColor: AppTheme.primaryLight,
+                                    child: Text(
+                                      c.name.isNotEmpty ? c.name[0] : 'C',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue),
+                                    ),
+                                  ),
+                                  title: Row(
+                                    children: [
+                                      Expanded(child: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14), overflow: TextOverflow.ellipsis)),
+                                      if (c.isVip) const Icon(Icons.star, color: Colors.amber, size: 14),
+                                    ],
+                                  ),
+                                  subtitle: Text('${c.phone} • Last visit: $lastVisit', style: const TextStyle(fontSize: 12, color: AppTheme.slateLight)),
+                                  trailing: Text('Rs. ${totalSpent.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w800, color: AppTheme.slateDark)),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
   }
 }
 
+// --- BILLING TAB ---
+
 class _EmployeeBillingTab extends ConsumerStatefulWidget {
-  const _EmployeeBillingTab();
+  final EmployeeProfile profile;
+  const _EmployeeBillingTab({required this.profile});
 
   @override
   ConsumerState<_EmployeeBillingTab> createState() => _EmployeeBillingTabState();
 }
 
 class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
-  String? _clientName;
-  final Set<String> _selected = {};
-
-  final List<Map<String, dynamic>> _svcs = [
-    {'name': 'Executive Haircut', 'price': 800.0},
-    {'name': 'Beard Grooming & Shape', 'price': 400.0},
-    {'name': 'Organic Facial & Glow', 'price': 1500.0},
-    {'name': 'Deep Scalp Massage', 'price': 600.0},
-    {'name': 'Premium Hair Color', 'price': 2200.0},
-  ];
+  String? _selectedCustomerId;
+  final Set<String> _selectedServiceIds = {};
+  String _paymentMethod = 'CASH';
+  bool _submitting = false;
 
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(salonStateProvider);
+    final asyncData = ref.watch(appDataProvider);
+    return asyncData.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (err, st) => Center(child: Text(err.toString())),
+      data: (state) => _buildBody(context, state),
+    );
+  }
+
+  Widget _buildBody(BuildContext context, AppData state) {
     double subtotal = 0;
-    for (final s in _svcs) {
-      if (_selected.contains(s['name'])) {
-        subtotal += s['price'] as double;
-      }
+    for (final id in _selectedServiceIds) {
+      final svc = state.services.where((s) => s.id == id);
+      if (svc.isNotEmpty) subtotal += svc.first.price;
     }
+    final gstRate = state.settings?.gstRate ?? 18;
+    final taxAmount = subtotal * (gstRate / 100);
+    final total = subtotal + taxAmount;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -1241,42 +1246,89 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                 const SizedBox(height: 6),
                 DropdownButtonFormField<String>(
                   hint: const Text('Choose client...'),
-                  value: _clientName,
+                  initialValue: _selectedCustomerId,
                   isExpanded: true,
-                  items: state.customers.map((c) => DropdownMenuItem(value: c.name, child: Text(c.name, overflow: TextOverflow.ellipsis))).toList(),
-                  onChanged: (val) => setState(() => _clientName = val),
+                  items: state.customers.map((c) => DropdownMenuItem(value: c.id, child: Text(c.name, overflow: TextOverflow.ellipsis))).toList(),
+                  onChanged: (val) => setState(() => _selectedCustomerId = val),
                   decoration: const InputDecoration(),
                 ),
                 const SizedBox(height: 20),
                 const Text('Services Rendered', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: AppTheme.slateMedium)),
                 const SizedBox(height: 8),
-                ..._svcs.map((s) {
-                  final name = s['name'] as String;
-                  final isSel = _selected.contains(name);
-                  return CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                    subtitle: Text('Rs. ${(s['price'] as double).toStringAsFixed(0)}', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
-                    value: isSel,
-                    activeColor: AppTheme.primaryBlue,
-                    onChanged: (val) {
-                      setState(() {
-                        if (val == true) {
-                          _selected.add(name);
-                        } else {
-                          _selected.remove(name);
-                        }
-                      });
-                    },
-                  );
-                }),
+                if (state.services.isEmpty)
+                  const Text('No services in catalog yet.', style: TextStyle(fontSize: 12, color: AppTheme.slateLight))
+                else
+                  ...state.services.map((s) {
+                    final isSel = _selectedServiceIds.contains(s.id);
+                    return CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: Text(s.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                      subtitle: Text('Rs. ${s.price.toStringAsFixed(0)}', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
+                      value: isSel,
+                      activeColor: AppTheme.primaryBlue,
+                      onChanged: (val) {
+                        setState(() {
+                          if (val == true) {
+                            _selectedServiceIds.add(s.id);
+                          } else {
+                            _selectedServiceIds.remove(s.id);
+                          }
+                        });
+                      },
+                    );
+                  }),
+                const SizedBox(height: 16),
+                const Text('Payment Method', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: AppTheme.slateMedium)),
+                const SizedBox(height: 8),
+                Row(
+                  children: ['CASH', 'CARD', 'UPI'].map((method) {
+                    final isSel = _paymentMethod == method;
+                    Color color = AppTheme.primaryBlue;
+                    if (method == 'CASH') color = Colors.amber.shade800;
+                    if (method == 'CARD') color = Colors.deepPurple;
+                    return Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                        child: InkWell(
+                          onTap: () => setState(() => _paymentMethod = method),
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            decoration: BoxDecoration(
+                              color: isSel ? color.withValues(alpha: 0.12) : Colors.transparent,
+                              border: Border.all(color: isSel ? color : Colors.grey.shade300, width: 1.5),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Center(child: Text(method, style: TextStyle(fontWeight: FontWeight.bold, color: isSel ? color : Colors.grey.shade600, fontSize: 12))),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
                 const Divider(height: 28, color: AppTheme.borderSubtle),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
+                    const Text('Subtotal', style: TextStyle(color: AppTheme.slateMedium, fontSize: 13)),
+                    Text('Rs. ${subtotal.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('GST (${gstRate.toStringAsFixed(0)}%)', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
+                    Text('Rs. ${taxAmount.toStringAsFixed(0)}', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
                     const Text('Total Amount:', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppTheme.slateDark)),
-                    Text('Rs. ${subtotal.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: AppTheme.primaryBlue)),
+                    Text('Rs. ${total.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: AppTheme.primaryBlue)),
                   ],
                 ),
                 const SizedBox(height: 20),
@@ -1284,18 +1336,10 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                   width: double.infinity,
                   height: 48,
                   child: ElevatedButton(
-                    onPressed: (_clientName == null || _selected.isEmpty)
-                        ? null
-                        : () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Bill submitted successfully for processing!'), backgroundColor: AppTheme.accentGreen),
-                            );
-                            setState(() {
-                              _clientName = null;
-                              _selected.clear();
-                            });
-                          },
-                    child: const Text('Complete & Print Bill'),
+                    onPressed: (_selectedCustomerId == null || _selectedServiceIds.isEmpty || _submitting) ? null : () => _submit(context, state),
+                    child: _submitting
+                        ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Text('Complete & Generate Bill'),
                   ),
                 ),
               ],
@@ -1305,18 +1349,75 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
       ),
     );
   }
+
+  Future<void> _submit(BuildContext context, AppData state) async {
+    setState(() => _submitting = true);
+    try {
+      final items = _selectedServiceIds
+          .map((id) => BillItemInput(type: 'SERVICE', serviceId: id, employeeId: widget.profile.id, quantity: 1))
+          .toList();
+      final bill = await ref.read(appDataProvider.notifier).createBill(
+            customerId: _selectedCustomerId!,
+            branchId: widget.profile.branchId,
+            paymentMethod: _paymentMethod,
+            items: items,
+          );
+
+      if (!context.mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Row(children: [Icon(Icons.check_circle, color: Colors.green, size: 28), SizedBox(width: 8), Text('Bill Generated')]),
+          content: Text('Invoice ${bill.invoiceNumber} created.\nTotal: Rs. ${bill.finalAmount.toStringAsFixed(0)} via $_paymentMethod.'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                setState(() {
+                  _selectedCustomerId = null;
+                  _selectedServiceIds.clear();
+                });
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
 }
 
-class _EmployeeSalaryTab extends StatelessWidget {
-  final Employee profile;
+// --- SALARY TAB ---
 
-  const _EmployeeSalaryTab({required this.profile});
+class _EmployeeSalaryTab extends StatelessWidget {
+  final EmployeeProfile profile;
+  final AppData state;
+
+  const _EmployeeSalaryTab({required this.profile, required this.state});
 
   @override
   Widget build(BuildContext context) {
-    const basePay = 25000.0;
-    final commission = profile.completedTarget * (profile.commissionRate / 100);
-    final total = basePay + commission;
+    final now = DateTime.now();
+    final pendingCommission = state.commissions
+        .where((c) => c.employeeId == profile.id && c.status == 'PENDING')
+        .fold<double>(0, (s, c) => s + c.amount);
+
+    final monthAttendance = state.attendance.where((a) => a.date != null && a.date!.month == now.month && a.date!.year == now.year).toList();
+    final lateDays = monthAttendance.where((a) => a.status == 'LATE').length;
+    final penaltyRate = state.settings?.lateAttendancePenalty ?? 0;
+    final deductions = lateDays * penaltyRate;
+    final estimatedNet = profile.baseSalary + pendingCommission - deductions;
+
+    final history = [...state.salaryRecords]..sort((a, b) {
+        if (a.year != b.year) return b.year.compareTo(a.year);
+        return b.month.compareTo(a.month);
+      });
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -1328,7 +1429,7 @@ class _EmployeeSalaryTab extends StatelessWidget {
             children: [
               const Text('Earnings & Salary', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22, color: AppTheme.slateDark)),
               const SizedBox(height: 4),
-              const Text('Monthly payout breakdown and commission ledger.', style: TextStyle(color: AppTheme.slateLight, fontSize: 13)),
+              const Text('Live payout estimate for the current month.', style: TextStyle(color: AppTheme.slateLight, fontSize: 13)),
               const SizedBox(height: 20),
               Container(
                 decoration: BoxDecoration(
@@ -1339,19 +1440,65 @@ class _EmployeeSalaryTab extends StatelessWidget {
                 padding: const EdgeInsets.all(22.0),
                 child: Column(
                   children: [
-                    _buildSalaryRow('Base Monthly Retainer', 'Rs. ${basePay.toStringAsFixed(0)}'),
+                    _buildSalaryRow('Base Monthly Retainer', 'Rs. ${profile.baseSalary.toStringAsFixed(0)}'),
                     const Divider(color: Color(0xFFF1F5F9), height: 24),
-                    _buildSalaryRow('Commission (${profile.commissionRate.toStringAsFixed(0)}%)', 'Rs. ${commission.toStringAsFixed(0)}'),
+                    _buildSalaryRow('Pending Commission', 'Rs. ${pendingCommission.toStringAsFixed(0)}'),
                     const Divider(color: Color(0xFFF1F5F9), height: 24),
-                    _buildSalaryRow('Attendance Deductions', 'Rs. 0.00'),
+                    _buildSalaryRow(
+                      'Attendance Deductions${lateDays > 0 ? ' ($lateDays late)' : ''}',
+                      '-Rs. ${deductions.toStringAsFixed(0)}',
+                    ),
                     const Divider(color: Color(0xFFF1F5F9), height: 24),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text('Net Payout (Estimated)', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: AppTheme.slateDark)),
-                        Text('Rs. ${total.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: AppTheme.accentGreen)),
+                        Text('Rs. ${estimatedNet.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: AppTheme.accentGreen)),
                       ],
                     ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.borderSubtle),
+                ),
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Payout History', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppTheme.slateDark)),
+                    const SizedBox(height: 12),
+                    if (history.isEmpty)
+                      const Text('No finalized payouts yet.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
+                    else
+                      ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: history.length,
+                        separatorBuilder: (context, idx) => const Divider(color: Color(0xFFF1F5F9), height: 16),
+                        itemBuilder: (context, idx) {
+                          final rec = history[idx];
+                          final isPaid = rec.status == 'PAID';
+                          return Row(
+                            children: [
+                              Expanded(
+                                child: Text('${_kMonthAbbrevs[rec.month - 1]} ${rec.year}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                              ),
+                              Text('Rs. ${rec.totalPaid.toStringAsFixed(0)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
+                              const SizedBox(width: 10),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(color: isPaid ? Colors.green.shade50 : Colors.grey.shade100, borderRadius: BorderRadius.circular(4)),
+                                child: Text(rec.status, style: TextStyle(color: isPaid ? Colors.green : AppTheme.slateLight, fontSize: 9, fontWeight: FontWeight.bold)),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
                   ],
                 ),
               ),
@@ -1373,14 +1520,17 @@ class _EmployeeSalaryTab extends StatelessWidget {
   }
 }
 
-class _EmployeeTargetTab extends StatelessWidget {
-  final Employee profile;
+// --- SALES TARGET TAB ---
 
-  const _EmployeeTargetTab({required this.profile});
+class _EmployeeTargetTab extends StatelessWidget {
+  final EmployeeProfile profile;
+  final AppData state;
+
+  const _EmployeeTargetTab({required this.profile, required this.state});
 
   @override
   Widget build(BuildContext context) {
-    final progress = profile.dailyTarget > 0 ? (profile.completedTarget / profile.dailyTarget) : 0.75;
+    final targets = [...state.salesTargets]..sort((a, b) => (b.startDate ?? DateTime(0)).compareTo(a.startDate ?? DateTime(0)));
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -1392,177 +1542,185 @@ class _EmployeeTargetTab extends StatelessWidget {
             children: [
               const Text('Sales Targets', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22, color: AppTheme.slateDark)),
               const SizedBox(height: 4),
-              const Text('Track your revenue quota for this billing cycle.', style: TextStyle(color: AppTheme.slateLight, fontSize: 13)),
+              const Text('Track your revenue quotas set by your manager.', style: TextStyle(color: AppTheme.slateLight, fontSize: 13)),
               const SizedBox(height: 20),
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.borderSubtle),
-                ),
-                padding: const EdgeInsets.all(22.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Monthly Target Progress (${(progress * 100).toStringAsFixed(0)}%)', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                    const SizedBox(height: 12),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 10,
-                        backgroundColor: const Color(0xFFE2E8F0),
-                        valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primaryBlue),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              if (targets.isEmpty)
+                Container(
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
+                  padding: const EdgeInsets.all(32.0),
+                  child: const Center(
+                    child: Column(
                       children: [
-                        const Text('Achieved Revenue:', style: TextStyle(color: AppTheme.slateMedium)),
-                        Text('Rs. ${profile.completedTarget.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w800)),
+                        Icon(Icons.flag_outlined, size: 40, color: AppTheme.borderSubtle),
+                        SizedBox(height: 12),
+                        Text('No sales targets set yet.', style: TextStyle(color: AppTheme.slateMedium, fontWeight: FontWeight.w600)),
+                        SizedBox(height: 4),
+                        Text('Your manager can set one from the Employees tab.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12)),
                       ],
                     ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Target Quota:', style: TextStyle(color: AppTheme.slateMedium)),
-                        Text('Rs. ${profile.dailyTarget.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w800)),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
+                  ),
+                )
+              else
+                for (int i = 0; i < targets.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 14),
+                  _buildTargetCard(targets[i]),
+                ],
             ],
           ),
         ),
       ),
     );
   }
+
+  Widget _buildTargetCard(SalesTarget target) {
+    Color statusColor = AppTheme.primaryBlue;
+    if (target.status == 'ACHIEVED') statusColor = AppTheme.accentGreen;
+    if (target.status == 'FAILED') statusColor = AppTheme.accentRed;
+
+    return Container(
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
+      padding: const EdgeInsets.all(22.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(child: Text(_targetTypeLabel(target.type), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14))),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(6)),
+                child: Text(target.status, style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.w800)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text('${_formatDate(target.startDate)} — ${_formatDate(target.endDate)}', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
+          const SizedBox(height: 14),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: target.progressFraction,
+              minHeight: 10,
+              backgroundColor: const Color(0xFFE2E8F0),
+              valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Achieved:', style: TextStyle(color: AppTheme.slateMedium)),
+              Text(target.progressValue.toStringAsFixed(0), style: const TextStyle(fontWeight: FontWeight.w800)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Target Quota:', style: TextStyle(color: AppTheme.slateMedium)),
+              Text(target.targetValue.toStringAsFixed(0), style: const TextStyle(fontWeight: FontWeight.w800)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-class _EmployeeProfileTab extends ConsumerStatefulWidget {
-  final Employee profile;
+// --- PROFILE TAB ---
 
-  const _EmployeeProfileTab({required this.profile});
+class _EmployeeProfileTab extends ConsumerStatefulWidget {
+  final EmployeeProfile profile;
+  final AppData state;
+
+  const _EmployeeProfileTab({required this.profile, required this.state});
 
   @override
   ConsumerState<_EmployeeProfileTab> createState() => _EmployeeProfileTabState();
 }
 
 class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
-  String _upiId = 'jamie.davis@okaxis';
-
-  void _showChangePasswordDialog(BuildContext context) {
+  void _showChangePasswordDialog(BuildContext context, WidgetRef ref) {
     final currentPassController = TextEditingController();
     final newPassController = TextEditingController();
     final confirmPassController = TextEditingController();
+    bool submitting = false;
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.lock_reset_rounded, color: AppTheme.primaryBlue),
-            SizedBox(width: 10),
-            Text('Change Password', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: currentPassController,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'Current Password', hintText: 'Enter current password'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: newPassController,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'New Password', hintText: 'Enter new password (min 6 chars)'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: confirmPassController,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'Confirm New Password', hintText: 'Re-enter new password'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.lock_reset_rounded, color: AppTheme.primaryBlue),
+              SizedBox(width: 10),
+              Text('Change Password', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () {
-              if (newPassController.text.trim().length < 6) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Password must be at least 6 characters long.'), backgroundColor: AppTheme.accentRed),
-                );
-                return;
-              }
-              if (newPassController.text != confirmPassController.text) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('New passwords do not match.'), backgroundColor: AppTheme.accentRed),
-                );
-                return;
-              }
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Password updated successfully!'), backgroundColor: AppTheme.accentGreen),
-              );
-            },
-            child: const Text('Save Password'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showEditPayoutDialog(BuildContext context) {
-    final upiController = TextEditingController(text: _upiId);
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Update Payout UPI / Bank'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Enter your preferred UPI ID for monthly commission payouts:', style: TextStyle(fontSize: 12, color: AppTheme.slateLight)),
-            const SizedBox(height: 12),
-            TextField(
-              controller: upiController,
-              decoration: const InputDecoration(
-                labelText: 'UPI ID',
-                prefixIcon: Icon(Icons.qr_code_2_rounded, size: 20),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: currentPassController,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Current Password', hintText: 'Enter current password'),
               ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: newPassController,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'New Password', hintText: 'min 8 characters'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: confirmPassController,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Confirm New Password', hintText: 'Re-enter new password'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: submitting
+                  ? null
+                  : () async {
+                      if (newPassController.text.length < 8) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('New password must be at least 8 characters long.'), backgroundColor: AppTheme.accentRed),
+                        );
+                        return;
+                      }
+                      if (newPassController.text != confirmPassController.text) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('New passwords do not match.'), backgroundColor: AppTheme.accentRed),
+                        );
+                        return;
+                      }
+                      setDialogState(() => submitting = true);
+                      try {
+                        await ref.read(authServiceProvider).changePassword(currentPassController.text, newPassController.text);
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Password updated successfully!'), backgroundColor: AppTheme.accentGreen),
+                          );
+                        }
+                      } catch (e) {
+                        setDialogState(() => submitting = false);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
+                        }
+                      }
+                    },
+              child: submitting
+                  ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('Save Password'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (upiController.text.trim().isNotEmpty) {
-                setState(() => _upiId = upiController.text.trim());
-              }
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Payout info saved successfully!'), backgroundColor: AppTheme.accentGreen),
-              );
-            },
-            child: const Text('Save'),
-          ),
-        ],
       ),
     );
   }
@@ -1570,7 +1728,17 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
   @override
   Widget build(BuildContext context) {
     final profile = widget.profile;
-    final isClockedIn = profile.status == 'Present';
+    final state = widget.state;
+    final todayRecord = _todayAttendance(state, profile.id);
+    final isClockedIn = todayRecord != null && todayRecord.clockOut == null;
+
+    final now = DateTime.now();
+    final monthAttendance = state.attendance.where((a) => a.date != null && a.date!.month == now.month && a.date!.year == now.year).toList();
+    final presentDays = monthAttendance.where((a) => a.status == 'PRESENT' || a.status == 'LATE').length;
+    final attendancePct = monthAttendance.isEmpty ? 0.0 : (presentDays / monthAttendance.length) * 100;
+
+    final activeTargets = state.salesTargets.where((t) => t.employeeId == profile.id && t.status == 'ACTIVE');
+    final target = activeTargets.isEmpty ? null : activeTargets.first;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
@@ -1580,15 +1748,9 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header Title
               const Text(
                 'Employee Account',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w900,
-                  color: AppTheme.slateDark,
-                  letterSpacing: -0.5,
-                ),
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: AppTheme.slateDark, letterSpacing: -0.5),
               ),
               const SizedBox(height: 4),
               const Text(
@@ -1596,14 +1758,8 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
                 style: TextStyle(color: AppTheme.slateLight, fontSize: 13),
               ),
               const SizedBox(height: 18),
-
-              // 1. Profile Overview Card
               Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.borderSubtle),
-                ),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
                 padding: const EdgeInsets.all(24.0),
                 child: Column(
                   children: [
@@ -1630,43 +1786,23 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
                       ],
                     ),
                     const SizedBox(height: 14),
-                    Text(
-                      profile.name,
-                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 19, color: AppTheme.slateDark),
-                    ),
+                    Text(profile.name, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 19, color: AppTheme.slateDark)),
                     const SizedBox(height: 4),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: AppTheme.primaryLight,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            profile.role,
-                            style: const TextStyle(
-                              color: AppTheme.primaryBlue,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
+                          decoration: BoxDecoration(color: AppTheme.primaryLight, borderRadius: BorderRadius.circular(20)),
+                          child: Text(profile.roleTitle, style: const TextStyle(color: AppTheme.primaryBlue, fontSize: 11, fontWeight: FontWeight.w700)),
                         ),
                         const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: isClockedIn ? const Color(0xFFDCFCE7) : const Color(0xFFF1F5F9),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
+                          decoration: BoxDecoration(color: isClockedIn ? const Color(0xFFDCFCE7) : const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(20)),
                           child: Text(
                             isClockedIn ? '● Active on Shift' : '○ Off Duty',
-                            style: TextStyle(
-                              color: isClockedIn ? AppTheme.accentGreen : AppTheme.slateLight,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
+                            style: TextStyle(color: isClockedIn ? AppTheme.accentGreen : AppTheme.slateLight, fontSize: 11, fontWeight: FontWeight.w700),
                           ),
                         ),
                       ],
@@ -1674,127 +1810,72 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
                     const SizedBox(height: 16),
                     const Divider(color: Color(0xFFF1F5F9)),
                     const SizedBox(height: 12),
-
-                    // Quick Stats Row
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        _buildStatColumn('Attendance', '${profile.attendanceRate.toStringAsFixed(0)}%', AppTheme.accentGreen),
+                        _buildStatColumn('Attendance', '${attendancePct.toStringAsFixed(0)}%', AppTheme.accentGreen),
                         Container(width: 1, height: 32, color: AppTheme.borderSubtle),
-                        _buildStatColumn('Performance', '${profile.performanceRate.toStringAsFixed(0)}%', AppTheme.primaryBlue),
+                        _buildStatColumn('Target Progress', target == null ? '—' : '${(target.progressFraction * 100).toStringAsFixed(0)}%', AppTheme.primaryBlue),
                         Container(width: 1, height: 32, color: AppTheme.borderSubtle),
-                        _buildStatColumn('Commission', '${profile.commissionRate.toStringAsFixed(0)}%', AppTheme.slateDark),
+                        _buildStatColumn('Commission', '${profile.serviceCommissionPct.toStringAsFixed(0)}%', AppTheme.slateDark),
                       ],
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 16),
-
-              // 2. Work & Role Details Card
               Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.borderSubtle),
-                ),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
                 padding: const EdgeInsets.all(20.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Work & Compensation',
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.slateDark),
-                    ),
+                    const Text('Work & Compensation', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.slateDark)),
                     const SizedBox(height: 16),
-                    _buildInfoTile(Icons.badge_outlined, 'Employee ID', 'EMP-2026-084'),
+                    _buildInfoTile(Icons.storefront_outlined, 'Assigned Branch', profile.branchName ?? '-'),
                     const Divider(color: Color(0xFFF1F5F9), height: 20),
-                    _buildInfoTile(Icons.storefront_outlined, 'Assigned Branch', 'Cuts-Salon • Westside Flagship'),
+                    _buildInfoTile(Icons.payments_outlined, 'Base Retainer', 'Rs. ${profile.baseSalary.toStringAsFixed(0)} / month'),
                     const Divider(color: Color(0xFFF1F5F9), height: 20),
-                    _buildInfoTile(Icons.schedule_outlined, 'Shift Schedule', '10:00 AM – 08:00 PM (Mon–Sat)'),
+                    _buildInfoTile(Icons.percent_rounded, 'Service Commission', '${profile.serviceCommissionPct.toStringAsFixed(0)}% per service item'),
                     const Divider(color: Color(0xFFF1F5F9), height: 20),
-                    _buildInfoTile(Icons.payments_outlined, 'Base Retainer', 'Rs. 25,000 / month'),
+                    _buildInfoTile(Icons.percent_rounded, 'Product Commission', '${profile.productCommissionPct.toStringAsFixed(0)}% per product item'),
                     const Divider(color: Color(0xFFF1F5F9), height: 20),
-                    _buildInfoTile(Icons.percent_rounded, 'Service Commission', '${profile.commissionRate.toStringAsFixed(0)}% per bill item'),
-                    const Divider(color: Color(0xFFF1F5F9), height: 20),
-                    _buildInfoTile(Icons.flag_outlined, 'Monthly Target', 'Rs. ${profile.dailyTarget.toStringAsFixed(0)}'),
+                    _buildInfoTile(Icons.flag_outlined, 'Monthly Target', target == null ? 'Not set' : target.targetValue.toStringAsFixed(0)),
                   ],
                 ),
               ),
               const SizedBox(height: 16),
-
-              // 3. Contact & Payout Details Card
               Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.borderSubtle),
-                ),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
                 padding: const EdgeInsets.all(20.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Contact & Payout Info',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.slateDark),
-                        ),
-                        InkWell(
-                          onTap: () => _showEditPayoutDialog(context),
-                          borderRadius: BorderRadius.circular(8),
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            child: Text(
-                              'Edit Payout',
-                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.primaryBlue),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                    const Text('Contact Info', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.slateDark)),
                     const SizedBox(height: 16),
                     _buildInfoTile(Icons.mail_outline_rounded, 'Login Email', profile.email),
                     const Divider(color: Color(0xFFF1F5F9), height: 20),
                     _buildInfoTile(Icons.phone_outlined, 'Contact Phone', profile.phone),
-                    const Divider(color: Color(0xFFF1F5F9), height: 20),
-                    _buildInfoTile(Icons.account_balance_wallet_outlined, 'Payout UPI', _upiId),
                   ],
                 ),
               ),
               const SizedBox(height: 16),
-
-              // 4. Security & Actions Card
               Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.borderSubtle),
-                ),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
                 padding: const EdgeInsets.all(20.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Security & Session',
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.slateDark),
-                    ),
+                    const Text('Security & Session', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.slateDark)),
                     const SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,
                       height: 46,
                       child: OutlinedButton.icon(
-                        onPressed: () => _showChangePasswordDialog(context),
+                        onPressed: () => _showChangePasswordDialog(context, ref),
                         icon: const Icon(Icons.key_rounded, size: 18, color: AppTheme.primaryBlue),
-                        label: const Text(
-                          'Change Password',
-                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.primaryBlue),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: AppTheme.primaryLight, width: 1.5),
-                          backgroundColor: AppTheme.primaryLight.withValues(alpha: 0.3),
-                        ),
+                        label: const Text('Change Password', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.primaryBlue)),
+                        style: OutlinedButton.styleFrom(side: const BorderSide(color: AppTheme.primaryLight, width: 1.5), backgroundColor: AppTheme.primaryLight.withValues(alpha: 0.3)),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -1824,13 +1905,8 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
                           );
                         },
                         icon: const Icon(Icons.logout_rounded, size: 18, color: AppTheme.accentRed),
-                        label: const Text(
-                          'Log Out of Account',
-                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.accentRed),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: AppTheme.accentRed.withValues(alpha: 0.3)),
-                        ),
+                        label: const Text('Log Out of Account', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.accentRed)),
+                        style: OutlinedButton.styleFrom(side: BorderSide(color: AppTheme.accentRed.withValues(alpha: 0.3))),
                       ),
                     ),
                   ],
@@ -1847,15 +1923,9 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
   Widget _buildStatColumn(String title, String val, Color color) {
     return Column(
       children: [
-        Text(
-          val,
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: color),
-        ),
+        Text(val, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: color)),
         const SizedBox(height: 2),
-        Text(
-          title,
-          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.slateLight),
-        ),
+        Text(title, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.slateLight)),
       ],
     );
   }
@@ -1865,29 +1935,19 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
       children: [
         Container(
           padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF1F5F9),
-            borderRadius: BorderRadius.circular(8),
-          ),
+          decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(8)),
           child: Icon(icon, size: 18, color: AppTheme.slateMedium),
         ),
         const SizedBox(width: 12),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              label,
-              style: const TextStyle(fontSize: 11, color: AppTheme.slateLight, fontWeight: FontWeight.w600),
-            ),
+            Text(label, style: const TextStyle(fontSize: 11, color: AppTheme.slateLight, fontWeight: FontWeight.w600)),
             const SizedBox(height: 2),
-            Text(
-              value,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.slateDark),
-            ),
+            Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.slateDark)),
           ],
         ),
       ],
     );
   }
 }
-

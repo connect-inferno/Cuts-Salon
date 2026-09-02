@@ -4,10 +4,10 @@ import { authenticate, requireRole } from '../middleware/auth.middleware';
 
 const router = Router();
 
-router.use(authenticate, requireRole(['OWNER']));
-router.post('/', EmployeeController.create);
+router.use(authenticate);
 router.get('/', EmployeeController.list);
-router.patch('/:id', EmployeeController.update);
-router.patch('/:id/reset-password', EmployeeController.resetPassword);
+router.post('/', requireRole(['OWNER']), EmployeeController.create);
+router.patch('/:id', requireRole(['OWNER']), EmployeeController.update);
+router.patch('/:id/reset-password', requireRole(['OWNER']), EmployeeController.resetPassword);
 
 export default router;

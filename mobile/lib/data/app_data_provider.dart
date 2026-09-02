@@ -97,19 +97,22 @@ class AppData {
 }
 
 class AppDataNotifier extends AsyncNotifier<AppData> {
-  late final BranchApi _branchApi;
-  late final EmployeeApi _employeeApi;
-  late final CustomerApi _customerApi;
-  late final CatalogApi _catalogApi;
-  late final BillApi _billApi;
-  late final ExpenseApi _expenseApi;
-  late final DiscountRequestApi _discountRequestApi;
-  late final SalesTargetApi _salesTargetApi;
-  late final SalaryApi _salaryApi;
-  late final CommissionApi _commissionApi;
-  late final AttendanceApi _attendanceApi;
-  late final DashboardApi _dashboardApi;
-  late final SettingsApi _settingsApi;
+  // Not `late final`: build() reruns on every auth state change (e.g. a
+  // logout/login cycle without a full page reload), and re-assigning a
+  // `late final` field on a rebuild throws LateInitializationError.
+  late BranchApi _branchApi;
+  late EmployeeApi _employeeApi;
+  late CustomerApi _customerApi;
+  late CatalogApi _catalogApi;
+  late BillApi _billApi;
+  late ExpenseApi _expenseApi;
+  late DiscountRequestApi _discountRequestApi;
+  late SalesTargetApi _salesTargetApi;
+  late SalaryApi _salaryApi;
+  late CommissionApi _commissionApi;
+  late AttendanceApi _attendanceApi;
+  late DashboardApi _dashboardApi;
+  late SettingsApi _settingsApi;
 
   @override
   Future<AppData> build() async {

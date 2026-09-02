@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../theme.dart';
+import '../../data/app_data_provider.dart';
 import '../auth/auth_provider.dart';
 import 'widgets/owner_dashboard_tab.dart';
 import 'widgets/owner_customers_employees_tab.dart';
@@ -50,6 +51,7 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
   ];
 
   Widget _buildSidebar(BuildContext context, {required bool isMobile}) {
+    final pendingDiscountCount = ref.watch(appDataProvider).valueOrNull?.discountRequests.where((r) => r.status == 'PENDING').length ?? 0;
     return Container(
       width: 260,
       decoration: BoxDecoration(
@@ -157,16 +159,16 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          if (index == 9) // Discount badge
+                          if (index == 9 && pendingDiscountCount > 0) // Discount badge
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
                                 color: AppTheme.accentRed,
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              child: const Text(
-                                '2',
-                                style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                              child: Text(
+                                '$pendingDiscountCount',
+                                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                               ),
                             ),
                         ],
@@ -287,6 +289,7 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
   @override
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.of(context).size.width < kOwnerMobileBreakpoint;
+    final pendingDiscountCount = ref.watch(appDataProvider).valueOrNull?.discountRequests.where((r) => r.status == 'PENDING').length ?? 0;
 
     // Map 5 Bottom Nav Bar Items (Stitch Spec)
     // 0: Dashboard, 1: Billing (index 4), 2: Customers (index 1), 3: Catalog (index 5), 4: More
@@ -388,37 +391,39 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                     _showMoreMenu(context);
                   }
                 },
-                destinations: const [
-                  NavigationDestination(
+                destinations: [
+                  const NavigationDestination(
                     icon: Icon(Icons.grid_view_rounded, size: 20),
                     selectedIcon: Icon(Icons.grid_view_rounded, size: 20, color: AppTheme.primaryBlue),
                     label: 'Dashboard',
                   ),
-                  NavigationDestination(
+                  const NavigationDestination(
                     icon: Icon(Icons.receipt_long_rounded, size: 20),
                     selectedIcon: Icon(Icons.receipt_long_rounded, size: 20, color: AppTheme.primaryBlue),
                     label: 'Billing',
                   ),
-                  NavigationDestination(
+                  const NavigationDestination(
                     icon: Icon(Icons.people_alt_outlined, size: 20),
                     selectedIcon: Icon(Icons.people_alt_rounded, size: 20, color: AppTheme.primaryBlue),
                     label: 'Customers',
                   ),
-                  NavigationDestination(
+                  const NavigationDestination(
                     icon: Icon(Icons.inventory_2_outlined, size: 20),
                     selectedIcon: Icon(Icons.inventory_2_rounded, size: 20, color: AppTheme.primaryBlue),
                     label: 'Catalog',
                   ),
                   NavigationDestination(
                     icon: Badge(
-                      label: Text('2'),
+                      isLabelVisible: pendingDiscountCount > 0,
+                      label: Text('$pendingDiscountCount'),
                       backgroundColor: AppTheme.accentRed,
-                      child: Icon(Icons.menu_rounded, size: 20),
+                      child: const Icon(Icons.menu_rounded, size: 20),
                     ),
                     selectedIcon: Badge(
-                      label: Text('2'),
+                      isLabelVisible: pendingDiscountCount > 0,
+                      label: Text('$pendingDiscountCount'),
                       backgroundColor: AppTheme.accentRed,
-                      child: Icon(Icons.menu_rounded, size: 20, color: AppTheme.primaryBlue),
+                      child: const Icon(Icons.menu_rounded, size: 20, color: AppTheme.primaryBlue),
                     ),
                     label: 'More',
                   ),
@@ -484,49 +489,107 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
 
 // --- REPORTS TAB ---
 
-class OwnerReportsTab extends StatelessWidget {
+const List<String> _kMonthAbbrevs = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+class OwnerReportsTab extends ConsumerWidget {
   const OwnerReportsTab({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final asyncData = ref.watch(appDataProvider);
+    return asyncData.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (err, st) => Center(child: Text(err.toString())),
+      data: (state) => _buildContent(context, state),
+    );
+  }
+
+  Widget _buildContent(BuildContext context, AppData state) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isMobile = constraints.maxWidth < 768;
 
-        final Widget chart1 = CustomLineChart(
-          title: 'Revenue Projections',
-          subtitle: 'Next 6 months forecasted trend',
-          values: const [920000, 950000, 1020000, 1100000, 1050000, 1200000],
-          labels: const ['Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
-          color: AppTheme.primaryBlue,
-        );
+        final now = DateTime.now();
+        final months = List.generate(6, (i) {
+          final monthIndex = now.month - (5 - i);
+          final yearOffset = ((monthIndex - 1) / 12).floor();
+          final normalizedMonth = ((monthIndex - 1) % 12 + 12) % 12 + 1;
+          return DateTime(now.year + yearOffset, normalizedMonth, 1);
+        });
+        final revenueByMonth = months
+            .map((m) => state.bills
+                .where((b) => b.createdAt != null && b.createdAt!.year == m.year && b.createdAt!.month == m.month)
+                .fold<double>(0, (s, b) => s + b.finalAmount))
+            .toList();
+        final monthLabels = months.map((m) => _kMonthAbbrevs[m.month - 1]).toList();
+        final hasRevenueData = revenueByMonth.any((v) => v > 0);
 
-        final Widget chart2 = CustomBarChart(
-          title: 'Service Popularity',
-          subtitle: 'Revenue generated per service category this month',
-          values: const [24000, 18000, 15000, 32000, 45000, 12000],
-          labels: const ['Hair', 'Skincare', 'Nails', 'Color', 'Facial', 'Spa'],
-          color: AppTheme.primaryDark,
-        );
+        final categoryRevenue = <String, double>{};
+        for (final bill in state.bills) {
+          for (final item in bill.items) {
+            if (item.type != 'SERVICE') continue;
+            final matches = state.services.where((s) => s.id == item.serviceId);
+            final categoryName = matches.isNotEmpty ? (matches.first.categoryName ?? 'Uncategorized') : 'Uncategorized';
+            final lineTotal = (item.unitPrice * item.quantity) - item.discountAmount;
+            categoryRevenue[categoryName] = (categoryRevenue[categoryName] ?? 0) + lineTotal;
+          }
+        }
+        final sortedCategories = categoryRevenue.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+        final topCategories = sortedCategories.take(6).toList();
+
+        final totalRevenue = state.bills.fold<double>(0, (s, b) => s + b.finalAmount);
+        final atv = state.bills.isEmpty ? 0.0 : totalRevenue / state.bills.length;
+
+        final billsByCustomer = <String, int>{};
+        for (final b in state.bills) {
+          billsByCustomer[b.customerId] = (billsByCustomer[b.customerId] ?? 0) + 1;
+        }
+        final customersWithBills = billsByCustomer.length;
+        final repeatCustomers = billsByCustomer.values.where((c) => c > 1).length;
+        final retentionPct = customersWithBills == 0 ? 0.0 : (repeatCustomers / customersWithBills) * 100;
+
+        final monthAttendance = state.attendance.where((a) => a.date != null && a.date!.month == now.month && a.date!.year == now.year).toList();
+        final presentCount = monthAttendance.where((a) => a.status == 'PRESENT' || a.status == 'LATE').length;
+        final staffAttendanceRate = monthAttendance.isEmpty ? 0.0 : (presentCount / monthAttendance.length) * 100;
+
+        final Widget chart1 = hasRevenueData
+            ? CustomLineChart(
+                title: 'Revenue Trend',
+                subtitle: 'Total billed revenue over the last 6 months',
+                values: revenueByMonth,
+                labels: monthLabels,
+                color: AppTheme.primaryBlue,
+              )
+            : _buildEmptyChartCard('Revenue Trend', 'No billing history yet — this fills in once bills start coming in.');
+
+        final Widget chart2 = topCategories.isEmpty
+            ? _buildEmptyChartCard('Service Popularity', 'No service sales recorded yet.')
+            : CustomBarChart(
+                title: 'Service Popularity',
+                subtitle: 'Revenue generated per service category (all-time)',
+                values: topCategories.map((e) => e.value).toList(),
+                labels: topCategories.map((e) => e.key).toList(),
+                color: AppTheme.primaryDark,
+              );
 
         final Widget metric1 = _buildReportMetricCard(
-          'Average Ticket Value (ATV)',
-          'Rs. 2,450',
-          '+4.2% from last month',
+          'Average Ticket Value',
+          'Rs. ${atv.toStringAsFixed(0)}',
+          'Across ${state.bills.length} bill${state.bills.length == 1 ? '' : 's'} all-time',
           AppTheme.accentGreen,
         );
 
         final Widget metric2 = _buildReportMetricCard(
-          'Client Retention Index',
-          '84.2%',
-          '+1.8% vs industry standard',
+          'Client Retention Rate',
+          '${retentionPct.toStringAsFixed(0)}%',
+          '$repeatCustomers of $customersWithBills billed customers returned',
           AppTheme.primaryBlue,
         );
 
         final Widget metric3 = _buildReportMetricCard(
-          'Staff Efficiency Score',
-          '92.4%',
-          'Excellent productivity rating',
+          'Staff Attendance Rate',
+          '${staffAttendanceRate.toStringAsFixed(0)}%',
+          'This month, across all staff',
           AppTheme.slateMedium,
         );
 
@@ -541,7 +604,7 @@ class OwnerReportsTab extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               const Text(
-                'Business performance reports generated automatically.',
+                'Business performance computed live from your billing and attendance records.',
                 style: TextStyle(color: AppTheme.slateLight, fontSize: 13),
               ),
               const SizedBox(height: 24),
@@ -584,6 +647,26 @@ class OwnerReportsTab extends StatelessWidget {
     );
   }
 
+  Widget _buildEmptyChartCard(String title, String message) {
+    return Container(
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
+      padding: const EdgeInsets.all(20.0),
+      height: 244,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const Expanded(
+            child: Center(
+              child: Icon(Icons.insert_chart_outlined_rounded, size: 40, color: AppTheme.borderSubtle),
+            ),
+          ),
+          Text(message, style: const TextStyle(fontSize: 12, color: AppTheme.slateLight), textAlign: TextAlign.center),
+        ],
+      ),
+    );
+  }
+
   Widget _buildReportMetricCard(String title, String value, String subtitle, Color color) {
     return Container(
       decoration: BoxDecoration(
@@ -616,9 +699,9 @@ class OwnerReportsTab extends StatelessWidget {
           Text(
             subtitle,
             style: const TextStyle(
-              color: AppTheme.accentGreen,
+              color: AppTheme.slateLight,
               fontSize: 11,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
