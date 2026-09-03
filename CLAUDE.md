@@ -1,50 +1,37 @@
 # Cuts-Salon — Salon SaaS
 
-Multi-tenant salon management SaaS. One shared backend/database serves multiple independent salons (currently piloting with 5-6). Read this before making backend changes — it applies to any AI agent working in this repo, not just this session.
+Multi-tenant salon management SaaS. Each salon runs on its own Firebase project (Firestore + Firebase Auth) — there is no shared server. Read this before making changes to how the app talks to Firebase — it applies to any AI agent working in this repo, not just this session.
 
 ## Project shape
 
-- `backend/` — Node.js + Express + TypeScript API, Prisma ORM, PostgreSQL (hosted on Supabase), deployed to Render.
-- `mobile/` — Flutter app (salon staff/owner client), deployed to Vercel as a web build.
-- `render.yaml` — Render Blueprint (build/start commands, env var declarations).
+- `mobile/` — Flutter app (salon staff/owner client), deployed to Vercel as a web build. This is the entire app; there is no separate backend service.
+- `mobile/lib/firebase/` — everything Firebase-specific: `salon_directory.dart` (the list of provisioned salons and their Firebase project config), `salon_auth.dart` (multi-project sign-in), `salon_firestore.dart` (all Firestore reads/writes), `firestore_models.dart` (Firestore document <-> app model conversions), `firestore_app_data.dart` (assembles one salon's full `AppData` snapshot).
+- `mobile/lib/data/app_data_provider.dart` — the single source of truth for app state (`AppDataNotifier`). Every mutation (create bill, clock in, approve a discount request, etc.) lives here as a method that validates input and calls into `SalonFirestore`.
+- `mobile/firestore.rules` / `mobile/firestore.indexes.json` — deployed per-project via `firebase deploy --only firestore:rules,firestore:indexes --project <salonId>`.
 
-## Hard rule: the backend must stay swappable
+## Hard rule: business logic and its trust boundary
 
-Treat the ORM (Prisma), the database (Postgres/Supabase), and the hosting provider (Render) as replaceable implementation details — never let business logic depend on them directly. Every backend change follows this layering:
+There is no trusted server here — the Flutter client talks to Firestore directly, so **Firestore Security Rules are the only real access-control boundary**, not the Dart code. Every rule in `firestore.rules` is deliberately commented with what REST-era behavior it's preserving (e.g. the deactivated-employee bypass fix, owner-only writes, immutable bills). When adding a new collection or mutation:
 
-```
-routes/*.routes.ts          -> wires HTTP verb+path to a controller, plus auth middleware. No logic.
-controllers/*.controller.ts -> parses/validates the request (zod), calls a service, shapes the HTTP response.
-services/*.service.ts       -> ALL business logic and ALL data access lives here.
-utils/prisma.ts, utils/scopedPrisma.ts -> the ONLY files allowed to construct/import PrismaClient directly.
-```
-
-Rules that must hold for every new endpoint:
-
-- **Controllers and routes never import `@prisma/client` or `utils/prisma`/`utils/scopedPrisma` directly.** If a controller needs data, it calls a service method. This means swapping Prisma for a different ORM/driver, or swapping Postgres for a different database, should only ever touch `utils/prisma.ts`, `utils/scopedPrisma.ts`, and the `services/` layer — routes and controllers should need zero changes.
-- **All Prisma access goes through `services/`.** No raw queries in controllers, ever.
-- **Tenant scoping is itself part of this abstraction.** Any query against a salon-owned table goes through `getScopedPrisma(salonId)` (`backend/src/utils/scopedPrisma.ts`) — never the raw `prisma` singleton, and never a hand-written `where: { salonId }`. This is a security boundary (prevents cross-tenant data leaks) and it's also the seam to modify first if the tenancy strategy ever changes (e.g. row-level -> schema-per-tenant).
-- **Money/commission/tax calculation logic lives in the relevant service**, not in controllers.
-- Prisma's `Decimal` fields are safe to do plain-number math on for now (rounded to 2dp via a `round2` helper) — fine at current scale, revisit if precision issues ever show up.
+- **Business logic (price resolution, commission %, GST, stock checks) lives in `AppDataNotifier`**, validated client-side before the Firestore write — see `createBill` in `app_data_provider.dart` for the pattern (resolve everything against the already-loaded `AppData` snapshot, fail fast with a clear exception before touching Firestore).
+- **Every new collection needs an explicit rule in `firestore.rules`.** Firestore's default is deny-all; forgetting a rule doesn't silently work, it silently 403s — but a rule that's too permissive is a real data leak, since nothing else is checking. Match the authorization shape of the corresponding REST-era route if one existed (the existing rules comment on which route they mirror).
+- Firestore rules gate *documents*, not fields — there's no per-field redaction (see the comment atop `firestore.rules` re: salary visibility). If a field shouldn't be visible to someone who can read the document, that has to be enforced in the app layer (`firestore_app_data.dart`) instead.
+- A single active employee (or a tampered client) can, in principle, write internally-inconsistent values (e.g. a fabricated commission %) since rules only check *who* can write, not that the math is correct. This is a known, accepted trade-off of the no-server architecture — if that ever needs closing, the fix is moving bill/commission creation into a Cloud Function that validates and writes with elevated privileges, not relaxing this note.
 
 ## Multi-tenancy model
 
-- `Salon` is the tenant root (`backend/prisma/schema.prisma`). Every salon-owned model carries a `salonId` column with per-salon-scoped unique constraints (e.g. customer phone is unique per salon, not globally).
-- `User.email` is the one deliberately global-unique field — this lets login resolve `salonId` from the email alone, so staff don't need to pick a salon before logging in.
-- Login (`POST /api/v1/auth/login`) returns a JWT containing `salonId`; the `authenticate` middleware (`backend/src/middleware/auth.middleware.ts`) attaches it to `req.user.salonId` on every authenticated request.
-- New salons are created via the onboarding endpoint (`POST /api/v1/onboarding/salons`, gated by the `ONBOARDING_SECRET` header) or the internal admin page at `/admin.html`, served statically from the backend (`backend/public/admin.html`). Not for salon staff — internal tool only.
+- **One Firebase project per salon** — Firestore quotas and Firebase Auth are both per-project, so one salon's usage/users can never affect another's. `mobile/lib/firebase/salon_directory.dart` is the list of provisioned salons (`salonId` -> `FirebaseOptions`).
+- **Login tries every configured project in turn** (`SalonAuth.signIn`, called from `auth_provider.dart`) since Firebase Auth has no cross-project "which project does this email belong to" lookup the way a global `User.email` column used to provide. This means every employee of a listed salon can sign in the moment their account exists in that salon's project — nothing to configure per employee, only a new salon needs a new `salonFirebaseConfigs` entry.
+- An employee document's Firestore ID *is* their Firebase Auth UID (`employees/{uid}`) — this is what lets `firestore.rules` check "is this my own record" with a direct `get()` instead of a query (rules can't run arbitrary queries).
+- Firebase web config values (apiKey, appId, etc.) are not secrets by design — see the comment in `salon_directory.dart`. The real access boundary is Firestore Security Rules + Firebase Auth.
 
-## Adding a new backend endpoint — checklist
+## Onboarding a new salon
 
-1. Extend `backend/prisma/schema.prisma` if needed, generate + apply a migration (`npx prisma migrate dev --name <name>`), commit the generated `prisma/migrations/` folder.
-2. Write the service method(s) in `services/` — salonId scoping and business logic happens here, via `getScopedPrisma(salonId)`.
-3. Write the controller in `controllers/` — zod validation, calls the service, maps thrown errors to HTTP status codes.
-4. Write the route in `routes/` — path + HTTP verb + `authenticate` (+ `requireRole(['OWNER'])` if owner-only) + controller method. Wire it into `app.ts`.
-5. Run `npx tsc --noEmit` before considering the change done — Prisma's client extension (`getScopedPrisma`) injects `salonId` at runtime but TypeScript doesn't know that, so `salonId` must still be passed explicitly in every `create()` call's `data`.
+1. Create a new Firebase project (Console or `firebase projects:create`), enable Firestore + Email/Password Auth.
+2. Deploy `mobile/firestore.rules` and `mobile/firestore.indexes.json` to it: `firebase deploy --only firestore:rules,firestore:indexes --project <newSalonId>`.
+3. Create the owner's Firebase Auth account and a matching `employees/{uid}` document (role `OWNER`) plus a `settings` document — see `firestore_models.dart` for the expected shape.
+4. Add a `SalonFirebaseConfig` entry for it in `mobile/lib/firebase/salon_directory.dart` with that project's web config.
 
 ## Deployment
 
-- Backend: Render free tier, service `cuts-salon-backend`, auto-deploys from `main` via the Blueprint in `render.yaml`. Build command runs `prisma migrate deploy`, so pushed migrations apply automatically on deploy.
-- Database: Supabase Postgres, **session pooler** connection (not the direct connection — Render's network doesn't support Supabase's IPv6-only direct connection without a paid add-on).
-- Keep-alive: cron-job.org pings `/health` every 14 minutes so the Render free instance doesn't spin down (repo is private, so this intentionally isn't a GitHub Actions workflow — would burn paid Actions minutes).
-- Required env vars on Render: `DATABASE_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `ONBOARDING_SECRET`, `NODE_VERSION`.
+- The app is a Flutter web build on Vercel (`mobile/vercel.json` + `mobile/build.sh`). There is no server to deploy or keep alive — Firestore and Firebase Auth are managed services.
