@@ -29,6 +29,8 @@ Thumbs.db
 .env.production.local
 *.pem
 *.key
+*firebase-adminsdk*.json
+serviceAccountKey.json
 
 # Log files
 npm-debug.log*
