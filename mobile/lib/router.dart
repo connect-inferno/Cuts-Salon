@@ -34,11 +34,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       }
 
       if (isLoggingIn) {
-        if (currentAuth.role == 'OWNER') {
-          return '/owner/dashboard';
-        } else {
-          return '/employee/dashboard';
-        }
+        return currentAuth.role == 'OWNER' ? '/owner/dashboard' : '/employee/dashboard';
       }
 
       return null;

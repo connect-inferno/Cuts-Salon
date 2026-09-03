@@ -1,9 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../core/api_client.dart';
+import '../../firebase/salon_auth.dart';
+import '../../firebase/salon_firestore.dart';
 import 'auth_state.dart';
-import 'auth_service.dart';
-
-final authServiceProvider = Provider<AuthService>((ref) => AuthService(ref.read(apiClientProvider)));
 
 class AuthController extends Notifier<AuthState> {
   @override
@@ -13,54 +11,58 @@ class AuthController extends Notifier<AuthState> {
     return AuthState();
   }
 
-  AuthState _stateFromUser(String token, Map<String, dynamic> user, Map<String, dynamic>? salon) {
-    final profile = user['profile'] as Map<String, dynamic>?;
+  // Resolves role/employeeProfileId/branchId from the employees/{uid}
+  // Firestore doc - router.dart's OWNER/EMPLOYEE redirect and the
+  // pay-redaction logic in firebase/firestore_app_data.dart both depend on
+  // `role` actually being set here, not left null.
+  Future<AuthState> _stateFromFirebase(SalonLoginResult session) async {
+    final fs = SalonFirestore(session.app);
+    final profile = await fs.getEmployee(session.user.uid);
+    if (profile == null) {
+      throw SalonAuthException('Your account is signed in but has no employee profile yet. Ask the salon owner to finish setting it up.');
+    }
+    final settings = await fs.getSettings();
     return AuthState(
-      token: token,
-      userId: user['id'] as String?,
-      email: user['email'] as String?,
-      name: profile?['name'] as String? ?? (user['role'] == 'OWNER' ? 'Owner' : 'Staff'),
-      role: user['role'] as String?,
-      employeeProfileId: profile?['id'] as String?,
-      branchId: profile?['branchId'] as String?,
-      salonId: salon?['id'] as String?,
-      salonName: salon?['name'] as String?,
       isLoading: false,
+      userId: session.user.uid,
+      email: session.user.email,
+      name: profile.name,
+      role: profile.role,
+      employeeProfileId: profile.id,
+      branchId: profile.branchId,
+      salonId: session.salonId,
+      salonName: settings.salonName,
     );
   }
 
   Future<void> _tryAutoLogin() async {
     state = state.copyWith(isLoading: true);
-    final storage = ref.read(secureStorageProvider);
-    final token = await storage.read(key: 'auth_token');
-    if (token == null) {
+
+    SalonLoginResult? firebaseSession;
+    try {
+      firebaseSession = await SalonAuth.restoreSession();
+    } catch (_) {
+      // A broken/expired local Firebase session shouldn't block the login
+      // screen from rendering - fall through to it below.
+    }
+    if (firebaseSession == null) {
       state = state.copyWith(isLoading: false);
       return;
     }
 
     try {
-      final authService = ref.read(authServiceProvider);
-      final user = await authService.getMe();
-      state = _stateFromUser(token, user, user['salon'] as Map<String, dynamic>?);
+      state = await _stateFromFirebase(firebaseSession);
     } catch (e) {
-      await storage.delete(key: 'auth_token');
       state = AuthState(error: e.toString(), isLoading: false);
     }
   }
 
   Future<void> login(String email, String password) async {
     state = state.copyWith(isLoading: true, error: null);
+
     try {
-      final authService = ref.read(authServiceProvider);
-      final storage = ref.read(secureStorageProvider);
-
-      final result = await authService.login(email, password);
-      final token = result['token'] as String;
-      final user = result['user'] as Map<String, dynamic>;
-      final salon = result['salon'] as Map<String, dynamic>?;
-
-      await storage.write(key: 'auth_token', value: token);
-      state = _stateFromUser(token, user, salon);
+      final session = await SalonAuth.signIn(email, password);
+      state = await _stateFromFirebase(session);
     } catch (e) {
       state = AuthState(error: e.toString(), isLoading: false);
     }
@@ -68,8 +70,9 @@ class AuthController extends Notifier<AuthState> {
 
   Future<void> logout() async {
     state = state.copyWith(isLoading: true);
-    final storage = ref.read(secureStorageProvider);
-    await storage.delete(key: 'auth_token');
+    if (state.salonId != null) {
+      await SalonAuth.signOut(state.salonId!);
+    }
     state = AuthState();
   }
 }
