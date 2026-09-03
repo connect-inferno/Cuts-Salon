@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../theme.dart';
 import '../../data/app_data_provider.dart';
 import '../../data/models.dart';
-import '../../data/repository.dart';
 import '../auth/auth_provider.dart';
+import '../../firebase/salon_auth.dart';
 import '../../widgets/app_page_switcher.dart';
+import '../../widgets/async_state_views.dart';
+import '../../widgets/searchable_picker.dart';
 
 const double _kMobileBreakpoint = 800;
 
@@ -13,6 +17,8 @@ const List<String> _kMonthAbbrevs = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', '
 const List<String> _kWeekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 bool _isSameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+
+T? _firstOrNull<T>(Iterable<T> items) => items.isEmpty ? null : items.first;
 
 String _formatDate(DateTime? d) {
   if (d == null) return '-';
@@ -68,16 +74,18 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
     'Earnings & Salary',
     'Sales Targets',
     'Personal Profile',
+    'Discount Requests',
   ];
 
   final List<IconData> _tabIcons = [
-    Icons.home_rounded,
-    Icons.calendar_today_outlined,
-    Icons.people_alt_outlined,
-    Icons.receipt_long_rounded,
-    Icons.account_balance_wallet_outlined,
-    Icons.insights_outlined,
-    Icons.account_circle_outlined,
+    PhosphorIconsRegular.house,
+    PhosphorIconsRegular.calendarBlank,
+    PhosphorIconsRegular.usersThree,
+    PhosphorIconsRegular.receipt,
+    PhosphorIconsRegular.wallet,
+    PhosphorIconsRegular.chartLineUp,
+    PhosphorIconsRegular.userCircle,
+    PhosphorIconsRegular.tag,
   ];
 
   Widget _buildSidebar(BuildContext context, EmployeeProfile empProfile, {required bool isMobile}) {
@@ -101,7 +109,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(
-                    Icons.storefront_rounded,
+                    PhosphorIconsRegular.storefront,
                     color: AppTheme.primaryBlue,
                     size: 22,
                   ),
@@ -198,7 +206,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
               onPressed: () {
                 ref.read(authControllerProvider.notifier).logout();
               },
-              icon: const Icon(Icons.logout_rounded, size: 16, color: AppTheme.slateLight),
+              icon: const Icon(PhosphorIconsRegular.signOut, size: 16, color: AppTheme.slateLight),
               label: const Text('Log Out', style: TextStyle(fontSize: 12, color: AppTheme.slateDark)),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(40),
@@ -217,26 +225,9 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
     final asyncData = ref.watch(appDataProvider);
 
     return asyncData.when(
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
+      loading: () => const Scaffold(body: AppLoadingView()),
       error: (err, st) => Scaffold(
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.error_outline, color: AppTheme.accentRed, size: 32),
-                const SizedBox(height: 12),
-                Text(err.toString(), textAlign: TextAlign.center, style: const TextStyle(color: AppTheme.slateMedium)),
-                const SizedBox(height: 12),
-                OutlinedButton(
-                  onPressed: () => ref.read(appDataProvider.notifier).refresh(),
-                  child: const Text('Retry'),
-                ),
-              ],
-            ),
-          ),
-        ),
+        body: AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
       ),
       data: (state) {
         final empProfile = state.employeeById(auth.employeeProfileId ?? '');
@@ -251,19 +242,6 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
   Widget _buildScaffold(BuildContext context, EmployeeProfile empProfile, AppData state) {
     final isMobile = MediaQuery.of(context).size.width < _kMobileBreakpoint;
 
-    // Map 5 Bottom Nav Bar Items (Stitch Spec)
-    // 0: Dashboard, 1: Billing (index 3), 2: Customers (index 2), 3: Attendance (index 1), 4: Earnings (index 4)
-    int navIndex = 0;
-    if (_activeTabIndex == 3) {
-      navIndex = 1;
-    } else if (_activeTabIndex == 2) {
-      navIndex = 2;
-    } else if (_activeTabIndex == 1) {
-      navIndex = 3;
-    } else if (_activeTabIndex == 4) {
-      navIndex = 4;
-    }
-
     return Scaffold(
       backgroundColor: AppTheme.bgSurface,
       appBar: isMobile
@@ -277,7 +255,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: const Icon(
-                      Icons.storefront_rounded,
+                      PhosphorIconsRegular.storefront,
                       color: AppTheme.primaryBlue,
                       size: 20,
                     ),
@@ -333,51 +311,20 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
                 color: Colors.white,
                 border: Border(top: BorderSide(color: AppTheme.borderSubtle, width: 1)),
               ),
-              child: NavigationBar(
-                backgroundColor: Colors.white,
-                indicatorColor: AppTheme.primaryLight,
-                selectedIndex: navIndex,
-                height: 65,
-                onDestinationSelected: (idx) {
-                  if (idx == 0) {
-                    setState(() => _activeTabIndex = 0);
-                  } else if (idx == 1) {
-                    setState(() => _activeTabIndex = 3); // Billing
-                  } else if (idx == 2) {
-                    setState(() => _activeTabIndex = 2); // Customers
-                  } else if (idx == 3) {
-                    setState(() => _activeTabIndex = 1); // Attendance
-                  } else if (idx == 4) {
-                    setState(() => _activeTabIndex = 4); // Earnings
-                  }
-                },
-                destinations: const [
-                  NavigationDestination(
-                    icon: Icon(Icons.home_rounded, size: 20),
-                    selectedIcon: Icon(Icons.home_rounded, size: 20, color: AppTheme.primaryBlue),
-                    label: 'Dashboard',
+              child: SafeArea(
+                top: false,
+                child: SizedBox(
+                  height: 65,
+                  child: Row(
+                    children: [
+                      _buildBottomNavItem(icon: PhosphorIconsRegular.house, label: 'Dashboard', tabIndex: 0),
+                      _buildBottomNavItem(icon: PhosphorIconsRegular.receipt, label: 'Billing', tabIndex: 3),
+                      _buildBottomNavItem(icon: PhosphorIconsRegular.usersThree, label: 'Customers', tabIndex: 2),
+                      _buildBottomNavItem(icon: PhosphorIconsRegular.calendarBlank, label: 'Attendance', tabIndex: 1),
+                      _buildBottomNavItem(icon: PhosphorIconsRegular.wallet, label: 'Earnings', tabIndex: 4),
+                    ],
                   ),
-                  NavigationDestination(
-                    icon: Icon(Icons.receipt_long_rounded, size: 20),
-                    selectedIcon: Icon(Icons.receipt_long_rounded, size: 20, color: AppTheme.primaryBlue),
-                    label: 'Billing',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.people_alt_outlined, size: 20),
-                    selectedIcon: Icon(Icons.people_alt_rounded, size: 20, color: AppTheme.primaryBlue),
-                    label: 'Customers',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.calendar_today_outlined, size: 20),
-                    selectedIcon: Icon(Icons.calendar_today_rounded, size: 20, color: AppTheme.primaryBlue),
-                    label: 'Attendance',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.account_balance_wallet_outlined, size: 20),
-                    selectedIcon: Icon(Icons.account_balance_wallet_rounded, size: 20, color: AppTheme.primaryBlue),
-                    label: 'Earnings',
-                  ),
-                ],
+                ),
               ),
             )
           : null,
@@ -392,6 +339,37 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
                   ),
                 ],
               ),
+      ),
+    );
+  }
+
+  Widget _buildBottomNavItem({required IconData icon, required String label, required int tabIndex}) {
+    final isSelected = _activeTabIndex == tabIndex;
+    return Expanded(
+      child: InkWell(
+        onTap: () => setState(() => _activeTabIndex = tabIndex),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              decoration: BoxDecoration(
+                color: isSelected ? AppTheme.primaryLight : Colors.transparent,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(icon, size: 20, color: isSelected ? AppTheme.primaryBlue : AppTheme.slateLight),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                color: isSelected ? AppTheme.primaryBlue : AppTheme.slateLight,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -424,6 +402,8 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
         return _EmployeeTargetTab(profile: profile, state: state);
       case 6:
         return _EmployeeProfileTab(profile: profile, state: state);
+      case 7:
+        return _EmployeeDiscountRequestsTab(profile: profile, state: state);
       default:
         return const Center(key: ValueKey('fallback'), child: Text('Coming Soon Screen'));
     }
@@ -450,7 +430,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(isClockedIn ? 'Clocked out successfully.' : 'Clocked in successfully!'),
-            backgroundColor: isClockedIn ? Colors.orange.shade800 : AppTheme.accentGreen,
+            backgroundColor: isClockedIn ? AppTheme.accentAmber : AppTheme.accentGreen,
           ),
         );
       }
@@ -475,16 +455,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
     final activeTargets = state.salesTargets.where((t) => t.employeeId == profile.id && t.status == 'ACTIVE');
     final target = activeTargets.isEmpty ? null : activeTargets.first;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 600),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 1. Greeting Card
-              Container(
+    final greetingCard = Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
@@ -532,7 +503,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                                   shape: BoxShape.circle,
                                 ),
                                 child: Icon(
-                                  Icons.access_time_rounded,
+                                  PhosphorIconsRegular.clock,
                                   size: 20,
                                   color: isClockedIn ? AppTheme.accentGreen : AppTheme.accentRed,
                                 ),
@@ -568,7 +539,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                             child: ElevatedButton.icon(
                               onPressed: () => _toggleClock(context, ref, isClockedIn),
                               icon: Icon(
-                                isClockedIn ? Icons.logout_rounded : Icons.login_rounded,
+                                isClockedIn ? PhosphorIconsRegular.signOut : PhosphorIconsRegular.signIn,
                                 size: 16,
                               ),
                               label: Text(
@@ -576,9 +547,10 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                                 style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
                               ),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: isClockedIn ? Colors.grey.shade800 : AppTheme.primaryBlue,
+                                backgroundColor: isClockedIn ? AppTheme.slateDark : AppTheme.primaryBlue,
                                 foregroundColor: Colors.white,
-                                elevation: 0,
+                                elevation: 2,
+                                shadowColor: (isClockedIn ? AppTheme.slateDark : AppTheme.primaryBlue).withValues(alpha: 0.3),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(10),
                                 ),
@@ -590,11 +562,9 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 14),
+    );
 
-              // 2. New Billing / Checkout Action Banner
-              InkWell(
+    final billingBanner = InkWell(
                 onTap: () => onTabSelected(3),
                 borderRadius: BorderRadius.circular(16),
                 child: Container(
@@ -619,7 +589,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: const Icon(
-                          Icons.shopping_bag_outlined,
+                          PhosphorIconsRegular.shoppingBag,
                           color: Colors.white,
                           size: 22,
                         ),
@@ -656,7 +626,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
-                          Icons.arrow_forward_rounded,
+                          PhosphorIconsRegular.arrowRight,
                           color: Colors.white,
                           size: 16,
                         ),
@@ -664,11 +634,9 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
+    );
 
-              // 3. Recent Bills Handled Card
-              Container(
+    final recentBillsCard = Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
@@ -683,7 +651,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                       children: [
                         const Row(
                           children: [
-                            Icon(Icons.history_rounded, size: 18, color: AppTheme.slateMedium),
+                            Icon(PhosphorIconsRegular.clockCounterClockwise, size: 18, color: AppTheme.slateMedium),
                             SizedBox(width: 8),
                             Text(
                               'Recent Bills Handled',
@@ -718,11 +686,9 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                       ],
                   ],
                 ),
-              ),
-              const SizedBox(height: 16),
+    );
 
-              // 4. Personal Revenue Target Card
-              Container(
+    final targetCard = Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
@@ -734,7 +700,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                   children: [
                     const Row(
                       children: [
-                        Icon(Icons.insights_rounded, size: 18, color: AppTheme.slateMedium),
+                        Icon(PhosphorIconsRegular.chartLineUp, size: 18, color: AppTheme.slateMedium),
                         SizedBox(width: 8),
                         Text(
                           'Personal Revenue Target',
@@ -827,7 +793,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const Icon(
-                              Icons.lightbulb_outline_rounded,
+                              PhosphorIconsRegular.lightbulb,
                               size: 18,
                               color: AppTheme.primaryBlue,
                             ),
@@ -851,12 +817,103 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                     ],
                   ],
                 ),
-              ),
-              const SizedBox(height: 32),
-            ],
+    );
+
+    final discountCard = Builder(builder: (context) {
+                final myRequests = state.discountRequests;
+                final pendingCount = myRequests.where((r) => r.status == 'PENDING').length;
+                return Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppTheme.borderSubtle),
+                  ),
+                  padding: const EdgeInsets.all(20.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(PhosphorIconsRegular.tag, size: 18, color: AppTheme.slateMedium),
+                              SizedBox(width: 8),
+                              Text(
+                                'Discount Requests',
+                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppTheme.slateDark),
+                              ),
+                            ],
+                          ),
+                          GestureDetector(
+                            onTap: () => onTabSelected(7),
+                            child: const Text('View All', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.primaryBlue)),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        pendingCount == 0
+                            ? 'Need a bigger discount approved than you can give yourself? Ask your manager.'
+                            : '$pendingCount request${pendingCount == 1 ? '' : 's'} waiting on your manager.',
+                        style: const TextStyle(fontSize: 12, color: AppTheme.slateLight),
+                      ),
+                    ],
+                  ),
+                );
+      });
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // >=900 mirrors _kMobileBreakpoint's sidebar cutoff in the shell -
+        // below that this tab already has the full window width, and the
+        // single-column layout (designed for that width) is already right.
+        final isWide = constraints.maxWidth >= 900;
+        return SingleChildScrollView(
+          padding: EdgeInsets.symmetric(horizontal: isWide ? 32.0 : 16.0, vertical: 20.0),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: isWide ? 1100 : 600),
+              child: isWide
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 3,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [greetingCard, const SizedBox(height: 16), billingBanner, const SizedBox(height: 16), recentBillsCard],
+                          ),
+                        ),
+                        const SizedBox(width: 20),
+                        Expanded(
+                          flex: 2,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [targetCard, const SizedBox(height: 16), discountCard],
+                          ),
+                        ),
+                      ],
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        greetingCard,
+                        const SizedBox(height: 14),
+                        billingBanner,
+                        const SizedBox(height: 16),
+                        recentBillsCard,
+                        const SizedBox(height: 16),
+                        targetCard,
+                        const SizedBox(height: 16),
+                        discountCard,
+                        const SizedBox(height: 32),
+                      ],
+                    ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -895,7 +952,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
               const SizedBox(height: 2),
               Row(
                 children: [
-                  const Icon(Icons.content_cut_rounded, size: 11, color: AppTheme.slateLight),
+                  const Icon(PhosphorIconsRegular.scissors, size: 11, color: AppTheme.slateLight),
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
@@ -958,7 +1015,7 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
           SnackBar(
             content: Text(isClockedIn ? 'Successfully clocked out of shift.' : 'Clock in registered successfully!'),
             behavior: SnackBarBehavior.floating,
-            backgroundColor: isClockedIn ? Colors.orange.shade800 : AppTheme.accentGreen,
+            backgroundColor: isClockedIn ? AppTheme.accentAmber : AppTheme.accentGreen,
           ),
         );
       }
@@ -1031,7 +1088,7 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Icon(
-                              Icons.fingerprint_rounded,
+                              PhosphorIconsRegular.fingerprint,
                               color: isClockedIn ? AppTheme.accentRed : AppTheme.accentGreen,
                               size: 44,
                             ),
@@ -1075,7 +1132,7 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
                         itemBuilder: (context, idx) {
                           final rec = history[idx];
                           Color statusColor = AppTheme.accentGreen;
-                          if (rec.status == 'LATE') statusColor = Colors.orange;
+                          if (rec.status == 'LATE') statusColor = AppTheme.accentAmber;
                           if (rec.status == 'ABSENT') statusColor = AppTheme.accentRed;
                           return Row(
                             children: [
@@ -1116,8 +1173,8 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
       builder: (context, ref, child) {
         final asyncData = ref.watch(appDataProvider);
         return asyncData.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (err, st) => Center(child: Text(err.toString())),
+          loading: () => const AppLoadingView(),
+          error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
           data: (state) {
             final q = _searchQuery.toLowerCase();
             final filtered = state.customers.where((c) => c.name.toLowerCase().contains(q) || c.phone.contains(q)).toList();
@@ -1135,7 +1192,7 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
                     onChanged: (val) => setState(() => _searchQuery = val),
                     decoration: const InputDecoration(
                       hintText: 'Search by client name or phone...',
-                      prefixIcon: Icon(Icons.search_rounded, size: 20, color: AppTheme.slateLight),
+                      prefixIcon: Icon(PhosphorIconsRegular.magnifyingGlass, size: 20, color: AppTheme.slateLight),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -1169,7 +1226,7 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
                                   title: Row(
                                     children: [
                                       Expanded(child: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14), overflow: TextOverflow.ellipsis)),
-                                      if (c.isVip) const Icon(Icons.star, color: Colors.amber, size: 14),
+                                      if (c.isVip) const Icon(PhosphorIconsFill.star, color: AppTheme.accentGold, size: 14),
                                     ],
                                   ),
                                   subtitle: Text('${c.phone} • Last visit: $lastVisit', style: const TextStyle(fontSize: 12, color: AppTheme.slateLight)),
@@ -1202,24 +1259,39 @@ class _EmployeeBillingTab extends ConsumerStatefulWidget {
 class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
   String? _selectedCustomerId;
   final Set<String> _selectedServiceIds = {};
+  final Map<String, int> _selectedProductQuantities = {};
+  final _serviceSearchController = TextEditingController();
+  final _productSearchController = TextEditingController();
   String _paymentMethod = 'CASH';
   bool _submitting = false;
+
+  @override
+  void dispose() {
+    _serviceSearchController.dispose();
+    _productSearchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final asyncData = ref.watch(appDataProvider);
     return asyncData.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (err, st) => Center(child: Text(err.toString())),
+      loading: () => const AppLoadingView(),
+      error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
       data: (state) => _buildBody(context, state),
     );
   }
 
   Widget _buildBody(BuildContext context, AppData state) {
+    final selectedCustomerName = _selectedCustomerId == null ? null : _firstOrNull(state.customers.where((c) => c.id == _selectedCustomerId))?.name;
     double subtotal = 0;
     for (final id in _selectedServiceIds) {
       final svc = state.services.where((s) => s.id == id);
       if (svc.isNotEmpty) subtotal += svc.first.price;
+    }
+    for (final entry in _selectedProductQuantities.entries) {
+      final prod = state.inventory.where((p) => p.id == entry.key);
+      if (prod.isNotEmpty) subtotal += prod.first.price * entry.value;
     }
     final gstRate = state.settings?.gstRate ?? 18;
     final taxAmount = subtotal * (gstRate / 100);
@@ -1244,40 +1316,142 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                 const SizedBox(height: 18),
                 const Text('Client Selector', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: AppTheme.slateMedium)),
                 const SizedBox(height: 6),
-                DropdownButtonFormField<String>(
-                  hint: const Text('Choose client...'),
-                  initialValue: _selectedCustomerId,
-                  isExpanded: true,
-                  items: state.customers.map((c) => DropdownMenuItem(value: c.id, child: Text(c.name, overflow: TextOverflow.ellipsis))).toList(),
-                  onChanged: (val) => setState(() => _selectedCustomerId = val),
-                  decoration: const InputDecoration(),
+                InkWell(
+                  onTap: () async {
+                    final customer = await showSearchablePicker<Customer>(
+                      context: context,
+                      title: 'Select Customer',
+                      items: state.customers,
+                      labelOf: (c) => c.name,
+                      subtitleOf: (c) => c.phone,
+                    );
+                    if (customer != null) setState(() => _selectedCustomerId = customer.id);
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  child: InputDecorator(
+                    decoration: const InputDecoration(),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            selectedCustomerName ?? 'Choose client...',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 14, color: selectedCustomerName == null ? AppTheme.slateLight : AppTheme.slateDark),
+                          ),
+                        ),
+                        const Icon(PhosphorIconsRegular.caretDown, size: 16, color: AppTheme.slateLight),
+                      ],
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 20),
                 const Text('Services Rendered', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: AppTheme.slateMedium)),
                 const SizedBox(height: 8),
                 if (state.services.isEmpty)
                   const Text('No services in catalog yet.', style: TextStyle(fontSize: 12, color: AppTheme.slateLight))
-                else
-                  ...state.services.map((s) {
-                    final isSel = _selectedServiceIds.contains(s.id);
-                    return CheckboxListTile(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: Text(s.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                      subtitle: Text('Rs. ${s.price.toStringAsFixed(0)}', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
-                      value: isSel,
-                      activeColor: AppTheme.primaryBlue,
-                      onChanged: (val) {
-                        setState(() {
-                          if (val == true) {
-                            _selectedServiceIds.add(s.id);
-                          } else {
-                            _selectedServiceIds.remove(s.id);
-                          }
-                        });
-                      },
+                else ...[
+                  if (state.services.length > 5) ...[
+                    TextField(
+                      controller: _serviceSearchController,
+                      onChanged: (_) => setState(() {}),
+                      decoration: const InputDecoration(hintText: 'Search services...', prefixIcon: Icon(PhosphorIconsRegular.magnifyingGlass, size: 18), isDense: true),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  Builder(builder: (context) {
+                    final query = _serviceSearchController.text.toLowerCase().trim();
+                    final filtered = query.isEmpty ? state.services : state.services.where((s) => s.name.toLowerCase().contains(query)).toList();
+                    if (filtered.isEmpty) {
+                      return const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('No services match your search.', style: TextStyle(fontSize: 12, color: AppTheme.slateLight)));
+                    }
+                    return Column(
+                      children: filtered.map((s) {
+                        final isSel = _selectedServiceIds.contains(s.id);
+                        return CheckboxListTile(
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          title: Text(s.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                          subtitle: Text('Rs. ${s.price.toStringAsFixed(0)}', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
+                          value: isSel,
+                          activeColor: AppTheme.primaryBlue,
+                          onChanged: (val) {
+                            setState(() {
+                              if (val == true) {
+                                _selectedServiceIds.add(s.id);
+                              } else {
+                                _selectedServiceIds.remove(s.id);
+                              }
+                            });
+                          },
+                        );
+                      }).toList(),
                     );
                   }),
+                ],
+                const SizedBox(height: 16),
+                const Text('Products Sold', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: AppTheme.slateMedium)),
+                const SizedBox(height: 8),
+                Builder(builder: (context) {
+                  final sellable = state.inventory.where((p) => p.stockCount > 0).toList();
+                  if (sellable.isEmpty) {
+                    return const Text('No in-stock products to sell right now.', style: TextStyle(fontSize: 12, color: AppTheme.slateLight));
+                  }
+                  final query = _productSearchController.text.toLowerCase().trim();
+                  final filtered = query.isEmpty ? sellable : sellable.where((p) => p.name.toLowerCase().contains(query)).toList();
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (sellable.length > 5) ...[
+                        TextField(
+                          controller: _productSearchController,
+                          onChanged: (_) => setState(() {}),
+                          decoration: const InputDecoration(hintText: 'Search products...', prefixIcon: Icon(PhosphorIconsRegular.magnifyingGlass, size: 18), isDense: true),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      if (filtered.isEmpty)
+                        const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('No products match your search.', style: TextStyle(fontSize: 12, color: AppTheme.slateLight)))
+                      else
+                        ...filtered.map((prod) {
+                          final qty = _selectedProductQuantities[prod.id] ?? 0;
+                          return ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            title: Text(prod.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                            subtitle: Text('Rs. ${prod.price.toStringAsFixed(0)} • ${prod.stockCount} in stock', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
+                            trailing: qty == 0
+                                ? OutlinedButton(
+                                    onPressed: () => setState(() => _selectedProductQuantities[prod.id] = 1),
+                                    style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 12)),
+                                    child: const Text('Add', style: TextStyle(fontSize: 11)),
+                                  )
+                                : Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(PhosphorIconsRegular.minusCircle, size: 20),
+                                        visualDensity: VisualDensity.compact,
+                                        onPressed: () => setState(() {
+                                          if (qty <= 1) {
+                                            _selectedProductQuantities.remove(prod.id);
+                                          } else {
+                                            _selectedProductQuantities[prod.id] = qty - 1;
+                                          }
+                                        }),
+                                      ),
+                                      Text('$qty', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                      IconButton(
+                                        icon: const Icon(PhosphorIconsRegular.plusCircle, size: 20),
+                                        visualDensity: VisualDensity.compact,
+                                        onPressed: qty >= prod.stockCount ? null : () => setState(() => _selectedProductQuantities[prod.id] = qty + 1),
+                                      ),
+                                    ],
+                                  ),
+                          );
+                        }),
+                    ],
+                  );
+                }),
                 const SizedBox(height: 16),
                 const Text('Payment Method', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: AppTheme.slateMedium)),
                 const SizedBox(height: 8),
@@ -1285,7 +1459,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                   children: ['CASH', 'CARD', 'UPI'].map((method) {
                     final isSel = _paymentMethod == method;
                     Color color = AppTheme.primaryBlue;
-                    if (method == 'CASH') color = Colors.amber.shade800;
+                    if (method == 'CASH') color = AppTheme.accentAmber;
                     if (method == 'CARD') color = Colors.deepPurple;
                     return Expanded(
                       child: Padding(
@@ -1297,10 +1471,10 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                             padding: const EdgeInsets.symmetric(vertical: 12),
                             decoration: BoxDecoration(
                               color: isSel ? color.withValues(alpha: 0.12) : Colors.transparent,
-                              border: Border.all(color: isSel ? color : Colors.grey.shade300, width: 1.5),
+                              border: Border.all(color: isSel ? color : AppTheme.borderStrong, width: 1.5),
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: Center(child: Text(method, style: TextStyle(fontWeight: FontWeight.bold, color: isSel ? color : Colors.grey.shade600, fontSize: 12))),
+                            child: Center(child: Text(method, style: TextStyle(fontWeight: FontWeight.bold, color: isSel ? color : AppTheme.slateMedium, fontSize: 12))),
                           ),
                         ),
                       ),
@@ -1336,7 +1510,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                   width: double.infinity,
                   height: 48,
                   child: ElevatedButton(
-                    onPressed: (_selectedCustomerId == null || _selectedServiceIds.isEmpty || _submitting) ? null : () => _submit(context, state),
+                    onPressed: (_selectedCustomerId == null || (_selectedServiceIds.isEmpty && _selectedProductQuantities.isEmpty) || _submitting) ? null : () => _submit(context, state),
                     child: _submitting
                         ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                         : const Text('Complete & Generate Bill'),
@@ -1353,9 +1527,10 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
   Future<void> _submit(BuildContext context, AppData state) async {
     setState(() => _submitting = true);
     try {
-      final items = _selectedServiceIds
-          .map((id) => BillItemInput(type: 'SERVICE', serviceId: id, employeeId: widget.profile.id, quantity: 1))
-          .toList();
+      final items = [
+        ..._selectedServiceIds.map((id) => BillItemInput(type: 'SERVICE', serviceId: id, employeeId: widget.profile.id, quantity: 1)),
+        ..._selectedProductQuantities.entries.map((e) => BillItemInput(type: 'PRODUCT', inventoryItemId: e.key, employeeId: widget.profile.id, quantity: e.value)),
+      ];
       final bill = await ref.read(appDataProvider.notifier).createBill(
             customerId: _selectedCustomerId!,
             branchId: widget.profile.branchId,
@@ -1367,7 +1542,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Row(children: [Icon(Icons.check_circle, color: Colors.green, size: 28), SizedBox(width: 8), Text('Bill Generated')]),
+          title: const Row(children: [Icon(PhosphorIconsRegular.checkCircle, color: AppTheme.accentGreen, size: 28), SizedBox(width: 8), Text('Bill Generated')]),
           content: Text('Invoice ${bill.invoiceNumber} created.\nTotal: Rs. ${bill.finalAmount.toStringAsFixed(0)} via $_paymentMethod.'),
           actions: [
             TextButton(
@@ -1376,6 +1551,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                 setState(() {
                   _selectedCustomerId = null;
                   _selectedServiceIds.clear();
+                  _selectedProductQuantities.clear();
                 });
               },
               child: const Text('OK'),
@@ -1492,8 +1668,8 @@ class _EmployeeSalaryTab extends StatelessWidget {
                               const SizedBox(width: 10),
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(color: isPaid ? Colors.green.shade50 : Colors.grey.shade100, borderRadius: BorderRadius.circular(4)),
-                                child: Text(rec.status, style: TextStyle(color: isPaid ? Colors.green : AppTheme.slateLight, fontSize: 9, fontWeight: FontWeight.bold)),
+                                decoration: BoxDecoration(color: isPaid ? AppTheme.accentGreenBg : AppTheme.borderSubtle, borderRadius: BorderRadius.circular(4)),
+                                child: Text(rec.status, style: TextStyle(color: isPaid ? AppTheme.accentGreen : AppTheme.slateLight, fontSize: 9, fontWeight: FontWeight.bold)),
                               ),
                             ],
                           );
@@ -1551,7 +1727,7 @@ class _EmployeeTargetTab extends StatelessWidget {
                   child: const Center(
                     child: Column(
                       children: [
-                        Icon(Icons.flag_outlined, size: 40, color: AppTheme.borderSubtle),
+                        Icon(PhosphorIconsRegular.flag, size: 40, color: AppTheme.borderSubtle),
                         SizedBox(height: 12),
                         Text('No sales targets set yet.', style: TextStyle(color: AppTheme.slateMedium, fontWeight: FontWeight.w600)),
                         SizedBox(height: 4),
@@ -1654,7 +1830,7 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Row(
             children: [
-              Icon(Icons.lock_reset_rounded, color: AppTheme.primaryBlue),
+              Icon(PhosphorIconsRegular.lockKey, color: AppTheme.primaryBlue),
               SizedBox(width: 10),
               Text('Change Password', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ],
@@ -1701,7 +1877,10 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
                       }
                       setDialogState(() => submitting = true);
                       try {
-                        await ref.read(authServiceProvider).changePassword(currentPassController.text, newPassController.text);
+                        final auth = ref.read(authControllerProvider);
+                        final app = SalonAuth.currentApp(auth.salonId!);
+                        if (app == null) throw Exception('No initialized Firebase app for salon "${auth.salonId}"');
+                        await SalonAuth.changeOwnPassword(app, currentPassword: currentPassController.text, newPassword: newPassController.text);
                         if (ctx.mounted) Navigator.pop(ctx);
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -1779,7 +1958,7 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
                           height: 20,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: isClockedIn ? AppTheme.accentGreen : Colors.grey.shade400,
+                            color: isClockedIn ? AppTheme.accentGreen : AppTheme.textMuted,
                             border: Border.all(color: Colors.white, width: 2.5),
                           ),
                         ),
@@ -1832,15 +2011,15 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
                   children: [
                     const Text('Work & Compensation', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.slateDark)),
                     const SizedBox(height: 16),
-                    _buildInfoTile(Icons.storefront_outlined, 'Assigned Branch', profile.branchName ?? '-'),
+                    _buildInfoTile(PhosphorIconsRegular.storefront, 'Assigned Branch', profile.branchName ?? '-'),
                     const Divider(color: Color(0xFFF1F5F9), height: 20),
-                    _buildInfoTile(Icons.payments_outlined, 'Base Retainer', 'Rs. ${profile.baseSalary.toStringAsFixed(0)} / month'),
+                    _buildInfoTile(PhosphorIconsRegular.money, 'Base Retainer', 'Rs. ${profile.baseSalary.toStringAsFixed(0)} / month'),
                     const Divider(color: Color(0xFFF1F5F9), height: 20),
-                    _buildInfoTile(Icons.percent_rounded, 'Service Commission', '${profile.serviceCommissionPct.toStringAsFixed(0)}% per service item'),
+                    _buildInfoTile(PhosphorIconsRegular.percent, 'Service Commission', '${profile.serviceCommissionPct.toStringAsFixed(0)}% per service item'),
                     const Divider(color: Color(0xFFF1F5F9), height: 20),
-                    _buildInfoTile(Icons.percent_rounded, 'Product Commission', '${profile.productCommissionPct.toStringAsFixed(0)}% per product item'),
+                    _buildInfoTile(PhosphorIconsRegular.percent, 'Product Commission', '${profile.productCommissionPct.toStringAsFixed(0)}% per product item'),
                     const Divider(color: Color(0xFFF1F5F9), height: 20),
-                    _buildInfoTile(Icons.flag_outlined, 'Monthly Target', target == null ? 'Not set' : target.targetValue.toStringAsFixed(0)),
+                    _buildInfoTile(PhosphorIconsRegular.flag, 'Monthly Target', target == null ? 'Not set' : target.targetValue.toStringAsFixed(0)),
                   ],
                 ),
               ),
@@ -1853,9 +2032,9 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
                   children: [
                     const Text('Contact Info', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.slateDark)),
                     const SizedBox(height: 16),
-                    _buildInfoTile(Icons.mail_outline_rounded, 'Login Email', profile.email),
+                    _buildInfoTile(PhosphorIconsRegular.envelopeSimple, 'Login Email', profile.email),
                     const Divider(color: Color(0xFFF1F5F9), height: 20),
-                    _buildInfoTile(Icons.phone_outlined, 'Contact Phone', profile.phone),
+                    _buildInfoTile(PhosphorIconsRegular.phone, 'Contact Phone', profile.phone),
                   ],
                 ),
               ),
@@ -1873,7 +2052,7 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
                       height: 46,
                       child: OutlinedButton.icon(
                         onPressed: () => _showChangePasswordDialog(context, ref),
-                        icon: const Icon(Icons.key_rounded, size: 18, color: AppTheme.primaryBlue),
+                        icon: const Icon(PhosphorIconsRegular.key, size: 18, color: AppTheme.primaryBlue),
                         label: const Text('Change Password', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.primaryBlue)),
                         style: OutlinedButton.styleFrom(side: const BorderSide(color: AppTheme.primaryLight, width: 1.5), backgroundColor: AppTheme.primaryLight.withValues(alpha: 0.3)),
                       ),
@@ -1904,7 +2083,7 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
                             ),
                           );
                         },
-                        icon: const Icon(Icons.logout_rounded, size: 18, color: AppTheme.accentRed),
+                        icon: const Icon(PhosphorIconsRegular.signOut, size: 18, color: AppTheme.accentRed),
                         label: const Text('Log Out of Account', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.accentRed)),
                         style: OutlinedButton.styleFrom(side: BorderSide(color: AppTheme.accentRed.withValues(alpha: 0.3))),
                       ),
@@ -1948,6 +2127,285 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
           ],
         ),
       ],
+    );
+  }
+}
+
+// --- DISCOUNT REQUESTS TAB ---
+// requestDiscount()/approveDiscountRequest()/rejectDiscountRequest() were
+// already fully implemented (both REST and Firebase) in app_data_provider.dart,
+// but no screen ever called requestDiscount() and nothing displayed the
+// authorizedCode an approval generates - this tab is that missing UI, on both
+// backends since the data layer never distinguished them.
+
+class _EmployeeDiscountRequestsTab extends ConsumerWidget {
+  final EmployeeProfile profile;
+  final AppData state;
+
+  const _EmployeeDiscountRequestsTab({required this.profile, required this.state});
+
+  void _showNewRequestDialog(BuildContext context, WidgetRef ref) {
+    final discountController = TextEditingController();
+    final reasonController = TextEditingController();
+    final overrideController = TextEditingController();
+    String? selectedBillId;
+    bool submitting = false;
+
+    final myBills = state.bills.where((b) => b.items.any((i) => i.employeeId == profile.id)).toList()
+      ..sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(PhosphorIconsRegular.tag, color: AppTheme.primaryBlue),
+              SizedBox(width: 10),
+              Text('Request Discount Approval', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                DropdownButtonFormField<String?>(
+                  initialValue: selectedBillId,
+                  decoration: const InputDecoration(labelText: 'Linked Bill (optional)'),
+                  isExpanded: true,
+                  borderRadius: BorderRadius.circular(14),
+                  dropdownColor: Colors.white,
+                  elevation: 3,
+                  items: [
+                    const DropdownMenuItem<String?>(value: null, child: Text('General request - no bill')),
+                    for (final b in myBills.take(15))
+                      DropdownMenuItem<String?>(
+                        value: b.id,
+                        child: Text(
+                          '${b.invoiceNumber} - ${b.customerName ?? "Customer"} (Rs. ${b.finalAmount.toStringAsFixed(0)})',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: (v) => setDialogState(() => selectedBillId = v),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: discountController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Requested Discount (Rs.) *', hintText: 'e.g. 200'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: overrideController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Override Price (Rs., optional)', hintText: 'Leave blank unless setting a fixed final price'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: reasonController,
+                  maxLines: 2,
+                  decoration: const InputDecoration(labelText: 'Reason *', hintText: 'Why does this customer need extra discount?'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: submitting
+                  ? null
+                  : () async {
+                      final discount = double.tryParse(discountController.text.trim());
+                      if (discount == null || discount <= 0) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Enter a valid discount amount.'), backgroundColor: AppTheme.accentRed),
+                        );
+                        return;
+                      }
+                      if (reasonController.text.trim().isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('A reason is required.'), backgroundColor: AppTheme.accentRed),
+                        );
+                        return;
+                      }
+                      setDialogState(() => submitting = true);
+                      try {
+                        await ref.read(appDataProvider.notifier).requestDiscount(
+                              billId: selectedBillId,
+                              requestedDiscount: discount,
+                              overridePrice: double.tryParse(overrideController.text.trim()),
+                              reason: reasonController.text.trim(),
+                            );
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Request sent to your manager.'), backgroundColor: AppTheme.accentGreen),
+                          );
+                        }
+                      } catch (e) {
+                        setDialogState(() => submitting = false);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
+                        }
+                      }
+                    },
+              child: submitting
+                  ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('Send Request'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'APPROVED':
+        return AppTheme.accentGreen;
+      case 'REJECTED':
+        return AppTheme.accentRed;
+      default:
+        return AppTheme.accentAmber;
+    }
+  }
+
+  Widget _buildRequestCard(BuildContext context, DiscountRequest req) {
+    final bill = req.billId == null ? null : state.bills.where((b) => b.id == req.billId);
+    final matchedBill = (bill != null && bill.isNotEmpty) ? bill.first : null;
+    final statusColor = _statusColor(req.status);
+
+    return Container(
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
+      padding: const EdgeInsets.all(18.0),
+      margin: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  matchedBill != null ? '${matchedBill.customerName ?? "Customer"} • ${matchedBill.invoiceNumber}' : 'General request',
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(6)),
+                child: Text(req.status, style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.w800)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Requested Rs. ${req.requestedDiscount.toStringAsFixed(0)} off${req.overridePrice != null ? ' • override Rs. ${req.overridePrice!.toStringAsFixed(0)}' : ''}',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.slateDark),
+          ),
+          const SizedBox(height: 4),
+          Text(req.reason, style: const TextStyle(fontSize: 12, color: AppTheme.slateMedium)),
+          const SizedBox(height: 4),
+          Text(_formatDate(req.createdAt), style: const TextStyle(fontSize: 10, color: AppTheme.slateLight)),
+          if (req.status == 'APPROVED' && req.authorizedCode != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0FDF4),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.accentGreen.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(PhosphorIconsRegular.sealCheck, size: 16, color: AppTheme.accentGreen),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Authorization Code', style: TextStyle(fontSize: 10, color: AppTheme.slateLight, fontWeight: FontWeight.w600)),
+                        Text(req.authorizedCode!, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppTheme.slateDark, letterSpacing: 1)),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(PhosphorIconsRegular.copy, size: 18, color: AppTheme.slateMedium),
+                    tooltip: 'Copy code',
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: req.authorizedCode!));
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Code copied.')));
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final requests = [...state.discountRequests]..sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
+
+    return RefreshIndicator(
+      // No real-time sync to either backend - if a manager approves this
+      // elsewhere, pull-to-refresh (or the button below) is how this list
+      // picks that up.
+      onRefresh: () => ref.read(appDataProvider.notifier).refresh(),
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16.0),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 600),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Discount Requests', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22, color: AppTheme.slateDark)),
+                const SizedBox(height: 4),
+                const Text('Ask your manager to approve a discount beyond what you can give.', style: TextStyle(color: AppTheme.slateLight, fontSize: 13)),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 46,
+                  child: ElevatedButton.icon(
+                    onPressed: () => _showNewRequestDialog(context, ref),
+                    icon: const Icon(PhosphorIconsRegular.plus, size: 18),
+                    label: const Text('New Request', style: TextStyle(fontWeight: FontWeight.w700)),
+                    style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryBlue, foregroundColor: Colors.white),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                if (requests.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
+                    padding: const EdgeInsets.all(32.0),
+                    child: const Center(
+                      child: Column(
+                        children: [
+                          Icon(PhosphorIconsRegular.tag, size: 40, color: AppTheme.borderSubtle),
+                          SizedBox(height: 12),
+                          Text('No discount requests yet.', style: TextStyle(color: AppTheme.slateMedium, fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  for (final req in requests) _buildRequestCard(context, req),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

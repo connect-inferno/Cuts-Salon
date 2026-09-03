@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../theme.dart';
 import '../../../data/app_data_provider.dart';
 import '../../../data/models.dart';
+import '../../../widgets/async_state_views.dart';
 
 class OwnerDashboardTab extends ConsumerWidget {
   final Function(int) onTabSelected;
@@ -28,24 +30,8 @@ class OwnerDashboardTab extends ConsumerWidget {
     final asyncData = ref.watch(appDataProvider);
 
     return asyncData.when(
-      loading: () => const Center(child: Padding(padding: EdgeInsets.all(40), child: CircularProgressIndicator())),
-      error: (err, st) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            children: [
-              const Icon(Icons.error_outline, color: AppTheme.accentRed, size: 32),
-              const SizedBox(height: 12),
-              Text(err.toString(), textAlign: TextAlign.center, style: const TextStyle(color: AppTheme.slateMedium)),
-              const SizedBox(height: 12),
-              OutlinedButton(
-                onPressed: () => ref.read(appDataProvider.notifier).refresh(),
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
-      ),
+      loading: () => const AppLoadingView(),
+      error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
       data: (state) => _buildContent(context, ref, state),
     );
   }
@@ -59,230 +45,316 @@ class OwnerDashboardTab extends ConsumerWidget {
     final pendingDiscounts = dashboard.pendingDiscountRequests;
     final lowStockCount = dashboard.lowStockItemCount;
 
+    final metricTiles = [
+      _buildMetricTile(
+        icon: PhosphorIconsRegular.users,
+        value: '$customerCount',
+        label: "Today's Customers",
+        onTap: () => onTabSelected(1),
+      ),
+      _buildMetricTile(
+        icon: PhosphorIconsRegular.fileText,
+        value: '$billsCount',
+        label: 'Bills',
+        onTap: () => onTabSelected(4),
+      ),
+      _buildMetricTile(
+        icon: PhosphorIconsRegular.calendarBlank,
+        value: attendanceDisplay,
+        label: 'Attendance',
+        onTap: () => onTabSelected(3),
+      ),
+      _buildMetricTile(
+        icon: PhosphorIconsRegular.tag,
+        value: '$pendingDiscounts',
+        label: 'Pending Discounts',
+        accentColor: AppTheme.accentRed,
+        onTap: () => onTabSelected(9),
+      ),
+      _buildMetricTile(
+        icon: PhosphorIconsRegular.package,
+        value: '$lowStockCount',
+        label: 'Low Stock',
+        accentColor: AppTheme.accentRed,
+        onTap: () => onTabSelected(5),
+      ),
+    ];
+
+    final paymentBreakdownCard = Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
+      padding: const EdgeInsets.all(20.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Payment Breakdown (Today)',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.slateDark,
+            ),
+          ),
+          const SizedBox(height: 16),
+          _buildPaymentRow(
+            icon: PhosphorIconsRegular.money,
+            label: 'Cash',
+            amount: _formatCurrency(dashboard.todayCash),
+          ),
+          const Divider(color: Color(0xFFF1F5F9), height: 20),
+          _buildPaymentRow(
+            icon: PhosphorIconsRegular.creditCard,
+            label: 'Card',
+            amount: _formatCurrency(dashboard.todayCard),
+          ),
+          const Divider(color: Color(0xFFF1F5F9), height: 20),
+          _buildPaymentRow(
+            icon: PhosphorIconsRegular.qrCode,
+            label: 'UPI',
+            amount: _formatCurrency(dashboard.todayUpi),
+          ),
+        ],
+      ),
+    );
+
+    final quickActionsCard = Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
+      padding: const EdgeInsets.all(20.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Quick Actions',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.slateDark,
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton.icon(
+              onPressed: () => onTabSelected(4),
+              icon: const Icon(PhosphorIconsRegular.shoppingCart, size: 18),
+              label: const Text(
+                'Start Billing',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryBlue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: OutlinedButton.icon(
+              onPressed: () => onTabSelected(3),
+              icon: const Icon(PhosphorIconsRegular.userCheck, size: 18, color: AppTheme.slateDark),
+              label: const Text(
+                'Attendance',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.slateDark),
+              ),
+              style: OutlinedButton.styleFrom(
+                backgroundColor: Colors.white,
+                side: const BorderSide(color: AppTheme.borderSubtle, width: 1),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
     return RefreshIndicator(
       onRefresh: () => ref.read(appDataProvider.notifier).refresh(),
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 600),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.center,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // >=900 is a deliberate mirror of kOwnerMobileBreakpoint - below
+          // that the shell drops the sidebar too, so this tab already has
+          // the full window width and the narrow single-column layout
+          // (designed for that width) is the right one either way.
+          final isWide = constraints.maxWidth >= 900;
+
+          return SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.symmetric(horizontal: isWide ? 32.0 : 16.0, vertical: 20.0),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: isWide ? 1200 : 600),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Overview',
-                      style: TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.w900,
-                        color: AppTheme.slateDark,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: const Text(
-                        'Live',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.slateLight,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-
-                _buildSalesCard(
-                  title: "Today's Sales",
-                  amount: _formatCurrency(dashboard.todaySales),
-                  headerIcon: Icons.trending_up_rounded,
-                  headerIconColor: AppTheme.primaryBlue,
-                ),
-                const SizedBox(height: 12),
-
-                _buildSalesCard(
-                  title: "This Week's Sales",
-                  amount: _formatCurrency(dashboard.weekSales),
-                  headerIcon: Icons.calendar_today_outlined,
-                  headerIconColor: AppTheme.slateLight,
-                ),
-                const SizedBox(height: 12),
-
-                _buildSalesCard(
-                  title: "This Month's Sales",
-                  amount: _formatCurrency(dashboard.monthSales),
-                  headerIcon: Icons.calendar_today_outlined,
-                  headerIconColor: AppTheme.slateLight,
-                ),
-                const SizedBox(height: 16),
-
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppTheme.borderSubtle),
-                  ),
-                  padding: const EdgeInsets.all(20.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Payment Breakdown (Today)',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.slateDark,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      _buildPaymentRow(
-                        icon: Icons.payments_outlined,
-                        label: 'Cash',
-                        amount: _formatCurrency(dashboard.todayCash),
-                      ),
-                      const Divider(color: Color(0xFFF1F5F9), height: 20),
-                      _buildPaymentRow(
-                        icon: Icons.credit_card_outlined,
-                        label: 'Card',
-                        amount: _formatCurrency(dashboard.todayCard),
-                      ),
-                      const Divider(color: Color(0xFFF1F5F9), height: 20),
-                      _buildPaymentRow(
-                        icon: Icons.qr_code_2_rounded,
-                        label: 'UPI',
-                        amount: _formatCurrency(dashboard.todayUpi),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final itemWidth = (constraints.maxWidth - 12) / 2;
-                    return Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        SizedBox(
-                          width: itemWidth,
-                          child: _buildMetricTile(
-                            icon: Icons.people_outline_rounded,
-                            value: '$customerCount',
-                            label: "Today's Customers",
-                            onTap: () => onTabSelected(1),
+                        const Text(
+                          'Overview',
+                          style: TextStyle(
+                            fontSize: 26,
+                            fontWeight: FontWeight.w900,
+                            color: AppTheme.slateDark,
+                            letterSpacing: -0.5,
                           ),
                         ),
-                        SizedBox(
-                          width: itemWidth,
-                          child: _buildMetricTile(
-                            icon: Icons.description_outlined,
-                            value: '$billsCount',
-                            label: 'Bills',
-                            onTap: () => onTabSelected(4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(20),
                           ),
-                        ),
-                        SizedBox(
-                          width: itemWidth,
-                          child: _buildMetricTile(
-                            icon: Icons.calendar_today_outlined,
-                            value: attendanceDisplay,
-                            label: 'Attendance',
-                            onTap: () => onTabSelected(3),
-                          ),
-                        ),
-                        SizedBox(
-                          width: itemWidth,
-                          child: _buildMetricTile(
-                            icon: Icons.local_offer_outlined,
-                            value: '$pendingDiscounts',
-                            label: 'Pending Discounts',
-                            accentColor: AppTheme.accentRed,
-                            onTap: () => onTabSelected(9),
-                          ),
-                        ),
-                        SizedBox(
-                          width: itemWidth,
-                          child: _buildMetricTile(
-                            icon: Icons.inventory_2_outlined,
-                            value: '$lowStockCount',
-                            label: 'Low Stock',
-                            accentColor: AppTheme.accentRed,
-                            onTap: () => onTabSelected(5),
+                          child: const Text(
+                            'Live',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.slateLight,
+                            ),
                           ),
                         ),
                       ],
-                    );
-                  },
-                ),
-                const SizedBox(height: 24),
-
-                const Text(
-                  'Quick Actions',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.slateDark,
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: ElevatedButton.icon(
-                    onPressed: () => onTabSelected(4),
-                    icon: const Icon(Icons.shopping_cart_outlined, size: 18),
-                    label: const Text(
-                      'Start Billing',
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
                     ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.primaryBlue,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
+                    SizedBox(height: isWide ? 24 : 18),
+                    if (isWide)
+                      _buildWideBody(dashboard, paymentBreakdownCard, quickActionsCard, metricTiles)
+                    else
+                      _buildNarrowBody(dashboard, paymentBreakdownCard, quickActionsCard, metricTiles),
+                  ],
                 ),
-                const SizedBox(height: 10),
-
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: OutlinedButton.icon(
-                    onPressed: () => onTabSelected(3),
-                    icon: const Icon(Icons.person_pin_circle_outlined, size: 18, color: AppTheme.slateDark),
-                    label: const Text(
-                      'Attendance',
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.slateDark),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      side: const BorderSide(color: AppTheme.borderSubtle, width: 1),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 32),
-              ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
+    );
+  }
+
+  Widget _buildNarrowBody(
+    DashboardSummary dashboard,
+    Widget paymentBreakdownCard,
+    Widget quickActionsCard,
+    List<Widget> metricTiles,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSalesCard(
+          title: "Today's Sales",
+          amount: _formatCurrency(dashboard.todaySales),
+          headerIcon: PhosphorIconsRegular.trendUp,
+          headerIconColor: AppTheme.primaryBlue,
+        ),
+        const SizedBox(height: 12),
+        _buildSalesCard(
+          title: "This Week's Sales",
+          amount: _formatCurrency(dashboard.weekSales),
+          headerIcon: PhosphorIconsRegular.calendarBlank,
+          headerIconColor: AppTheme.slateLight,
+        ),
+        const SizedBox(height: 12),
+        _buildSalesCard(
+          title: "This Month's Sales",
+          amount: _formatCurrency(dashboard.monthSales),
+          headerIcon: PhosphorIconsRegular.calendarBlank,
+          headerIconColor: AppTheme.slateLight,
+        ),
+        const SizedBox(height: 16),
+        paymentBreakdownCard,
+        const SizedBox(height: 16),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final itemWidth = (constraints.maxWidth - 12) / 2;
+            return Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [for (final tile in metricTiles) SizedBox(width: itemWidth, child: tile)],
+            );
+          },
+        ),
+        const SizedBox(height: 24),
+        quickActionsCard,
+        const SizedBox(height: 32),
+      ],
+    );
+  }
+
+  Widget _buildWideBody(
+    DashboardSummary dashboard,
+    Widget paymentBreakdownCard,
+    Widget quickActionsCard,
+    List<Widget> metricTiles,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: _buildSalesCard(
+                title: "Today's Sales",
+                amount: _formatCurrency(dashboard.todaySales),
+                headerIcon: PhosphorIconsRegular.trendUp,
+                headerIconColor: AppTheme.primaryBlue,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: _buildSalesCard(
+                title: "This Week's Sales",
+                amount: _formatCurrency(dashboard.weekSales),
+                headerIcon: PhosphorIconsRegular.calendarBlank,
+                headerIconColor: AppTheme.slateLight,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: _buildSalesCard(
+                title: "This Month's Sales",
+                amount: _formatCurrency(dashboard.monthSales),
+                headerIcon: PhosphorIconsRegular.calendarBlank,
+                headerIconColor: AppTheme.slateLight,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(flex: 3, child: paymentBreakdownCard),
+            const SizedBox(width: 16),
+            Expanded(flex: 2, child: quickActionsCard),
+          ],
+        ),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            for (int i = 0; i < metricTiles.length; i++) ...[
+              if (i > 0) const SizedBox(width: 16),
+              Expanded(child: metricTiles[i]),
+            ],
+          ],
+        ),
+        const SizedBox(height: 32),
+      ],
     );
   }
 

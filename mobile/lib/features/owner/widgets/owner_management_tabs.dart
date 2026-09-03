@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../theme.dart';
 import '../../../data/app_data_provider.dart';
 import '../../../data/models.dart';
 import '../../auth/auth_provider.dart';
+import '../../../widgets/async_state_views.dart';
 
 String _formatRupees(double amount) {
   final whole = amount.round().toString();
@@ -109,6 +111,9 @@ class OwnerBranchTab extends StatelessWidget {
                 DropdownButtonFormField<String?>(
                   initialValue: managerId,
                   decoration: const InputDecoration(labelText: 'Branch Manager'),
+                  borderRadius: BorderRadius.circular(14),
+                  dropdownColor: Colors.white,
+                  elevation: 3,
                   items: [
                     const DropdownMenuItem<String?>(value: null, child: Text('Unassigned')),
                     ...branchEmployees.map((e) => DropdownMenuItem<String?>(value: e.id, child: Text(e.name))),
@@ -171,8 +176,8 @@ class OwnerBranchTab extends StatelessWidget {
       builder: (context, ref, child) {
         final asyncData = ref.watch(appDataProvider);
         return asyncData.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (err, st) => Center(child: Text(err.toString())),
+          loading: () => const AppLoadingView(),
+          error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
           data: (state) => _buildBody(context, ref, state),
         );
       },
@@ -202,7 +207,7 @@ class OwnerBranchTab extends StatelessWidget {
               ),
               ElevatedButton.icon(
                 onPressed: () => _showAddBranchDialog(context, ref),
-                icon: const Icon(Icons.add_business_rounded, size: 16),
+                icon: const Icon(PhosphorIconsRegular.plus, size: 16),
                 label: const Text('Add Branch'),
               ),
             ],
@@ -233,9 +238,6 @@ class OwnerBranchTab extends StatelessWidget {
                     final revenuePerEmployee = branch.employeeCount > 0 ? branch.monthlyRevenue / branch.employeeCount : 0.0;
 
                     return Card(
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade200)),
-                      color: Colors.white,
                       child: Padding(
                         padding: const EdgeInsets.all(20.0),
                         child: Column(
@@ -249,7 +251,7 @@ class OwnerBranchTab extends StatelessWidget {
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                     decoration: BoxDecoration(
-                                      color: branch.active ? AppTheme.primaryLight : Colors.grey.shade100,
+                                      color: branch.active ? AppTheme.primaryLight : const Color(0xFFF2F4F7),
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     child: Text(
@@ -263,7 +265,7 @@ class OwnerBranchTab extends StatelessWidget {
                                   ),
                                 ),
                                 IconButton(
-                                  icon: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.slateLight),
+                                  icon: const Icon(PhosphorIconsRegular.pencilSimple, size: 18, color: AppTheme.slateLight),
                                   onPressed: () => _showEditBranchDialog(context, ref, branch, branchEmployees),
                                   tooltip: 'Edit Branch',
                                   visualDensity: VisualDensity.compact,
@@ -286,14 +288,14 @@ class OwnerBranchTab extends StatelessWidget {
                               children: [
                                 Row(
                                   children: [
-                                    const Icon(Icons.people, color: AppTheme.slateLight, size: 14),
+                                    const Icon(PhosphorIconsRegular.users, color: AppTheme.slateLight, size: 14),
                                     const SizedBox(width: 4),
                                     Text('${branch.customerCount} Clients', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                                   ],
                                 ),
                                 Row(
                                   children: [
-                                    const Icon(Icons.badge_outlined, color: AppTheme.slateLight, size: 14),
+                                    const Icon(PhosphorIconsRegular.identificationBadge, color: AppTheme.slateLight, size: 14),
                                     const SizedBox(width: 4),
                                     Text('${branch.employeeCount} Staff', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                                   ],
@@ -314,15 +316,12 @@ class OwnerBranchTab extends StatelessWidget {
             ),
             const SizedBox(height: 32),
             Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade200)),
-              color: Colors.white,
               child: Padding(
                 padding: const EdgeInsets.all(20.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Operations Breakdown', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    const Text('Operations Breakdown', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.slateDark)),
                     const SizedBox(height: 16),
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
@@ -330,13 +329,13 @@ class OwnerBranchTab extends StatelessWidget {
                         constraints: const BoxConstraints(minWidth: 640),
                         child: Table(
                           columnWidths: const {0: FlexColumnWidth(2), 1: FlexColumnWidth(1.5), 2: FlexColumnWidth(1.5), 3: FlexColumnWidth(1.8), 4: FlexColumnWidth(1.3)},
-                          border: TableBorder(horizontalInside: BorderSide(color: Colors.grey.shade100, width: 1)),
+                          border: const TableBorder(horizontalInside: BorderSide(color: AppTheme.borderSubtle, width: 1)),
                           children: [
                             TableRow(
                               children: ['Branch Name', 'Manager', 'Location', 'Active Target Progress', '% of Revenue'].map((header) {
                                 return Padding(
                                   padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 4),
-                                  child: Text(header, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.grey.shade500)),
+                                  child: Text(header, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppTheme.slateLight)),
                                 );
                               }).toList(),
                             ),
@@ -369,9 +368,9 @@ class OwnerBranchTab extends StatelessWidget {
                                         ? const Text('No active targets', style: TextStyle(color: AppTheme.slateLight, fontSize: 11))
                                         : Row(
                                             children: [
-                                              Icon(Icons.trending_up, color: avgProgress >= 75 ? AppTheme.accentGreen : Colors.orange, size: 14),
+                                              Icon(PhosphorIconsRegular.trendUp, color: avgProgress >= 75 ? AppTheme.accentGreen : AppTheme.accentAmber, size: 14),
                                               const SizedBox(width: 6),
-                                              Text('${avgProgress.toStringAsFixed(0)}%', style: TextStyle(color: avgProgress >= 75 ? AppTheme.accentGreen : Colors.orange, fontSize: 11, fontWeight: FontWeight.bold)),
+                                              Text('${avgProgress.toStringAsFixed(0)}%', style: TextStyle(color: avgProgress >= 75 ? AppTheme.accentGreen : AppTheme.accentAmber, fontSize: 11, fontWeight: FontWeight.bold)),
                                             ],
                                           ),
                                   ),
@@ -416,8 +415,8 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
 
     return Card(
       elevation: 0,
-      color: Colors.grey.shade50,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
+      color: const Color(0xFFF9FAFB),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: AppTheme.borderSubtle)),
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -430,17 +429,17 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
                 Expanded(
                   child: Text(
                     matchedBill?.customerName ?? 'General discount request',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.slateDark),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                Text('${_formatRupees(req.requestedDiscount)} OFF', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 13)),
+                Text('${_formatRupees(req.requestedDiscount)} OFF', style: const TextStyle(color: AppTheme.accentRed, fontWeight: FontWeight.bold, fontSize: 13)),
               ],
             ),
             const SizedBox(height: 6),
-            Text('By: $employeeName • ${_formatDate(req.createdAt)}', style: TextStyle(color: Colors.grey.shade500, fontSize: 10)),
+            Text('By: $employeeName • ${_formatDate(req.createdAt)}', style: const TextStyle(color: AppTheme.slateLight, fontSize: 10)),
             const SizedBox(height: 4),
-            Text('Reason: ${req.reason}', style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
+            Text('Reason: ${req.reason}', style: const TextStyle(color: AppTheme.slateMedium, fontSize: 11)),
             const Divider(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -449,10 +448,10 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (originalAmount != null)
-                      Text('Original: ${_formatRupees(originalAmount)}', style: TextStyle(fontSize: 10, color: Colors.grey.shade500, decoration: TextDecoration.lineThrough)),
+                      Text('Original: ${_formatRupees(originalAmount)}', style: const TextStyle(fontSize: 10, color: AppTheme.slateLight, decoration: TextDecoration.lineThrough)),
                     Text(
                       discountedVal != null ? 'Final net: ${_formatRupees(discountedVal)}' : (req.overridePrice != null ? 'Override: ${_formatRupees(req.overridePrice!)}' : 'No linked bill'),
-                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: Colors.green),
+                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: AppTheme.accentGreen),
                     ),
                   ],
                 ),
@@ -471,7 +470,7 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
                           }
                         }
                       },
-                      style: OutlinedButton.styleFrom(foregroundColor: Colors.redAccent, side: const BorderSide(color: Colors.redAccent), padding: const EdgeInsets.symmetric(horizontal: 12), visualDensity: VisualDensity.compact),
+                      style: OutlinedButton.styleFrom(foregroundColor: AppTheme.accentRed, side: const BorderSide(color: AppTheme.accentRed), padding: const EdgeInsets.symmetric(horizontal: 12), visualDensity: VisualDensity.compact),
                       child: const Text('Reject', style: TextStyle(fontSize: 11)),
                     ),
                     const SizedBox(width: 8),
@@ -488,7 +487,7 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
                           }
                         }
                       },
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 12), visualDensity: VisualDensity.compact),
+                      style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accentGreen, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 12), visualDensity: VisualDensity.compact),
                       child: const Text('Approve', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                     ),
                   ],
@@ -509,19 +508,13 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
       builder: (context, ref, child) {
         final asyncData = ref.watch(appDataProvider);
         return asyncData.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (err, st) => Center(child: Text(err.toString())),
+          loading: () => const AppLoadingView(),
+          error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
           data: (state) {
             final pendingRequests = state.discountRequests.where((r) => r.status == 'PENDING').toList();
             final historyRequests = state.discountRequests.where((r) => r.status != 'PENDING').toList();
 
             final Widget pendingWidget = Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: isMobile ? BorderRadius.circular(16) : const BorderRadius.horizontal(right: Radius.circular(16)),
-                side: const BorderSide(color: Color(0xFFEEEEEE), width: 1),
-              ),
-              color: Colors.white,
               child: Padding(
                 padding: const EdgeInsets.all(20.0),
                 child: Column(
@@ -531,16 +524,16 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Pending Approvals', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                        const Text('Pending Approvals', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppTheme.slateDark)),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                           decoration: BoxDecoration(
-                            color: pendingRequests.isEmpty ? Colors.green.shade50 : Colors.orange.shade50,
+                            color: pendingRequests.isEmpty ? AppTheme.accentGreenBg : AppTheme.accentAmberBg,
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
                             '${pendingRequests.length} Due',
-                            style: TextStyle(color: pendingRequests.isEmpty ? Colors.green : Colors.orange.shade800, fontWeight: FontWeight.bold, fontSize: 10),
+                            style: TextStyle(color: pendingRequests.isEmpty ? AppTheme.accentGreen : AppTheme.accentAmber, fontWeight: FontWeight.bold, fontSize: 10),
                           ),
                         ),
                       ],
@@ -553,9 +546,9 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.verified_outlined, size: 48, color: Colors.green),
+                              Icon(PhosphorIconsRegular.sealCheck, size: 48, color: AppTheme.accentGreen),
                               SizedBox(height: 12),
-                              Text('No pending discount requests!'),
+                              Text('No pending discount requests!', style: TextStyle(color: AppTheme.slateMedium)),
                             ],
                           ),
                         ),
@@ -577,15 +570,12 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
             final Widget auditHistoryWidget = Padding(
               padding: isMobile ? EdgeInsets.zero : const EdgeInsets.all(24.0),
               child: Card(
-                elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade200)),
-                color: Colors.white,
                 child: Padding(
                   padding: const EdgeInsets.all(20.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Approval Audit History', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      const Text('Approval Audit History', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.slateDark)),
                       const SizedBox(height: 16),
                       if (historyRequests.isEmpty)
                         const Text('No resolved requests yet.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
@@ -594,27 +584,54 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
                           itemCount: historyRequests.length,
-                          separatorBuilder: (context, index) => Divider(color: Colors.grey.shade100, height: 1),
+                          separatorBuilder: (context, index) => const Divider(height: 1),
                           itemBuilder: (context, idx) {
                             final req = historyRequests[idx];
                             final isApproved = req.status == 'APPROVED';
                             final bill = req.billId == null ? null : state.bills.where((b) => b.id == req.billId);
                             final matchedBill = (bill != null && bill.isNotEmpty) ? bill.first : null;
 
-                            return ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(matchedBill?.customerName ?? 'General request', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                              subtitle: Text('By: ${state.employeeNameForUserId(req.requestedBy)} • ${_formatDate(req.createdAt)}', style: TextStyle(color: Colors.grey.shade500, fontSize: 10)),
-                              trailing: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.end,
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 8.0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(_formatRupees(req.requestedDiscount), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                                    decoration: BoxDecoration(color: isApproved ? Colors.green.shade50 : Colors.red.shade50, borderRadius: BorderRadius.circular(4)),
-                                    child: Text(req.status, style: TextStyle(color: isApproved ? Colors.green : Colors.red, fontSize: 8, fontWeight: FontWeight.bold)),
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(matchedBill?.customerName ?? 'General request', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.slateDark)),
+                                            Text('By: ${state.employeeNameForUserId(req.requestedBy)} • ${_formatDate(req.createdAt)}', style: const TextStyle(color: AppTheme.slateLight, fontSize: 10)),
+                                          ],
+                                        ),
+                                      ),
+                                      Column(
+                                        crossAxisAlignment: CrossAxisAlignment.end,
+                                        children: [
+                                          Text(_formatRupees(req.requestedDiscount), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppTheme.slateDark)),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                            decoration: BoxDecoration(color: isApproved ? AppTheme.accentGreenBg : AppTheme.accentRedBg, borderRadius: BorderRadius.circular(4)),
+                                            child: Text(req.status, style: TextStyle(color: isApproved ? AppTheme.accentGreen : AppTheme.accentRed, fontSize: 8, fontWeight: FontWeight.bold)),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
                                   ),
+                                  if (isApproved && req.authorizedCode != null) ...[
+                                    const SizedBox(height: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(color: AppTheme.accentGreenBg, borderRadius: BorderRadius.circular(6)),
+                                      child: Text(
+                                        'Code: ${req.authorizedCode}',
+                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.accentGreen, letterSpacing: 0.5),
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             );
@@ -713,8 +730,8 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
         final asyncData = ref.watch(appDataProvider);
 
         return asyncData.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (err, st) => Center(child: Text(err.toString())),
+          loading: () => const AppLoadingView(),
+          error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
           data: (state) {
             if (!_initialized && state.settings != null) {
               _hydrateFrom(state.settings!);
@@ -727,12 +744,9 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('System Settings', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22)),
+                    const Text('System Settings', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22, color: AppTheme.slateDark)),
                     const SizedBox(height: 24),
                     Card(
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade200)),
-                      color: Colors.white,
                       child: Padding(
                         padding: const EdgeInsets.all(20.0),
                         child: LayoutBuilder(
@@ -742,9 +756,9 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
                             final Widget detailsWidget = Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(authState.name ?? 'Owner', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                Text('Role: ${authState.role ?? "OWNER"} Account', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-                                Text('Linked: ${authState.email ?? "-"}', style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
+                                Text(authState.name ?? 'Owner', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.slateDark)),
+                                Text('Role: ${authState.role ?? "OWNER"} Account', style: const TextStyle(color: AppTheme.slateMedium, fontSize: 12)),
+                                Text('Linked: ${authState.email ?? "-"}', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
                               ],
                             );
 
@@ -762,15 +776,15 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
                                           Navigator.pop(ctx);
                                           ref.read(authControllerProvider.notifier).logout();
                                         },
-                                        child: const Text('Logout', style: TextStyle(color: Colors.red)),
+                                        child: const Text('Logout', style: TextStyle(color: AppTheme.accentRed)),
                                       ),
                                     ],
                                   ),
                                 );
                               },
-                              icon: const Icon(Icons.logout, size: 16),
+                              icon: const Icon(PhosphorIconsRegular.signOut, size: 16),
                               label: const Text('Logout Session'),
-                              style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade50, foregroundColor: Colors.red.shade700, elevation: 0),
+                              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accentRedBg, foregroundColor: AppTheme.accentRed, elevation: 0),
                             );
 
                             if (isMobileProfile) {
@@ -779,7 +793,7 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
                                 children: [
                                   Row(
                                     children: [
-                                      CircleAvatar(backgroundColor: AppTheme.primaryLight, radius: 28, child: const Icon(Icons.person, color: AppTheme.primaryBlue, size: 28)),
+                                      CircleAvatar(backgroundColor: AppTheme.primaryLight, radius: 28, child: const Icon(PhosphorIconsRegular.user, color: AppTheme.primaryBlue, size: 28)),
                                       const SizedBox(width: 16),
                                       Expanded(child: detailsWidget),
                                     ],
@@ -792,7 +806,7 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
 
                             return Row(
                               children: [
-                                CircleAvatar(backgroundColor: AppTheme.primaryLight, radius: 28, child: const Icon(Icons.person, color: AppTheme.primaryBlue, size: 28)),
+                                CircleAvatar(backgroundColor: AppTheme.primaryLight, radius: 28, child: const Icon(PhosphorIconsRegular.user, color: AppTheme.primaryBlue, size: 28)),
                                 const SizedBox(width: 16),
                                 Expanded(child: detailsWidget),
                                 logoutButton,
@@ -804,25 +818,22 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
                     ),
                     const SizedBox(height: 24),
                     Card(
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade200)),
-                      color: Colors.white,
                       child: Padding(
                         padding: const EdgeInsets.all(24.0),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Salon Business Configuration', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                            const Text('Salon Business Configuration', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.slateDark)),
                             const SizedBox(height: 20),
-                            const Text('Business Trading Name', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                            const Text('Business Trading Name', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppTheme.slateMedium)),
                             const SizedBox(height: 6),
                             TextField(controller: _businessNameController, decoration: _fieldDecoration()),
                             const SizedBox(height: 16),
-                            const Text('Support Phone', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                            const Text('Support Phone', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppTheme.slateMedium)),
                             const SizedBox(height: 6),
                             TextField(controller: _phoneController, decoration: _fieldDecoration()),
                             const SizedBox(height: 16),
-                            const Text('Address', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                            const Text('Address', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppTheme.slateMedium)),
                             const SizedBox(height: 6),
                             TextField(controller: _addressController, decoration: _fieldDecoration()),
                             const SizedBox(height: 16),
@@ -832,7 +843,7 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      const Text('GST Rate (%)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                                      const Text('GST Rate (%)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppTheme.slateMedium)),
                                       const SizedBox(height: 6),
                                       TextField(controller: _gstRateController, keyboardType: TextInputType.number, decoration: _fieldDecoration()),
                                     ],
@@ -843,7 +854,7 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      const Text('Late Attendance Penalty (₹)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                                      const Text('Late Attendance Penalty (₹)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppTheme.slateMedium)),
                                       const SizedBox(height: 6),
                                       TextField(controller: _latePenaltyController, keyboardType: TextInputType.number, decoration: _fieldDecoration()),
                                     ],
@@ -879,8 +890,10 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
   }
 
   InputDecoration _fieldDecoration() => InputDecoration(
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         filled: true,
-        fillColor: Colors.grey.shade50,
+        fillColor: const Color(0xFFF9FAFB),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.borderSubtle)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.borderSubtle)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primaryBlue, width: 1.6)),
       );
 }

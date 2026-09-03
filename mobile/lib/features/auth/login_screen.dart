@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../theme.dart';
 import 'auth_provider.dart';
@@ -12,8 +14,11 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController(text: 'owner@salon.com');
-  final _passwordController = TextEditingController(text: 'password123');
+  // Pre-filled and the "Quick Fill" chips below are debug-only conveniences
+  // for local testing - kDebugMode is false in the release build that
+  // actually ships (mobile/build.sh), so real users see empty fields.
+  final _emailController = TextEditingController(text: kDebugMode ? 'owner@cuts-salon.test' : '');
+  final _passwordController = TextEditingController(text: kDebugMode ? 'password123' : '');
   bool _obscurePassword = true;
 
   @override
@@ -69,19 +74,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Icon(
-                          Icons.storefront_rounded,
+                          PhosphorIconsRegular.storefront,
                           size: 26,
                           color: AppTheme.primaryBlue,
                         ),
                       ),
                       const SizedBox(width: 10),
-                      const Text(
-                        'Cuts-Salon',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                          color: AppTheme.primaryBlue,
-                          letterSpacing: -0.5,
+                      const Flexible(
+                        child: Text(
+                          'Cuts-Salon',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            color: AppTheme.primaryBlue,
+                            letterSpacing: -0.5,
+                          ),
                         ),
                       ),
                     ],
@@ -119,7 +127,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 border: Border.all(color: AppTheme.borderSubtle, width: 1),
                               ),
                               child: const Icon(
-                                Icons.content_cut_rounded,
+                                PhosphorIconsRegular.storefront,
                                 size: 32,
                                 color: AppTheme.primaryBlue,
                               ),
@@ -129,7 +137,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                           // Title
                           const Text(
-                            'Salon Employee Portal',
+                            'Sign in to your salon dashboard',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 18,
@@ -155,7 +163,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             style: const TextStyle(fontSize: 14, color: AppTheme.slateDark),
                             decoration: const InputDecoration(
                               hintText: 'Enter your email',
-                              prefixIcon: Icon(Icons.mail_outline_rounded, size: 20, color: AppTheme.slateLight),
+                              prefixIcon: Icon(PhosphorIconsRegular.envelopeSimple, size: 20, color: AppTheme.slateLight),
                             ),
                             validator: (value) {
                               if (value == null || value.trim().isEmpty) {
@@ -204,10 +212,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             style: const TextStyle(fontSize: 14, color: AppTheme.slateDark),
                             decoration: InputDecoration(
                               hintText: 'Enter your password',
-                              prefixIcon: const Icon(Icons.lock_outline_rounded, size: 20, color: AppTheme.slateLight),
+                              prefixIcon: const Icon(PhosphorIconsRegular.lock, size: 20, color: AppTheme.slateLight),
                               suffixIcon: IconButton(
                                 icon: Icon(
-                                  _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                                  _obscurePassword ? PhosphorIconsRegular.eyeSlash : PhosphorIconsRegular.eye,
                                   size: 18,
                                   color: AppTheme.slateLight,
                                 ),
@@ -273,58 +281,61 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 20),
-
-                  // Quick Demo Account Switcher
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppTheme.borderSubtle),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text(
-                          'Quick Fill:',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.slateLight),
-                        ),
-                        const SizedBox(width: 8),
-                        ActionChip(
-                          visualDensity: VisualDensity.compact,
-                          backgroundColor: AppTheme.primaryLight,
-                          side: BorderSide.none,
-                          label: const Text(
-                            'Owner Account',
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.primaryBlue),
+                  // Quick Demo Account Switcher - debug builds only, see
+                  // the controller pre-fill above for why.
+                  if (kDebugMode) ...[
+                    const SizedBox(height: 20),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppTheme.borderSubtle),
+                      ),
+                      child: Wrap(
+                        alignment: WrapAlignment.center,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          const Text(
+                            'Quick Fill:',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.slateLight),
                           ),
-                          onPressed: () {
-                            setState(() {
-                              _emailController.text = 'owner@salon.com';
-                              _passwordController.text = 'password123';
-                            });
-                          },
-                        ),
-                        const SizedBox(width: 6),
-                        ActionChip(
-                          visualDensity: VisualDensity.compact,
-                          backgroundColor: const Color(0xFFF1F5F9),
-                          side: BorderSide.none,
-                          label: const Text(
-                            'Employee Account',
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.slateDark),
+                          ActionChip(
+                            visualDensity: VisualDensity.compact,
+                            backgroundColor: AppTheme.primaryLight,
+                            side: BorderSide.none,
+                            label: const Text(
+                              'Owner Account',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.primaryBlue),
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _emailController.text = 'owner@cuts-salon.test';
+                                _passwordController.text = 'password123';
+                              });
+                            },
                           ),
-                          onPressed: () {
-                            setState(() {
-                              _emailController.text = 'employee@salon.com';
-                              _passwordController.text = 'password123';
-                            });
-                          },
-                        ),
-                      ],
+                          ActionChip(
+                            visualDensity: VisualDensity.compact,
+                            backgroundColor: const Color(0xFFF1F5F9),
+                            side: BorderSide.none,
+                            label: const Text(
+                              'Employee Account',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.slateDark),
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _emailController.text = 'employee@cuts-salon.test';
+                                _passwordController.text = 'password123';
+                              });
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../theme.dart';
 import '../../../data/app_data_provider.dart';
 import '../../../data/models.dart';
 import '../../../widgets/app_page_switcher.dart';
+import '../../../widgets/async_state_views.dart';
 
 String _initials(String name) => name.split(' ').where((n) => n.isNotEmpty).map((n) => n[0]).take(2).join();
 
@@ -70,6 +72,9 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
                   DropdownButtonFormField<String>(
                     initialValue: branchId,
                     decoration: const InputDecoration(labelText: 'Branch'),
+                    borderRadius: BorderRadius.circular(14),
+                    dropdownColor: Colors.white,
+                    elevation: 3,
                     items: branches.map((b) => DropdownMenuItem(value: b.id, child: Text(b.name))).toList(),
                     onChanged: (val) => setDialogState(() => branchId = val),
                   ),
@@ -129,15 +134,22 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
 
   @override
   Widget build(BuildContext context) {
-    final isMobile = MediaQuery.of(context).size.width < 768;
-
-    return Consumer(
-      builder: (context, ref, child) {
-        final asyncData = ref.watch(appDataProvider);
-        return asyncData.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (err, st) => Center(child: Text(err.toString())),
-          data: (state) => _buildBody(context, ref, state, isMobile),
+    // LayoutBuilder, not MediaQuery, because this tab is hosted inside the
+    // owner shell's sidebar layout - MediaQuery's width is the whole
+    // window, not the space actually left after the sidebar, which used to
+    // make this tab pick a split-view layout it didn't have room for.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 768;
+        return Consumer(
+          builder: (context, ref, child) {
+            final asyncData = ref.watch(appDataProvider);
+            return asyncData.when(
+              loading: () => const AppLoadingView(),
+              error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
+              data: (state) => _buildBody(context, ref, state, isMobile),
+            );
+          },
         );
       },
     );
@@ -155,12 +167,6 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
     }).toList();
 
     final Widget listColumn = Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: isMobile ? BorderRadius.circular(16) : const BorderRadius.horizontal(right: Radius.circular(16)),
-        side: const BorderSide(color: Color(0xFFEEEEEE), width: 1),
-      ),
-      color: Colors.white,
       child: Padding(
         padding: const EdgeInsets.all(20.0),
         child: Column(
@@ -176,13 +182,13 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.person_add_alt_1, color: AppTheme.primaryBlue),
+                  icon: const Icon(PhosphorIconsRegular.userPlus, color: AppTheme.primaryBlue),
                   tooltip: 'Add Customer',
                   onPressed: () => _showAddCustomerDialog(context, ref, state.branches),
                 ),
                 Text(
                   'Total: ${state.customers.length}',
-                  style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                  style: TextStyle(color: AppTheme.slateLight, fontSize: 12),
                 ),
               ],
             ),
@@ -192,12 +198,12 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
                 hintText: 'Search by name, phone or email...',
-                prefixIcon: const Icon(Icons.search),
+                prefixIcon: const Icon(PhosphorIconsRegular.magnifyingGlass),
                 filled: true,
-                fillColor: Colors.grey.shade50,
+                fillColor: const Color(0xFFF9FAFB),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.grey.shade200),
+                  borderSide: BorderSide(color: AppTheme.borderSubtle),
                 ),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16),
               ),
@@ -206,7 +212,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
             FilterChip(
               label: const Text('VIP Only', style: TextStyle(fontSize: 11)),
               selected: _vipOnly,
-              selectedColor: Colors.amber.withValues(alpha: 0.15),
+              selectedColor: AppTheme.accentGold.withValues(alpha: 0.15),
               onSelected: (val) => setState(() => _vipOnly = val),
             ),
             const SizedBox(height: 16),
@@ -225,7 +231,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
                           color: isSel ? AppTheme.primaryLight : Colors.white,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
-                            side: BorderSide(color: isSel ? AppTheme.primaryBlue : Colors.grey.shade100, width: 1),
+                            side: BorderSide(color: isSel ? AppTheme.primaryBlue : AppTheme.borderSubtle, width: 1),
                           ),
                           child: ListTile(
                             leading: CircleAvatar(
@@ -237,10 +243,10 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
                                 Expanded(
                                   child: Text(cust.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), overflow: TextOverflow.ellipsis),
                                 ),
-                                if (cust.isVip) const Icon(Icons.star, color: Colors.amber, size: 14),
+                                if (cust.isVip) const Icon(PhosphorIconsFill.star, color: AppTheme.accentGold, size: 14),
                               ],
                             ),
-                            subtitle: Text('${cust.phone} • $visitCount visits', style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
+                            subtitle: Text('${cust.phone} • $visitCount visits', style: TextStyle(color: AppTheme.slateLight, fontSize: 11)),
                             onTap: () => setState(() => _selectedCustomer = cust),
                           ),
                         );
@@ -264,7 +270,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
                 padding: const EdgeInsets.only(left: 16.0, top: 8.0),
                 child: TextButton.icon(
                   onPressed: () => setState(() => _selectedCustomer = null),
-                  icon: const Icon(Icons.arrow_back),
+                  icon: const Icon(PhosphorIconsRegular.arrowLeft),
                   label: const Text('Back to Customers Directory'),
                 ),
               ),
@@ -289,7 +295,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.person_pin_circle_outlined, size: 64, color: Colors.grey),
+                        Icon(PhosphorIconsRegular.mapPinArea, size: 64, color: AppTheme.slateLight),
                         SizedBox(height: 12),
                         Text('Select a customer to view profile details'),
                       ],
@@ -319,9 +325,6 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade200)),
-            color: Colors.white,
             child: Padding(
               padding: const EdgeInsets.all(20.0),
               child: Row(
@@ -338,13 +341,13 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
                       children: [
                         Row(children: [
                           Text(cust.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
-                          if (cust.isVip) const Padding(padding: EdgeInsets.only(left: 6), child: Icon(Icons.star, color: Colors.amber, size: 18)),
+                          if (cust.isVip) const Padding(padding: EdgeInsets.only(left: 6), child: Icon(PhosphorIconsFill.star, color: AppTheme.accentGold, size: 18)),
                         ]),
                         const SizedBox(height: 4),
                         if (cust.email != null && cust.email!.isNotEmpty)
-                          Text(cust.email!, style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                          Text(cust.email!, style: TextStyle(color: AppTheme.slateMedium, fontSize: 12)),
                         const SizedBox(height: 2),
-                        Text(cust.phone, style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                        Text(cust.phone, style: TextStyle(color: AppTheme.slateMedium, fontSize: 12)),
                       ],
                     ),
                   ),
@@ -355,11 +358,11 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
           const SizedBox(height: 20),
           Row(
             children: [
-              Expanded(child: _buildProfileStatCard('Total Spent', 'Rs. ${totalSpent.toStringAsFixed(0)}', Icons.payment, Colors.purple)),
+              Expanded(child: _buildProfileStatCard('Total Spent', 'Rs. ${totalSpent.toStringAsFixed(0)}', PhosphorIconsRegular.money, AppTheme.statViolet)),
               const SizedBox(width: 12),
-              Expanded(child: _buildProfileStatCard('Visit Count', '${custBills.length} visits', Icons.event_note, Colors.indigo)),
+              Expanded(child: _buildProfileStatCard('Visit Count', '${custBills.length} visits', PhosphorIconsRegular.calendarCheck, AppTheme.primaryBlue)),
               const SizedBox(width: 12),
-              Expanded(child: _buildProfileStatCard('Last Visit', custBills.isEmpty ? 'Never' : _formatDate(custBills.first.createdAt), Icons.schedule, Colors.teal)),
+              Expanded(child: _buildProfileStatCard('Last Visit', custBills.isEmpty ? 'Never' : _formatDate(custBills.first.createdAt), PhosphorIconsRegular.clock, AppTheme.statTeal)),
             ],
           ),
           const SizedBox(height: 24),
@@ -371,8 +374,8 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
               runSpacing: 8,
               children: servicesTaken.map((s) => Chip(
                     label: Text(s, style: const TextStyle(fontSize: 11)),
-                    backgroundColor: Colors.grey.shade50,
-                    side: BorderSide(color: Colors.grey.shade200),
+                    backgroundColor: const Color(0xFFF9FAFB),
+                    side: BorderSide(color: AppTheme.borderSubtle),
                   )).toList(),
             ),
             const SizedBox(height: 24),
@@ -392,14 +395,14 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
                 return Card(
                   elevation: 0,
                   color: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade100)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: AppTheme.borderSubtle)),
                   child: ListTile(
                     leading: CircleAvatar(
-                      backgroundColor: Colors.indigo.shade50,
-                      child: const Icon(Icons.receipt_long_outlined, color: Colors.indigo, size: 20),
+                      backgroundColor: AppTheme.primaryLight,
+                      child: const Icon(PhosphorIconsRegular.receipt, color: AppTheme.primaryBlue, size: 20),
                     ),
                     title: Text(itemNames, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12), overflow: TextOverflow.ellipsis),
-                    subtitle: Text('${bill.invoiceNumber} • ${_formatDate(bill.createdAt)}', style: TextStyle(color: Colors.grey.shade500, fontSize: 10)),
+                    subtitle: Text('${bill.invoiceNumber} • ${_formatDate(bill.createdAt)}', style: TextStyle(color: AppTheme.slateLight, fontSize: 10)),
                     trailing: Text('Rs. ${bill.finalAmount.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                   ),
                 );
@@ -412,23 +415,22 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
 
   Widget _buildProfileStatCard(String label, String val, IconData icon, Color color) {
     return Card(
-      elevation: 0,
-      color: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
       child: Padding(
         padding: const EdgeInsets.all(12.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(label, style: TextStyle(color: Colors.grey.shade500, fontSize: 10)),
+                Expanded(
+                  child: Text(label, style: TextStyle(color: AppTheme.slateLight, fontSize: 10), overflow: TextOverflow.ellipsis, maxLines: 1),
+                ),
+                const SizedBox(width: 4),
                 Icon(icon, color: color, size: 16),
               ],
             ),
             const SizedBox(height: 8),
-            Text(val, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            Text(val, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), overflow: TextOverflow.ellipsis, maxLines: 1),
           ],
         ),
       ),
@@ -473,7 +475,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Row(
             children: [
-              Icon(Icons.person_add_alt_1_rounded, color: AppTheme.primaryBlue),
+              Icon(PhosphorIconsRegular.userPlus, color: AppTheme.primaryBlue),
               SizedBox(width: 10),
               Text('Create Employee Account', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ],
@@ -493,7 +495,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
                     labelText: 'Login Password *',
                     hintText: 'min 8 characters',
                     suffixIcon: IconButton(
-                      icon: Icon(obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 20),
+                      icon: Icon(obscurePassword ? PhosphorIconsRegular.eyeSlash : PhosphorIconsRegular.eye, size: 20),
                       onPressed: () => setDialogState(() => obscurePassword = !obscurePassword),
                     ),
                   ),
@@ -509,6 +511,9 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
                     child: DropdownButtonFormField<String>(
                       initialValue: branchId,
                       decoration: const InputDecoration(labelText: 'Branch'),
+                      borderRadius: BorderRadius.circular(14),
+                      dropdownColor: Colors.white,
+                      elevation: 3,
                       items: branches.map((b) => DropdownMenuItem(value: b.id, child: Text(b.name))).toList(),
                       onChanged: (val) => setDialogState(() => branchId = val),
                     ),
@@ -582,69 +587,58 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
   }
 
   void _showResetPasswordDialog(BuildContext context, WidgetRef ref, EmployeeProfile emp) {
-    final passwordController = TextEditingController();
-    bool obscure = true;
+    // Firebase's client SDK can't set another user's password directly (no
+    // Admin SDK, no server) - the owner can only trigger Firebase's own
+    // reset-link email. See salon_auth.dart's sendPasswordResetEmail and
+    // app_data_provider.dart's resetEmployeePassword.
     showDialog(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text('Reset Password for ${emp.name}'),
-          content: TextField(
-            controller: passwordController,
-            obscureText: obscure,
-            decoration: InputDecoration(
-              labelText: 'New Password *',
-              hintText: 'min 8 characters',
-              suffixIcon: IconButton(
-                icon: Icon(obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 20),
-                onPressed: () => setDialogState(() => obscure = !obscure),
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () async {
-                if (passwordController.text.length < 8) {
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Reset Password for ${emp.name}'),
+        content: Text("This sends a password reset link to ${emp.email}. They'll follow it to choose a new password themselves."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await ref.read(appDataProvider.notifier).resetEmployeePassword(emp.id);
+                if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Password must be at least 8 characters.'), backgroundColor: AppTheme.accentRed),
+                    SnackBar(content: Text('Password reset email sent to ${emp.email}.'), backgroundColor: AppTheme.accentGreen),
                   );
-                  return;
                 }
-                Navigator.pop(ctx);
-                try {
-                  await ref.read(appDataProvider.notifier).resetEmployeePassword(emp.id, passwordController.text);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Password for ${emp.name} has been reset.'), backgroundColor: AppTheme.accentGreen),
-                    );
-                  }
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
-                  }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
                 }
-              },
-              child: const Text('Reset Password'),
-            ),
-          ],
-        ),
+              }
+            },
+            child: const Text('Send Reset Email'),
+          ),
+        ],
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final isMobile = MediaQuery.of(context).size.width < 768;
-
-    return Consumer(
-      builder: (context, ref, child) {
-        final asyncData = ref.watch(appDataProvider);
-        return asyncData.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (err, st) => Center(child: Text(err.toString())),
-          data: (state) => _buildBody(context, ref, state, isMobile),
+    // LayoutBuilder, not MediaQuery - see the comment in OwnerCustomersTab's
+    // build() for why (the sidebar means MediaQuery's width overstates the
+    // space this tab actually has).
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 768;
+        return Consumer(
+          builder: (context, ref, child) {
+            final asyncData = ref.watch(appDataProvider);
+            return asyncData.when(
+              loading: () => const AppLoadingView(),
+              error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
+              data: (state) => _buildBody(context, ref, state, isMobile),
+            );
+          },
         );
       },
     );
@@ -669,7 +663,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
               const Text('Staff & Stylists', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.slateDark)),
               ElevatedButton.icon(
                 onPressed: () => _showAddEmployeeDialog(context, ref, state.branches),
-                icon: const Icon(Icons.add_rounded, size: 16),
+                icon: const Icon(PhosphorIconsRegular.plus, size: 16),
                 label: const Text('Add Staff', style: TextStyle(fontSize: 12)),
                 style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), minimumSize: const Size(0, 34)),
               ),
@@ -688,8 +682,8 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
                       final isSel = _selectedEmployee?.id == emp.id;
                       final status = _todayStatus(state, emp.id);
                       Color statusColor = AppTheme.accentGreen;
-                      if (status == 'LATE') statusColor = Colors.orange;
-                      if (status == 'ABSENT') statusColor = Colors.grey;
+                      if (status == 'LATE') statusColor = AppTheme.accentAmber;
+                      if (status == 'ABSENT') statusColor = AppTheme.slateLight;
 
                       return Container(
                         margin: const EdgeInsets.only(bottom: 8),
@@ -736,7 +730,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
                 padding: const EdgeInsets.only(left: 16.0, top: 8.0),
                 child: TextButton.icon(
                   onPressed: () => setState(() => _selectedEmployee = null),
-                  icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                  icon: const Icon(PhosphorIconsRegular.arrowLeft, size: 18),
                   label: const Text('Back to Staff List'),
                 ),
               ),
@@ -760,7 +754,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.badge_outlined, size: 56, color: AppTheme.slateLight),
+                        Icon(PhosphorIconsRegular.identificationBadge, size: 56, color: AppTheme.slateLight),
                         SizedBox(height: 12),
                         Text('Select an employee to view details & metrics', style: TextStyle(color: AppTheme.slateMedium)),
                       ],
@@ -856,17 +850,17 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
           const SizedBox(height: 16),
           Row(
             children: [
-              Expanded(child: _buildMetricCard('Attendance (Month)', '${attendancePct.toStringAsFixed(0)}%', Icons.calendar_today_rounded, AppTheme.accentGreen)),
+              Expanded(child: _buildMetricCard('Attendance (Month)', '${attendancePct.toStringAsFixed(0)}%', PhosphorIconsRegular.calendarBlank, AppTheme.accentGreen)),
               const SizedBox(width: 10),
-              Expanded(child: _buildMetricCard('Base Salary', 'Rs. ${emp.baseSalary.toStringAsFixed(0)}', Icons.payments_rounded, AppTheme.slateDark)),
+              Expanded(child: _buildMetricCard('Base Salary', 'Rs. ${emp.baseSalary.toStringAsFixed(0)}', PhosphorIconsRegular.money, AppTheme.slateDark)),
             ],
           ),
           const SizedBox(height: 10),
           Row(
             children: [
-              Expanded(child: _buildMetricCard('Service Commission', '${emp.serviceCommissionPct.toStringAsFixed(0)}%', Icons.percent_rounded, AppTheme.primaryBlue)),
+              Expanded(child: _buildMetricCard('Service Commission', '${emp.serviceCommissionPct.toStringAsFixed(0)}%', PhosphorIconsRegular.percent, AppTheme.primaryBlue)),
               const SizedBox(width: 10),
-              Expanded(child: _buildMetricCard('Product Commission', '${emp.productCommissionPct.toStringAsFixed(0)}%', Icons.percent_rounded, AppTheme.primaryBlue)),
+              Expanded(child: _buildMetricCard('Product Commission', '${emp.productCommissionPct.toStringAsFixed(0)}%', PhosphorIconsRegular.percent, AppTheme.primaryBlue)),
             ],
           ),
           const SizedBox(height: 16),
@@ -893,7 +887,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
             height: 44,
             child: OutlinedButton.icon(
               onPressed: () => _showResetPasswordDialog(context, ref, emp),
-              icon: const Icon(Icons.lock_reset_rounded, size: 18, color: AppTheme.primaryBlue),
+              icon: const Icon(PhosphorIconsRegular.lockKey, size: 18, color: AppTheme.primaryBlue),
               label: const Text('Reset Employee Password', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.primaryBlue)),
             ),
           ),
@@ -911,9 +905,9 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
         children: [
           Icon(icon, color: color, size: 18),
           const SizedBox(height: 10),
-          Text(val, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: color)),
+          Text(val, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: color), overflow: TextOverflow.ellipsis, maxLines: 1),
           const SizedBox(height: 2),
-          Text(title, style: const TextStyle(color: AppTheme.slateLight, fontSize: 11, fontWeight: FontWeight.w600)),
+          Text(title, style: const TextStyle(color: AppTheme.slateLight, fontSize: 11, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis, maxLines: 1),
         ],
       ),
     );
@@ -966,8 +960,8 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
 
     return Card(
       elevation: 0,
-      color: Colors.grey.shade50,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade100)),
+      color: const Color(0xFFF9FAFB),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: AppTheme.borderSubtle)),
       margin: const EdgeInsets.only(bottom: 8),
       child: Padding(
         padding: const EdgeInsets.all(12.0),
@@ -985,7 +979,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(emp.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12), overflow: TextOverflow.ellipsis),
-                    Text(emp.roleTitle, style: TextStyle(color: Colors.grey.shade500, fontSize: 10), overflow: TextOverflow.ellipsis),
+                    Text(emp.roleTitle, style: TextStyle(color: AppTheme.slateLight, fontSize: 10), overflow: TextOverflow.ellipsis),
                   ],
                 ),
               ),
@@ -1006,22 +1000,20 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
 
   @override
   Widget build(BuildContext context) {
-    final isMobile = MediaQuery.of(context).size.width < 768;
-
-    return Consumer(
+    // LayoutBuilder, not MediaQuery - see the comment in OwnerCustomersTab's
+    // build() for why (the sidebar means MediaQuery's width overstates the
+    // space this tab actually has).
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 768;
+        return Consumer(
       builder: (context, ref, child) {
         final asyncData = ref.watch(appDataProvider);
         return asyncData.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (err, st) => Center(child: Text(err.toString())),
+          loading: () => const AppLoadingView(),
+          error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
           data: (state) {
             final Widget rosterWidget = Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: isMobile ? BorderRadius.circular(16) : const BorderRadius.horizontal(right: Radius.circular(16)),
-                side: const BorderSide(color: Color(0xFFEEEEEE), width: 1),
-              ),
-              color: Colors.white,
               child: Padding(
                 padding: const EdgeInsets.all(20.0),
                 child: Column(
@@ -1030,7 +1022,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                   children: [
                     const Text('Mark Roster Today', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                     const SizedBox(height: 4),
-                    Text('Updates live attendance logs & percentages.', style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
+                    Text('Updates live attendance logs & percentages.', style: TextStyle(color: AppTheme.slateLight, fontSize: 11)),
                     const SizedBox(height: 20),
                     isMobile
                         ? ListView.builder(
@@ -1055,9 +1047,6 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
             final Widget logWidget = Padding(
               padding: isMobile ? EdgeInsets.zero : const EdgeInsets.all(24.0),
               child: Card(
-                elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade200)),
-                color: Colors.white,
                 child: Padding(
                   padding: const EdgeInsets.all(24.0),
                   child: Column(
@@ -1075,9 +1064,9 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                           itemBuilder: (context, idx) {
                             final rec = recentAttendance[idx];
                             final emp = state.employeeById(rec.employeeId);
-                            Color statusColor = Colors.green;
-                            if (rec.status == 'LATE') statusColor = Colors.orange;
-                            if (rec.status == 'ABSENT') statusColor = Colors.red;
+                            Color statusColor = AppTheme.accentGreen;
+                            if (rec.status == 'LATE') statusColor = AppTheme.accentAmber;
+                            if (rec.status == 'ABSENT') statusColor = AppTheme.accentRed;
                             return ListTile(
                               contentPadding: EdgeInsets.zero,
                               leading: Container(width: 8, height: 8, decoration: BoxDecoration(shape: BoxShape.circle, color: statusColor)),
@@ -1105,6 +1094,8 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
               children: [Expanded(flex: 1, child: rosterWidget), Expanded(flex: 1, child: logWidget)],
             );
           },
+        );
+      },
         );
       },
     );

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../theme.dart';
 import '../../data/app_data_provider.dart';
@@ -9,6 +10,7 @@ import 'widgets/owner_billing_inventory_expenses_tab.dart';
 import 'widgets/owner_management_tabs.dart';
 import 'widgets/chart_widgets.dart';
 import '../../widgets/app_page_switcher.dart';
+import '../../widgets/async_state_views.dart';
 
 const double kOwnerMobileBreakpoint = 900;
 
@@ -37,17 +39,17 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
   ];
 
   final List<IconData> _tabIcons = [
-    Icons.grid_view_rounded,
-    Icons.people_alt_outlined,
-    Icons.badge_outlined,
-    Icons.calendar_today_outlined,
-    Icons.receipt_long_rounded,
-    Icons.inventory_2_outlined,
-    Icons.money_off_outlined,
-    Icons.analytics_outlined,
-    Icons.store_outlined,
-    Icons.percent_outlined,
-    Icons.settings_outlined,
+    PhosphorIconsRegular.squaresFour,
+    PhosphorIconsRegular.usersThree,
+    PhosphorIconsRegular.identificationBadge,
+    PhosphorIconsRegular.calendarBlank,
+    PhosphorIconsRegular.receipt,
+    PhosphorIconsRegular.package,
+    PhosphorIconsRegular.wallet,
+    PhosphorIconsRegular.chartLineUp,
+    PhosphorIconsRegular.storefront,
+    PhosphorIconsRegular.percent,
+    PhosphorIconsRegular.gearSix,
   ];
 
   Widget _buildSidebar(BuildContext context, {required bool isMobile}) {
@@ -76,7 +78,7 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(
-                    Icons.storefront_rounded,
+                    PhosphorIconsRegular.storefront,
                     color: AppTheme.primaryBlue,
                     size: 22,
                   ),
@@ -185,7 +187,7 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
               onPressed: () {
                 ref.read(authControllerProvider.notifier).logout();
               },
-              icon: const Icon(Icons.logout_rounded, size: 16, color: AppTheme.slateLight),
+              icon: const Icon(PhosphorIconsRegular.signOut, size: 16, color: AppTheme.slateLight),
               label: const Text('Log Out', style: TextStyle(fontSize: 12, color: AppTheme.slateDark)),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(40),
@@ -274,7 +276,7 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                       Navigator.pop(ctx);
                       ref.read(authControllerProvider.notifier).logout();
                     },
-                    icon: const Icon(Icons.logout, size: 16),
+                    icon: const Icon(PhosphorIconsRegular.signOut, size: 16),
                     label: const Text('Log Out'),
                   ),
                 ),
@@ -317,7 +319,7 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: const Icon(
-                      Icons.storefront_rounded,
+                      PhosphorIconsRegular.storefront,
                       color: AppTheme.primaryBlue,
                       size: 20,
                     ),
@@ -339,7 +341,7 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
               actions: [
                 if (_activeTabIndex != 0)
                   IconButton(
-                    icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.slateMedium),
+                    icon: const Icon(PhosphorIconsRegular.arrowLeft, color: AppTheme.slateMedium),
                     onPressed: () {
                       setState(() {
                         _activeTabIndex = 0;
@@ -348,7 +350,7 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                     tooltip: 'Back to Overview',
                   ),
                 IconButton(
-                  icon: const Icon(Icons.logout_rounded, color: AppTheme.slateLight, size: 20),
+                  icon: const Icon(PhosphorIconsRegular.signOut, color: AppTheme.slateLight, size: 20),
                   onPressed: () {
                     ref.read(authControllerProvider.notifier).logout();
                   },
@@ -393,23 +395,23 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                 },
                 destinations: [
                   const NavigationDestination(
-                    icon: Icon(Icons.grid_view_rounded, size: 20),
-                    selectedIcon: Icon(Icons.grid_view_rounded, size: 20, color: AppTheme.primaryBlue),
+                    icon: Icon(PhosphorIconsRegular.squaresFour, size: 20),
+                    selectedIcon: Icon(PhosphorIconsRegular.squaresFour, size: 20, color: AppTheme.primaryBlue),
                     label: 'Dashboard',
                   ),
                   const NavigationDestination(
-                    icon: Icon(Icons.receipt_long_rounded, size: 20),
-                    selectedIcon: Icon(Icons.receipt_long_rounded, size: 20, color: AppTheme.primaryBlue),
+                    icon: Icon(PhosphorIconsRegular.receipt, size: 20),
+                    selectedIcon: Icon(PhosphorIconsRegular.receipt, size: 20, color: AppTheme.primaryBlue),
                     label: 'Billing',
                   ),
                   const NavigationDestination(
-                    icon: Icon(Icons.people_alt_outlined, size: 20),
-                    selectedIcon: Icon(Icons.people_alt_rounded, size: 20, color: AppTheme.primaryBlue),
+                    icon: Icon(PhosphorIconsRegular.usersThree, size: 20),
+                    selectedIcon: Icon(PhosphorIconsRegular.usersThree, size: 20, color: AppTheme.primaryBlue),
                     label: 'Customers',
                   ),
                   const NavigationDestination(
-                    icon: Icon(Icons.inventory_2_outlined, size: 20),
-                    selectedIcon: Icon(Icons.inventory_2_rounded, size: 20, color: AppTheme.primaryBlue),
+                    icon: Icon(PhosphorIconsRegular.package, size: 20),
+                    selectedIcon: Icon(PhosphorIconsRegular.package, size: 20, color: AppTheme.primaryBlue),
                     label: 'Catalog',
                   ),
                   NavigationDestination(
@@ -417,13 +419,13 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                       isLabelVisible: pendingDiscountCount > 0,
                       label: Text('$pendingDiscountCount'),
                       backgroundColor: AppTheme.accentRed,
-                      child: const Icon(Icons.menu_rounded, size: 20),
+                      child: const Icon(PhosphorIconsRegular.list, size: 20),
                     ),
                     selectedIcon: Badge(
                       isLabelVisible: pendingDiscountCount > 0,
                       label: Text('$pendingDiscountCount'),
                       backgroundColor: AppTheme.accentRed,
-                      child: const Icon(Icons.menu_rounded, size: 20, color: AppTheme.primaryBlue),
+                      child: const Icon(PhosphorIconsRegular.list, size: 20, color: AppTheme.primaryBlue),
                     ),
                     label: 'More',
                   ),
@@ -498,8 +500,8 @@ class OwnerReportsTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final asyncData = ref.watch(appDataProvider);
     return asyncData.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (err, st) => Center(child: Text(err.toString())),
+      loading: () => const AppLoadingView(),
+      error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
       data: (state) => _buildContent(context, state),
     );
   }
@@ -649,7 +651,12 @@ class OwnerReportsTab extends ConsumerWidget {
 
   Widget _buildEmptyChartCard(String title, String message) {
     return Container(
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.borderSubtle),
+        boxShadow: AppTheme.shadowSm,
+      ),
       padding: const EdgeInsets.all(20.0),
       height: 244,
       child: Column(
@@ -658,7 +665,7 @@ class OwnerReportsTab extends ConsumerWidget {
           Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           const Expanded(
             child: Center(
-              child: Icon(Icons.insert_chart_outlined_rounded, size: 40, color: AppTheme.borderSubtle),
+              child: Icon(PhosphorIconsRegular.chartBar, size: 40, color: AppTheme.borderSubtle),
             ),
           ),
           Text(message, style: const TextStyle(fontSize: 12, color: AppTheme.slateLight), textAlign: TextAlign.center),
@@ -671,8 +678,9 @@ class OwnerReportsTab extends ConsumerWidget {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppTheme.borderSubtle),
+        boxShadow: AppTheme.shadowSm,
       ),
       padding: const EdgeInsets.all(18.0),
       child: Column(
