@@ -1,6 +1,6 @@
-// Models mirroring the backend's actual JSON responses. Prisma serializes
-// Decimal fields as strings (e.g. "500.00"), so every numeric field is
-// parsed defensively via `_num`/`_int` rather than cast directly.
+// Shared app-facing data shapes, built from Firestore documents (see
+// firebase/firestore_models.dart's `xFromFS` converters). Numeric fields
+// still go through `_num`/`_int` defensively rather than a direct cast.
 
 double _num(dynamic v) {
   if (v == null) return 0;
@@ -570,4 +570,29 @@ class SalonSettings {
         gstRate: _num(json['gstRate']),
         lateAttendancePenalty: _num(json['lateAttendancePenalty']),
       );
+}
+
+// Draft of one bill line item, built up by the billing UI and resolved
+// against the live catalog/employee lists in AppDataNotifier.createBill
+// before being written to Firestore.
+class BillItemInput {
+  final String type; // SERVICE | PRODUCT
+  final String? serviceId;
+  final String? inventoryItemId;
+  final String employeeId;
+  final int? quantity;
+  final double? unitPrice;
+  final String? priceOverrideReason;
+  final double? discountAmount;
+
+  BillItemInput({
+    required this.type,
+    this.serviceId,
+    this.inventoryItemId,
+    required this.employeeId,
+    this.quantity,
+    this.unitPrice,
+    this.priceOverrideReason,
+    this.discountAmount,
+  });
 }
