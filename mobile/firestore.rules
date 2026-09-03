@@ -1,0 +1,152 @@
+rules_version = '2';
+
+// Design convention this whole ruleset depends on: an employee document's ID
+// *is* the Firebase Auth uid (see salon_firestore.dart, which creates
+// employee docs via .doc(uid).set(...) rather than .add()). That makes "who
+// am I" and "is this my own record" a direct get()/uid-compare instead of a
+// query - Firestore rules can't run arbitrary queries, only point reads.
+//
+// There is no per-field redaction here the way the REST backend redacted a
+// coworker's salary (backend/src/services/employee.service.ts) - Firestore
+// rules grant or deny a whole document, not individual fields. The app
+// layer (firebase/firestore_app_data.dart) is responsible for not
+// *displaying* another employee's pay fields even though the read succeeds -
+// see the comment there for why a full rewrite to hide it at the rules
+// level isn't worth it at this scale.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function myProfile() {
+      return get(/databases/$(database)/documents/employees/$(request.auth.uid)).data;
+    }
+
+    // A deactivated employee's Firebase Auth session otherwise stays fully
+    // valid (there's no server session to revoke) - this is the Firestore
+    // equivalent of the deactivation-bypass fix already shipped on the REST
+    // backend (see auth.middleware.ts), so every staff-facing rule below
+    // gates on this instead of bare isSignedIn().
+    function isActiveEmployee() {
+      return isSignedIn() && myProfile().active == true;
+    }
+
+    function isOwner() {
+      return isActiveEmployee() && myProfile().role == 'OWNER';
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Single fixed-id document. Employees need gstRate to compute a bill's
+    // total, so read is open to any active employee; only the owner edits it.
+    match /settings/{docId} {
+      allow read: if isActiveEmployee();
+      allow write: if isOwner();
+    }
+
+    match /branches/{branchId} {
+      allow read: if isActiveEmployee();
+      allow write: if isOwner();
+    }
+
+    // Roster read is open to any active employee (names are needed
+    // everywhere: attendance, bills, discount request attribution) - only
+    // the owner can create/update an employee record itself. Read stays on
+    // isSignedIn() rather than isActiveEmployee(): myProfile() itself reads
+    // this same collection, so gating read on isActiveEmployee() here would
+    // make every other collection's checks recurse back into this rule.
+    match /employees/{uid} {
+      allow read: if isSignedIn();
+      allow write: if isOwner();
+    }
+
+    // Any active staff member manages client records, matching the REST
+    // backend (customer.routes.ts has no role restriction). No deletes -
+    // customer history should never disappear, same as the REST API (no
+    // DELETE endpoint exists there either).
+    match /customers/{customerId} {
+      allow read, create, update: if isActiveEmployee();
+      allow delete: if false;
+    }
+
+    match /serviceCategories/{categoryId} {
+      allow read: if isActiveEmployee();
+      allow write: if isOwner();
+    }
+
+    match /services/{serviceId} {
+      allow read: if isActiveEmployee();
+      allow write: if isOwner();
+    }
+
+    match /inventoryItems/{itemId} {
+      allow read: if isActiveEmployee();
+      allow write: if isOwner();
+    }
+
+    // A bill is immutable once created - no PATCH /bills/:id exists on the
+    // REST backend either, only create + read.
+    match /bills/{billId} {
+      allow read, create: if isActiveEmployee();
+      allow update, delete: if false;
+
+      match /items/{itemId} {
+        allow read, create: if isActiveEmployee();
+        allow update, delete: if false;
+      }
+    }
+
+    // Doc id is "{employeeId}_{yyyy-MM-dd}" (employeeId == uid). An active
+    // employee clocks only themselves in/out; the owner can also write any
+    // record (manual corrections - matches REST's owner-only
+    // /attendance/mark).
+    match /attendanceRecords/{recordId} {
+      allow read: if isActiveEmployee();
+      allow create: if isActiveEmployee() && (isOwner() || isSelf(request.resource.data.employeeId));
+      allow update: if isActiveEmployee() && (isOwner() || isSelf(resource.data.employeeId));
+    }
+
+    // Only generated/paid by the owner (matches salary.routes.ts).
+    match /salaryRecords/{recordId} {
+      allow read: if isActiveEmployee();
+      allow write: if isOwner();
+    }
+
+    // Created automatically alongside a bill item (any active employee, same
+    // as bill creation); only the owner flips status when marking paid.
+    match /commissionRecords/{recordId} {
+      allow read: if isActiveEmployee();
+      allow create: if isActiveEmployee();
+      allow update: if isOwner();
+    }
+
+    // Only the owner sets targets (matches salesTarget.routes.ts) - progress
+    // is updated as a side effect of bill creation, which also requires
+    // isOwner() here since the *client* triggers that write today. If bill
+    // creation ever moves into a Cloud Function, this should change to allow
+    // that function's service-account writes instead of relaxing this rule.
+    match /salesTargets/{targetId} {
+      allow read: if isActiveEmployee();
+      allow create, update: if isOwner();
+    }
+
+    // Owner-only end to end (matches expense.routes.ts requiring OWNER for
+    // the whole router, not just mutations).
+    match /expenses/{expenseId} {
+      allow read, write: if isOwner();
+    }
+
+    // Any active employee can request a discount and read requests (the app
+    // layer scopes "my requests" for non-owners, matching the REST backend's
+    // service-layer scoping in discountRequest.service.ts); only the owner
+    // approves/rejects.
+    match /discountRequests/{requestId} {
+      allow read, create: if isActiveEmployee();
+      allow update: if isOwner();
+    }
+  }
+}
