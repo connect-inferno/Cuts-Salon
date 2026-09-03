@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../theme.dart';
+
 class CustomLineChart extends StatelessWidget {
   final List<double> values;
   final List<String> labels;
@@ -13,18 +15,12 @@ class CustomLineChart extends StatelessWidget {
     required this.labels,
     required this.title,
     required this.subtitle,
-    this.color = const Color(0xFF6750A4),
+    this.color = AppTheme.primaryBlue,
   });
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.grey.shade200, width: 1),
-      ),
-      color: Colors.white,
       child: Padding(
         padding: const EdgeInsets.all(20.0),
         child: Column(
@@ -36,14 +32,15 @@ class CustomLineChart extends StatelessWidget {
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
                 letterSpacing: 0.2,
+                color: AppTheme.slateDark,
               ),
             ),
             const SizedBox(height: 4),
             Text(
               subtitle,
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 12,
-                color: Colors.grey.shade600,
+                color: AppTheme.slateMedium,
               ),
             ),
             const SizedBox(height: 24),
@@ -64,10 +61,10 @@ class CustomLineChart extends StatelessWidget {
               children: labels.map((label) {
                 return Text(
                   label,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade500,
+                    color: AppTheme.slateLight,
                   ),
                 );
               }).toList(),
@@ -152,8 +149,8 @@ class LineChartPainter extends CustomPainter {
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
       colors: [
-        color.withOpacity(0.3),
-        color.withOpacity(0.01),
+        color.withValues(alpha: 0.3),
+        color.withValues(alpha: 0.01),
       ],
     );
     paintFill.shader = gradient.createShader(Rect.fromLTWH(0, 0, size.width, size.height));
@@ -197,7 +194,7 @@ class CustomBarChart extends StatelessWidget {
     required this.labels,
     required this.title,
     required this.subtitle,
-    this.color = const Color(0xFF625B71),
+    this.color = AppTheme.slateMedium,
   });
 
   @override
@@ -205,12 +202,6 @@ class CustomBarChart extends StatelessWidget {
     final double maxVal = values.reduce((a, b) => a > b ? a : b);
 
     return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.grey.shade200, width: 1),
-      ),
-      color: Colors.white,
       child: Padding(
         padding: const EdgeInsets.all(20.0),
         child: Column(
@@ -222,14 +213,15 @@ class CustomBarChart extends StatelessWidget {
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
                 letterSpacing: 0.2,
+                color: AppTheme.slateDark,
               ),
             ),
             const SizedBox(height: 4),
             Text(
               subtitle,
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 12,
-                color: Colors.grey.shade600,
+                color: AppTheme.slateMedium,
               ),
             ),
             const SizedBox(height: 24),
@@ -254,6 +246,7 @@ class CustomBarChart extends StatelessWidget {
                             style: const TextStyle(
                               fontSize: 9,
                               fontWeight: FontWeight.bold,
+                              color: AppTheme.slateDark,
                             ),
                           ),
                           const SizedBox(height: 6),
@@ -261,7 +254,7 @@ class CustomBarChart extends StatelessWidget {
                             duration: const Duration(milliseconds: 500),
                             height: heightRatio * 110,
                             decoration: BoxDecoration(
-                              color: color.withOpacity(index == values.length - 1 ? 1.0 : 0.7),
+                              color: color.withValues(alpha: index == values.length - 1 ? 1.0 : 0.7),
                               borderRadius: const BorderRadius.vertical(
                                 top: Radius.circular(6),
                               ),
@@ -270,10 +263,10 @@ class CustomBarChart extends StatelessWidget {
                           const SizedBox(height: 8),
                           Text(
                             label,
-                            style: TextStyle(
+                            style: const TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w600,
-                              color: Colors.grey.shade500,
+                              color: AppTheme.slateLight,
                             ),
                           ),
                         ],
