@@ -6,6 +6,7 @@ import '../../../data/app_data_provider.dart';
 import '../../../data/models.dart';
 import '../../../widgets/app_page_switcher.dart';
 import '../../../widgets/async_state_views.dart';
+import '../../auth/auth_provider.dart';
 
 String _initials(String name) => name.split(' ').where((n) => n.isNotEmpty).map((n) => n[0]).take(2).join();
 
@@ -30,11 +31,26 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
   final _searchController = TextEditingController();
   Customer? _selectedCustomer;
   bool _vipOnly = false;
+  // Null while loading; see _selectCustomer.
+  List<Bill>? _customerBills;
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _selectCustomer(WidgetRef ref, Customer cust) async {
+    setState(() {
+      _selectedCustomer = cust;
+      _customerBills = null;
+    });
+    try {
+      final bills = await ref.read(appDataProvider.notifier).loadBillsForCustomer(cust.id);
+      if (mounted && _selectedCustomer?.id == cust.id) setState(() => _customerBills = bills);
+    } catch (_) {
+      if (mounted && _selectedCustomer?.id == cust.id) setState(() => _customerBills = []);
+    }
   }
 
   void _showAddCustomerDialog(BuildContext context, WidgetRef ref, List<Branch> branches) {
@@ -224,7 +240,6 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
                       itemBuilder: (context, index) {
                         final cust = filteredCustomers[index];
                         final isSel = _selectedCustomer?.id == cust.id;
-                        final visitCount = state.bills.where((b) => b.customerId == cust.id).length;
 
                         return Card(
                           elevation: 0,
@@ -246,8 +261,8 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
                                 if (cust.isVip) const Icon(PhosphorIconsFill.star, color: AppTheme.accentGold, size: 14),
                               ],
                             ),
-                            subtitle: Text('${cust.phone} • $visitCount visits', style: TextStyle(color: AppTheme.slateLight, fontSize: 11)),
-                            onTap: () => setState(() => _selectedCustomer = cust),
+                            subtitle: Text('${cust.phone} • ${cust.visitCount} visits', style: TextStyle(color: AppTheme.slateLight, fontSize: 11)),
+                            onTap: () => _selectCustomer(ref, cust),
                           ),
                         );
                       },
@@ -310,11 +325,13 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
 
   Widget _buildCustomerProfile(AppData state) {
     final cust = state.customers.firstWhere((c) => c.id == _selectedCustomer!.id, orElse: () => _selectedCustomer!);
-    final custBills = state.bills.where((b) => b.customerId == cust.id).toList()
-      ..sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
-    final totalSpent = custBills.fold<double>(0, (sum, b) => sum + b.finalAmount);
+    // Recent visit history only (fetched on demand in _selectCustomer, capped
+    // server-side) - totalSpent/visitCount/lastVisit below come from fields
+    // denormalized onto the customer doc instead, so they stay correct even
+    // past that cap.
+    final custBills = _customerBills;
     final servicesTaken = <String>{
-      for (final bill in custBills)
+      for (final bill in custBills ?? const <Bill>[])
         for (final item in bill.items)
           if (item.serviceName != null) item.serviceName! else if (item.productName != null) item.productName!
     };
@@ -358,16 +375,18 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
           const SizedBox(height: 20),
           Row(
             children: [
-              Expanded(child: _buildProfileStatCard('Total Spent', 'Rs. ${totalSpent.toStringAsFixed(0)}', PhosphorIconsRegular.money, AppTheme.statViolet)),
+              Expanded(child: _buildProfileStatCard('Total Spent', 'Rs. ${cust.totalSpent.toStringAsFixed(0)}', PhosphorIconsRegular.money, AppTheme.statViolet)),
               const SizedBox(width: 12),
-              Expanded(child: _buildProfileStatCard('Visit Count', '${custBills.length} visits', PhosphorIconsRegular.calendarCheck, AppTheme.primaryBlue)),
+              Expanded(child: _buildProfileStatCard('Visit Count', '${cust.visitCount} visits', PhosphorIconsRegular.calendarCheck, AppTheme.primaryBlue)),
               const SizedBox(width: 12),
-              Expanded(child: _buildProfileStatCard('Last Visit', custBills.isEmpty ? 'Never' : _formatDate(custBills.first.createdAt), PhosphorIconsRegular.clock, AppTheme.statTeal)),
+              Expanded(child: _buildProfileStatCard('Last Visit', cust.lastVisitAt == null ? 'Never' : _formatDate(cust.lastVisitAt), PhosphorIconsRegular.clock, AppTheme.statTeal)),
             ],
           ),
           const SizedBox(height: 24),
           if (servicesTaken.isNotEmpty) ...[
             const Text('Services Availed', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            const SizedBox(height: 4),
+            const Text('From their most recent visits.', style: TextStyle(color: AppTheme.slateLight, fontSize: 11)),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -381,8 +400,12 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
             const SizedBox(height: 24),
           ],
           const Text('Visit History', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+          const SizedBox(height: 4),
+          const Text('Most recent visits.', style: TextStyle(color: AppTheme.slateLight, fontSize: 11)),
           const SizedBox(height: 12),
-          if (custBills.isEmpty)
+          if (custBills == null)
+            const Center(child: Padding(padding: EdgeInsets.all(20.0), child: CircularProgressIndicator()))
+          else if (custBills.isEmpty)
             const Text('No bills yet.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
           else
             ListView.builder(
@@ -622,6 +645,309 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
     );
   }
 
+  void _showEditEmployeeDialog(BuildContext context, WidgetRef ref, EmployeeProfile emp, List<Branch> branches) {
+    final nameController = TextEditingController(text: emp.name);
+    final phoneController = TextEditingController(text: emp.phone);
+    final roleController = TextEditingController(text: emp.roleTitle);
+    final salaryController = TextEditingController(text: emp.baseSalary.toStringAsFixed(0));
+    final serviceCommController = TextEditingController(text: emp.serviceCommissionPct.toStringAsFixed(0));
+    final productCommController = TextEditingController(text: emp.productCommissionPct.toStringAsFixed(0));
+    // Email isn't editable here - it's also the Firebase Auth login
+    // identity, and there's no Admin SDK to rename that account to match
+    // (same no-server constraint as resetEmployeePassword above).
+    String? branchId = emp.branchId;
+    bool active = emp.active;
+    // Firestore rules gate almost every write/read on isActiveEmployee()
+    // (via myProfile().active) - if the owner flipped this off on their own
+    // record, isOwner() would also go false on their next request, and only
+    // an owner can flip it back. There's no server to catch that mistake
+    // for them, so the toggle is disabled entirely on your own profile.
+    final isSelf = ref.read(authControllerProvider).userId == emp.id;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(PhosphorIconsRegular.pencilSimple, color: AppTheme.primaryBlue),
+              const SizedBox(width: 10),
+              Expanded(child: Text('Edit ${emp.name}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Full Name *')),
+                const SizedBox(height: 12),
+                TextField(controller: phoneController, decoration: const InputDecoration(labelText: 'Phone Number *')),
+                const SizedBox(height: 12),
+                TextField(controller: roleController, decoration: const InputDecoration(labelText: 'Stylist Role')),
+                const SizedBox(height: 12),
+                if (branches.length > 1)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: DropdownButtonFormField<String>(
+                      initialValue: branchId,
+                      decoration: const InputDecoration(labelText: 'Branch'),
+                      borderRadius: BorderRadius.circular(14),
+                      dropdownColor: Colors.white,
+                      elevation: 3,
+                      items: branches.map((b) => DropdownMenuItem(value: b.id, child: Text(b.name))).toList(),
+                      onChanged: (val) => setDialogState(() => branchId = val),
+                    ),
+                  ),
+                TextField(controller: salaryController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Base Retainer (Rs.)')),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(child: TextField(controller: serviceCommController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Service Commission (%)'))),
+                    const SizedBox(width: 10),
+                    Expanded(child: TextField(controller: productCommController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Product Commission (%)'))),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Active', style: TextStyle(fontSize: 14)),
+                  subtitle: Text(
+                    isSelf ? "You can't deactivate your own account here - ask another owner, or use the Firebase Console." : 'Deactivated staff can no longer sign in or be billed against.',
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                  value: active,
+                  onChanged: isSelf ? null : (val) => setDialogState(() => active = val),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () async {
+                final name = nameController.text.trim();
+                final phone = phoneController.text.trim();
+                if (name.isEmpty || phone.isEmpty || branchId == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Name, phone, and branch are required.'), backgroundColor: AppTheme.accentRed),
+                  );
+                  return;
+                }
+                final salary = double.tryParse(salaryController.text) ?? emp.baseSalary;
+                final serviceComm = double.tryParse(serviceCommController.text) ?? emp.serviceCommissionPct;
+                final productComm = double.tryParse(productCommController.text) ?? emp.productCommissionPct;
+
+                Navigator.pop(ctx);
+                try {
+                  await ref.read(appDataProvider.notifier).updateEmployee(emp.id, {
+                    'name': name,
+                    'phone': phone,
+                    'roleTitle': roleController.text.trim(),
+                    'baseSalary': salary,
+                    'serviceCommissionPct': serviceComm,
+                    'productCommissionPct': productComm,
+                    'branchId': branchId,
+                    'active': active,
+                  });
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('$name updated.'), backgroundColor: AppTheme.accentGreen),
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
+                  }
+                }
+              },
+              child: const Text('Save Changes'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSetSalesTargetDialog(BuildContext context, WidgetRef ref, EmployeeProfile emp) {
+    String type = 'SERVICE_VOLUME';
+    final targetValueController = TextEditingController();
+    DateTime startDate = DateTime.now();
+    DateTime endDate = DateTime.now().add(const Duration(days: 30));
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('Set Sales Target for ${emp.name}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                DropdownButtonFormField<String>(
+                  initialValue: type,
+                  decoration: const InputDecoration(labelText: 'Target Type'),
+                  items: const [
+                    DropdownMenuItem(value: 'SERVICE_VOLUME', child: Text('Service Revenue (Rs.)')),
+                    DropdownMenuItem(value: 'PRODUCT_SALES_COUNT', child: Text('Product Units Sold')),
+                  ],
+                  onChanged: (val) => setDialogState(() => type = val ?? type),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: targetValueController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(labelText: type == 'SERVICE_VOLUME' ? 'Target Revenue (Rs.) *' : 'Target Units *'),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () async {
+                          final picked = await showDatePicker(context: ctx, initialDate: startDate, firstDate: DateTime(2020), lastDate: DateTime(2100));
+                          if (picked != null) setDialogState(() => startDate = picked);
+                        },
+                        child: Text('Start: ${_formatDate(startDate)}', style: const TextStyle(fontSize: 12)),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () async {
+                          final picked = await showDatePicker(context: ctx, initialDate: endDate, firstDate: startDate, lastDate: DateTime(2100));
+                          if (picked != null) setDialogState(() => endDate = picked);
+                        },
+                        child: Text('End: ${_formatDate(endDate)}', style: const TextStyle(fontSize: 12)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () async {
+                final targetValue = double.tryParse(targetValueController.text);
+                if (targetValue == null || targetValue <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Enter a valid target value.'), backgroundColor: AppTheme.accentRed),
+                  );
+                  return;
+                }
+                Navigator.pop(ctx);
+                try {
+                  await ref.read(appDataProvider.notifier).addSalesTarget(
+                        employeeId: emp.id,
+                        type: type,
+                        targetValue: targetValue,
+                        startDate: startDate.toIso8601String(),
+                        endDate: endDate.toIso8601String(),
+                      );
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Target set for ${emp.name}.'), backgroundColor: AppTheme.accentGreen),
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
+                  }
+                }
+              },
+              child: const Text('Set Target'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static const _monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ];
+
+  // forEmployee == null runs payroll for every active employee at once
+  // (AppDataNotifier.generateSalary / SalonFirestore.generateSalary already
+  // skip anyone already PAID for the chosen month, so rerunning this is
+  // always safe).
+  void _showGenerateSalaryDialog(BuildContext context, WidgetRef ref, {EmployeeProfile? forEmployee}) {
+    final now = DateTime.now();
+    int month = now.month;
+    int year = now.year;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text(
+            forEmployee == null ? 'Run Payroll for All Staff' : 'Generate Salary for ${forEmployee.name}',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Sums pending commissions and late-attendance deductions for the chosen month into a draft salary record${forEmployee == null ? ' for every active employee' : ''}.',
+                style: const TextStyle(color: AppTheme.slateLight, fontSize: 12),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<int>(
+                      initialValue: month,
+                      decoration: const InputDecoration(labelText: 'Month'),
+                      items: [for (var m = 1; m <= 12; m++) DropdownMenuItem(value: m, child: Text(_monthNames[m - 1]))],
+                      onChanged: (val) => setDialogState(() => month = val ?? month),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: DropdownButtonFormField<int>(
+                      initialValue: year,
+                      decoration: const InputDecoration(labelText: 'Year'),
+                      items: [for (var y = now.year - 1; y <= now.year; y++) DropdownMenuItem(value: y, child: Text('$y'))],
+                      onChanged: (val) => setDialogState(() => year = val ?? year),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                try {
+                  await ref.read(appDataProvider.notifier).generateSalary(month: month, year: year, employeeId: forEmployee?.id);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Salary generated for ${_monthNames[month - 1]} $year.'), backgroundColor: AppTheme.accentGreen),
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
+                  }
+                }
+              },
+              child: const Text('Generate'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // LayoutBuilder, not MediaQuery - see the comment in OwnerCustomersTab's
@@ -660,7 +986,12 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Staff & Stylists', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.slateDark)),
+              const Expanded(child: Text('Staff & Stylists', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.slateDark))),
+              IconButton(
+                onPressed: () => _showGenerateSalaryDialog(context, ref),
+                icon: const Icon(PhosphorIconsRegular.moneyWavy, color: AppTheme.primaryBlue),
+                tooltip: 'Run Payroll for All Staff',
+              ),
               ElevatedButton.icon(
                 onPressed: () => _showAddEmployeeDialog(context, ref, state.branches),
                 icon: const Icon(PhosphorIconsRegular.plus, size: 16),
@@ -812,6 +1143,11 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
                     ],
                   ),
                 ),
+                IconButton(
+                  onPressed: () => _showEditEmployeeDialog(context, ref, emp, state.branches),
+                  icon: const Icon(PhosphorIconsRegular.pencilSimple, color: AppTheme.slateLight),
+                  tooltip: 'Edit Employee',
+                ),
               ],
             ),
           ),
@@ -819,33 +1155,48 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
           Container(
             decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
             padding: const EdgeInsets.all(18.0),
-            child: target == null
-                ? const Text('No active sales target set.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Sales Target', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.slateDark)),
+                    TextButton.icon(
+                      onPressed: () => _showSetSalesTargetDialog(context, ref, emp),
+                      icon: const Icon(PhosphorIconsRegular.target, size: 15),
+                      label: Text(target == null ? 'Set Target' : 'New Target', style: const TextStyle(fontSize: 12)),
+                      style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8), minimumSize: const Size(0, 30)),
+                    ),
+                  ],
+                ),
+                if (target == null)
+                  const Text('No active sales target set.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
+                else ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Active Target Tracker', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.slateDark)),
-                          Text('${(target.progressFraction * 100).toStringAsFixed(0)}% Achieved', style: const TextStyle(color: AppTheme.primaryBlue, fontWeight: FontWeight.w800, fontSize: 12)),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(4),
-                        child: LinearProgressIndicator(value: target.progressFraction, backgroundColor: const Color(0xFFE2E8F0), valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primaryBlue), minHeight: 7),
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('Achieved: ${target.progressValue.toStringAsFixed(0)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppTheme.slateDark)),
-                          Text('Target: ${target.targetValue.toStringAsFixed(0)}', style: const TextStyle(fontSize: 12, color: AppTheme.slateLight, fontWeight: FontWeight.w600)),
-                        ],
-                      ),
+                      Text('${target.type == 'SERVICE_VOLUME' ? 'Service Revenue' : 'Product Units'} target', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
+                      Text('${(target.progressFraction * 100).toStringAsFixed(0)}% Achieved', style: const TextStyle(color: AppTheme.primaryBlue, fontWeight: FontWeight.w800, fontSize: 12)),
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(value: target.progressFraction, backgroundColor: const Color(0xFFE2E8F0), valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primaryBlue), minHeight: 7),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Achieved: ${target.progressValue.toStringAsFixed(0)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppTheme.slateDark)),
+                      Text('Target: ${target.targetValue.toStringAsFixed(0)}', style: const TextStyle(fontSize: 12, color: AppTheme.slateLight, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ],
+              ],
+            ),
           ),
           const SizedBox(height: 16),
           Row(
@@ -882,6 +1233,10 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
             ),
           ),
           const SizedBox(height: 16),
+          _buildPendingCommissionsCard(context, ref, state, emp),
+          const SizedBox(height: 16),
+          _buildSalaryHistoryCard(context, ref, state, emp),
+          const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             height: 44,
@@ -891,6 +1246,151 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
               label: const Text('Reset Employee Password', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.primaryBlue)),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPendingCommissionsCard(BuildContext context, WidgetRef ref, AppData state, EmployeeProfile emp) {
+    final pending = state.commissions.where((c) => c.employeeId == emp.id && c.status == 'PENDING').toList()
+      ..sort((a, b) => (b.calculatedAt ?? DateTime(0)).compareTo(a.calculatedAt ?? DateTime(0)));
+
+    Future<void> markPaid(String id) async {
+      try {
+        await ref.read(appDataProvider.notifier).markCommissionPaid(id);
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
+        }
+      }
+    }
+
+    return Container(
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
+      padding: const EdgeInsets.all(18.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Pending Commissions', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.slateDark)),
+          const SizedBox(height: 4),
+          Text('Paid off automatically the next time payroll runs for the covering month, or mark one individually below.', style: TextStyle(color: AppTheme.slateLight, fontSize: 11)),
+          const SizedBox(height: 12),
+          if (pending.isEmpty)
+            const Text('No pending commissions.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
+          else
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: pending.length > 20 ? 20 : pending.length,
+              itemBuilder: (context, idx) {
+                final c = pending[idx];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(_formatDate(c.calculatedAt), style: const TextStyle(fontSize: 11, color: AppTheme.slateLight)),
+                      Row(
+                        children: [
+                          Text('Rs. ${c.amount.toStringAsFixed(0)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            height: 26,
+                            child: TextButton(
+                              onPressed: () => markPaid(c.id),
+                              style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8), minimumSize: const Size(0, 26)),
+                              child: const Text('Mark Paid', style: TextStyle(fontSize: 11)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSalaryHistoryCard(BuildContext context, WidgetRef ref, AppData state, EmployeeProfile emp) {
+    final records = state.salaryRecords.where((r) => r.employeeId == emp.id).toList()
+      ..sort((a, b) => (b.year * 12 + b.month).compareTo(a.year * 12 + a.month));
+
+    Future<void> markPaid(String id) async {
+      try {
+        await ref.read(appDataProvider.notifier).markSalaryPaid(id);
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
+        }
+      }
+    }
+
+    return Container(
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
+      padding: const EdgeInsets.all(18.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Salary History', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.slateDark)),
+              TextButton.icon(
+                onPressed: () => _showGenerateSalaryDialog(context, ref, forEmployee: emp),
+                icon: const Icon(PhosphorIconsRegular.calendarPlus, size: 15),
+                label: const Text('Generate', style: TextStyle(fontSize: 12)),
+                style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8), minimumSize: const Size(0, 30)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (records.isEmpty)
+            const Text('No salary records yet - generate one for a past month above.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
+          else
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: records.length,
+              itemBuilder: (context, idx) {
+                final r = records[idx];
+                final isPaid = r.status == 'PAID';
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(color: const Color(0xFFF9FAFB), borderRadius: BorderRadius.circular(10), border: Border.all(color: AppTheme.borderSubtle)),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('${_monthNames[r.month - 1]} ${r.year}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                            Text('Base Rs. ${r.baseSalary.toStringAsFixed(0)} + Commission Rs. ${r.commissionEarned.toStringAsFixed(0)} - Deductions Rs. ${r.deductions.toStringAsFixed(0)}',
+                                style: const TextStyle(color: AppTheme.slateLight, fontSize: 10)),
+                          ],
+                        ),
+                      ),
+                      Text('Rs. ${r.totalPaid.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+                      const SizedBox(width: 10),
+                      if (isPaid)
+                        const Icon(PhosphorIconsRegular.checkCircle, color: AppTheme.accentGreen, size: 20)
+                      else
+                        SizedBox(
+                          height: 28,
+                          child: ElevatedButton(
+                            onPressed: () => markPaid(r.id),
+                            style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10), minimumSize: const Size(0, 28)),
+                            child: const Text('Mark Paid', style: TextStyle(fontSize: 11)),
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
         ],
       ),
     );

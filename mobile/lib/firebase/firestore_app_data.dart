@@ -56,6 +56,9 @@ Customer customerFromFS(FSCustomer c) => Customer(
       isVip: c.isVip,
       branchId: c.branchId,
       createdAt: c.createdAt,
+      visitCount: c.visitCount,
+      totalSpent: c.totalSpent,
+      lastVisitAt: c.lastVisitAt,
     );
 
 ServiceCategory categoryFromFS(FSServiceCategory c) => ServiceCategory(id: c.id, name: c.name);

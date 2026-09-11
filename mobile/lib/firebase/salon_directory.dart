@@ -2,15 +2,14 @@ import 'package:firebase_core/firebase_core.dart';
 
 // Each salon gets its own Firebase project (Firestore quotas/free-tier are
 // per-project, so one salon's usage can never eat into another's). Since
-// Firebase Auth is also per-project, there's no single place to ask "which
-// project does this email belong to" the way the old backend's
-// globally-unique User.email column let us - so login doesn't look anything
-// up by email at all. Instead it tries every configured project in turn
-// (see salon_auth.dart's signIn) and only falls back to the REST backend if
-// none of them accept the credentials. That means every employee of a
-// Firebase-directory salon can log in the moment their account exists in
-// that salon's project, with nothing to add here per employee - only a
-// whole new salon needs a new entry below.
+// Firebase Auth is also per-project, there's no built-in place to ask
+// "which project does this email belong to" - login_directory.dart is the
+// (optional, currently unconfigured) fast answer to that; salon_auth.dart's
+// signIn() falls back to trying every project below in turn whenever that
+// fast path can't be used. Either way, every employee of a salon listed
+// here can log in the moment their account exists in that salon's project,
+// with nothing to add here per employee - only a whole new salon needs a
+// new entry below.
 //
 // Firebase web config values (apiKey, appId, etc.) are not secrets - Google's
 // own docs say they're safe in client code. The real access boundary is

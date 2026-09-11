@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'login_directory.dart';
 import 'salon_directory.dart';
 
 class SalonLoginResult {
@@ -31,34 +32,60 @@ class SalonAuth {
     return Firebase.initializeApp(name: config.salonId, options: config.options);
   }
 
-  // Tries every configured salon project in turn rather than looking one up
-  // by email - there are only a handful of salons, so trying them all is
-  // cheap, and it means a newly-created employee can log in the moment
-  // their account exists in their salon's project, with no per-employee
-  // entry needed anywhere. AuthController.login() only falls back to the
-  // REST backend once every project here has rejected the credentials.
+  // Fast path: ask the login directory (login_directory.dart) which salon
+  // this email belongs to, so sign-in only ever tries the ONE right
+  // project's Firebase Auth instead of every configured salon in turn -
+  // that loop gets slower with every salon added, and stays O(salon count)
+  // even for a mistyped password. Falls straight through to the loop below
+  // whenever the fast path can't be used: directory not configured yet,
+  // email not in it, or the lookup itself fails.
+  //
+  // Deliberately does NOT fall through to the loop after a directory HIT
+  // whose password check then fails - trying every other project too would
+  // leak whether this email exists in one of them (the same anti-
+  // enumeration reasoning as the FirebaseAuthException catch below).
   static Future<SalonLoginResult> signIn(String email, String password) async {
-    for (final config in salonFirebaseConfigs) {
-      final app = await _appFor(config);
-      try {
-        final credential = await FirebaseAuth.instanceFor(app: app).signInWithEmailAndPassword(email: email, password: password);
-        final user = credential.user;
-        if (user == null) continue;
+    final normalizedEmail = email.trim();
 
-        await _storage.write(key: _lastSalonIdKey, value: config.salonId);
-        await _storage.write(key: _lastEmailKey, value: email.trim().toLowerCase());
-
-        return SalonLoginResult(salonId: config.salonId, app: app, user: user);
-      } on FirebaseAuthException {
-        // Wrong password and "no such user" are deliberately indistinguishable
-        // in modern Firebase Auth error codes (anti-enumeration) - either way,
-        // just try the next project.
-        continue;
+    final directedSalonId = await lookupSalonIdForEmail(normalizedEmail);
+    if (directedSalonId != null) {
+      final config = configForSalonId(directedSalonId);
+      if (config != null) {
+        final result = await _trySignIn(config, normalizedEmail, password);
+        if (result != null) return result;
+        throw SalonAuthException('Invalid email or password');
       }
+    }
+
+    // Fallback: try every configured salon project in turn - covers salons
+    // not yet added to the directory, and keeps sign-in working even if the
+    // directory project itself is unreachable.
+    for (final config in salonFirebaseConfigs) {
+      final result = await _trySignIn(config, normalizedEmail, password);
+      if (result != null) return result;
     }
     // Same generic message regardless of which step failed - don't reveal
     // whether an email exists in any salon's directory.
     throw SalonAuthException('Invalid email or password');
+  }
+
+  static Future<SalonLoginResult?> _trySignIn(SalonFirebaseConfig config, String email, String password) async {
+    final app = await _appFor(config);
+    try {
+      final credential = await FirebaseAuth.instanceFor(app: app).signInWithEmailAndPassword(email: email, password: password);
+      final user = credential.user;
+      if (user == null) return null;
+
+      await _storage.write(key: _lastSalonIdKey, value: config.salonId);
+      await _storage.write(key: _lastEmailKey, value: email.toLowerCase());
+
+      return SalonLoginResult(salonId: config.salonId, app: app, user: user);
+    } on FirebaseAuthException {
+      // Wrong password and "no such user" are deliberately indistinguishable
+      // in modern Firebase Auth error codes (anti-enumeration) - either way,
+      // just report "no match" to the caller.
+      return null;
+    }
   }
 
   // Called on app startup, before showing the login screen - restores a

@@ -85,7 +85,17 @@ service cloud.firestore {
 
     match /inventoryItems/{itemId} {
       allow read: if isActiveEmployee();
-      allow write: if isOwner();
+      allow create, delete: if isOwner();
+      // Catalog fields (price, name, sku, minAlertThreshold, ...) stay
+      // owner-only, but createBill()'s transaction (salon_firestore.dart)
+      // decrements stockCount as a side effect of ANY active employee
+      // selling a product - not just the owner. Without this split, every
+      // employee-created bill containing a product item fails its whole
+      // transaction with permission-denied, since a Firestore transaction
+      // is all-or-nothing. affectedKeys().hasOnly(['stockCount']) keeps a
+      // non-owner from touching anything else on the document.
+      allow update: if isOwner() ||
+        (isActiveEmployee() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stockCount']));
     }
 
     // A bill is immutable once created - no PATCH /bills/:id exists on the
@@ -124,14 +134,19 @@ service cloud.firestore {
       allow update: if isOwner();
     }
 
-    // Only the owner sets targets (matches salesTarget.routes.ts) - progress
-    // is updated as a side effect of bill creation, which also requires
-    // isOwner() here since the *client* triggers that write today. If bill
-    // creation ever moves into a Cloud Function, this should change to allow
-    // that function's service-account writes instead of relaxing this rule.
+    // Only the owner sets targets (matches salesTarget.routes.ts). Progress
+    // is bumped as a side effect of bill creation though, which any active
+    // employee can trigger (see bills/{billId} above) - same all-or-nothing
+    // transaction problem as inventoryItems' stockCount above, so a non-
+    // owner is allowed to touch only progressValue/status, never
+    // targetValue or reassign employeeId. If bill creation ever moves into
+    // a Cloud Function, this should change to allow that function's
+    // service-account writes instead of relaxing this rule.
     match /salesTargets/{targetId} {
       allow read: if isActiveEmployee();
-      allow create, update: if isOwner();
+      allow create: if isOwner();
+      allow update: if isOwner() ||
+        (isActiveEmployee() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['progressValue', 'status']));
     }
 
     // Owner-only end to end (matches expense.routes.ts requiring OWNER for

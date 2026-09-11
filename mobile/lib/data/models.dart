@@ -111,6 +111,9 @@ class Customer {
   final bool isVip;
   final String branchId;
   final DateTime? createdAt;
+  final int visitCount;
+  final double totalSpent;
+  final DateTime? lastVisitAt;
 
   Customer({
     required this.id,
@@ -122,6 +125,9 @@ class Customer {
     required this.isVip,
     required this.branchId,
     this.createdAt,
+    this.visitCount = 0,
+    this.totalSpent = 0,
+    this.lastVisitAt,
   });
 
   factory Customer.fromJson(Map<String, dynamic> json) => Customer(
@@ -134,6 +140,9 @@ class Customer {
         isVip: json['isVip'] ?? false,
         branchId: json['branchId'] ?? '',
         createdAt: _date(json['createdAt']),
+        visitCount: _int(json['visitCount']),
+        totalSpent: _num(json['totalSpent']),
+        lastVisitAt: _date(json['lastVisitAt']),
       );
 }
 

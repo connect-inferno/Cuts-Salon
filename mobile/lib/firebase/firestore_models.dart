@@ -138,6 +138,13 @@ class FSCustomer {
   final bool isVip;
   final String branchId;
   final DateTime? createdAt;
+  // Denormalized onto the customer doc (incremented atomically inside
+  // createBill's transaction) instead of computed by re-reading a salon's
+  // entire bill history on every load - see the comment on listBills() for
+  // why that doesn't scale.
+  final int visitCount;
+  final double totalSpent;
+  final DateTime? lastVisitAt;
 
   FSCustomer({
     required this.id,
@@ -149,6 +156,9 @@ class FSCustomer {
     required this.isVip,
     required this.branchId,
     this.createdAt,
+    this.visitCount = 0,
+    this.totalSpent = 0,
+    this.lastVisitAt,
   });
 
   factory FSCustomer.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -163,6 +173,9 @@ class FSCustomer {
       isVip: d['isVip'] ?? false,
       branchId: d['branchId'] ?? '',
       createdAt: _ts(d['createdAt']),
+      visitCount: _int(d['visitCount']),
+      totalSpent: _num(d['totalSpent']),
+      lastVisitAt: _ts(d['lastVisitAt']),
     );
   }
 
@@ -175,6 +188,8 @@ class FSCustomer {
         'isVip': isVip,
         'branchId': branchId,
         if (isCreate) 'createdAt': FieldValue.serverTimestamp(),
+        if (isCreate) 'visitCount': 0,
+        if (isCreate) 'totalSpent': 0,
       };
 }
 

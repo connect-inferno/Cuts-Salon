@@ -1,0 +1,43 @@
+rules_version = '2';
+
+// Rules for the separate "login directory" Firebase project (see
+// mobile/lib/firebase/login_directory.dart) - NOT the same project or the
+// same rules file as mobile/firestore.rules, which is per-salon.
+//
+// This project holds one collection: emailDirectory/{email} -> { salonId }.
+// Nothing sensitive lives here - no passwords, no salon data - so public
+// read is safe: a sign-in attempt has to look someone up before it has any
+// way to authenticate anywhere. What must stay locked down is WRITE: if
+// this were publicly writable, anyone could repoint another person's email
+// at an attacker-controlled Firebase project, and that person's real
+// password would then get sent to the attacker's Auth endpoint the next
+// time they tried to log in. So writes are entirely manual (Firebase
+// Console) as part of onboarding a salon or an employee - see CLAUDE.md.
+//
+// `get` (fetch one known doc id) is allowed; `list` (enumerate the
+// collection) is not - the app only ever does the former, and allowing the
+// latter would let anyone harvest every registered email address.
+//
+// This project also holds a second collection, salons/{salonId}, which is
+// unrelated to sign-in: it's an operator-only registry (salon name, owner
+// name, owner email, that salon's Firebase project config) for whoever runs
+// this SaaS to have one place to look up "what salons exist and who owns
+// them" instead of grepping salon_directory.dart. No app code reads or
+// writes it - entries are added/edited by hand in the Firebase Console as
+// part of onboarding (see CLAUDE.md), the same way emailDirectory entries
+// are. Unlike emailDirectory, nothing here needs to be client-readable
+// (login never needs it), so it's locked down entirely - Console/Admin SDK
+// only, same access level Console editing already implies.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /emailDirectory/{email} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if false;
+    }
+
+    match /salons/{salonId} {
+      allow read, write: if false;
+    }
+  }
+}

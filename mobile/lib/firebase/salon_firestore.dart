@@ -249,6 +249,15 @@ class SalonFirestore {
       );
       tx.set(billRef, bill.toFirestore(isCreate: true));
 
+      // Denormalized onto the customer doc so list/profile views can show
+      // visit count, total spent, and last visit without re-reading the
+      // whole bill history - see listBills()'s comment for why that matters.
+      tx.update(db.collection('customers').doc(customerId), {
+        'visitCount': FieldValue.increment(1),
+        'totalSpent': FieldValue.increment(finalAmount),
+        'lastVisitAt': FieldValue.serverTimestamp(),
+      });
+
       for (final item in items) {
         final itemRef = billRef.collection('items').doc();
         final netAmount = _round2(item.unitPrice * item.quantity - item.discountAmount);
@@ -312,9 +321,42 @@ class SalonFirestore {
     });
   }
 
+  // Capped, not the whole history - a salon running for a year+ can have
+  // tens of thousands of bills, and this (plus listBillItems below) used to
+  // get re-read in full on every single bill/clock-in/clock-out via
+  // AppDataNotifier.refresh(), which is a cost that grows every month
+  // forever rather than staying flat. Everywhere this list is actually used
+  // (dashboard "recent bills", bill history cards) only ever displays the
+  // most recent handful anyway; a specific customer's full history goes
+  // through listBillsForCustomer() instead, and their running totals are
+  // denormalized onto the customer doc (see createBill's transaction).
+  static const int billsPageSize = 300;
+
   Future<List<FSBill>> listBills() async {
-    final snap = await db.collection('bills').orderBy('createdAt', descending: true).get();
+    final snap = await db.collection('bills').orderBy('createdAt', descending: true).limit(billsPageSize).get();
     return snap.docs.map((d) => FSBill.fromFirestore(d)).toList();
+  }
+
+  // Used by a customer's profile view instead of filtering the capped
+  // listBills() above, so an older customer's history doesn't silently
+  // disappear once the salon has more than [billsPageSize] bills total.
+  Future<List<FSBill>> listBillsForCustomer(String customerId, {int limit = 50}) async {
+    final snap = await db
+        .collection('bills')
+        .where('customerId', isEqualTo: customerId)
+        .orderBy('createdAt', descending: true)
+        .limit(limit)
+        .get();
+    return snap.docs.map((d) => FSBill.fromFirestore(d)).toList();
+  }
+
+  // Single-doc re-read after createBill() so the caller can resolve the
+  // FieldValue.serverTimestamp() it wrote into createdAt (the FSBill handed
+  // back by the transaction itself only ever holds the client-side draft,
+  // which never set createdAt) without re-fetching the whole bills list.
+  Future<FSBill?> getBill(String id) async {
+    final doc = await db.collection('bills').doc(id).get();
+    return doc.exists ? FSBill.fromFirestore(doc) : null;
   }
 
   Future<List<FSBillItem>> listBillItems(String billId) async {
@@ -330,7 +372,7 @@ class SalonFirestore {
   String attendanceDocId(String employeeId, DateTime date) =>
       '${employeeId}_${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
-  Future<void> clockIn(String employeeId) async {
+  Future<FSAttendanceRecord> clockIn(String employeeId) async {
     final today = DateTime.now();
     final ref = db.collection('attendanceRecords').doc(attendanceDocId(employeeId, today));
     final existing = await ref.get();
@@ -344,9 +386,10 @@ class SalonFirestore {
       'clockOut': null,
       'status': 'PRESENT',
     });
+    return FSAttendanceRecord.fromFirestore(await ref.get());
   }
 
-  Future<void> clockOut(String employeeId) async {
+  Future<FSAttendanceRecord> clockOut(String employeeId) async {
     final today = DateTime.now();
     final ref = db.collection('attendanceRecords').doc(attendanceDocId(employeeId, today));
     final existing = await ref.get();
@@ -357,20 +400,23 @@ class SalonFirestore {
       throw Exception('Already clocked out today');
     }
     await ref.update({'clockOut': FieldValue.serverTimestamp()});
+    return FSAttendanceRecord.fromFirestore(await ref.get());
   }
 
-  Future<void> markAttendance({required String employeeId, required DateTime date, required String status}) => db
-      .collection('attendanceRecords')
-      .doc(attendanceDocId(employeeId, date))
-      .set({
-        'employeeId': employeeId,
-        'date': Timestamp.fromDate(DateTime(date.year, date.month, date.day)),
-        'status': status,
-      }, SetOptions(merge: true));
+  Future<FSAttendanceRecord> markAttendance({required String employeeId, required DateTime date, required String status}) async {
+    final ref = db.collection('attendanceRecords').doc(attendanceDocId(employeeId, date));
+    await ref.set({
+      'employeeId': employeeId,
+      'date': Timestamp.fromDate(DateTime(date.year, date.month, date.day)),
+      'status': status,
+    }, SetOptions(merge: true));
+    return FSAttendanceRecord.fromFirestore(await ref.get());
+  }
 
-  Future<List<FSAttendanceRecord>> listAttendance({String? employeeId}) async {
+  Future<List<FSAttendanceRecord>> listAttendance({String? employeeId, int limit = 500}) async {
     Query<Map<String, dynamic>> q = db.collection('attendanceRecords');
     if (employeeId != null) q = q.where('employeeId', isEqualTo: employeeId);
+    q = q.orderBy('date', descending: true).limit(limit);
     final snap = await q.get();
     return snap.docs.map(FSAttendanceRecord.fromFirestore).toList();
   }
@@ -384,7 +430,10 @@ class SalonFirestore {
     return snap.docs.map(FSSalesTarget.fromFirestore).toList();
   }
 
-  Future<void> createSalesTarget(FSSalesTarget target) => db.collection('salesTargets').add(target.toFirestore());
+  Future<FSSalesTarget> createSalesTarget(FSSalesTarget target) async {
+    final ref = await db.collection('salesTargets').add(target.toFirestore());
+    return FSSalesTarget.fromFirestore(await ref.get());
+  }
 
   // --- Salary ---
 
@@ -536,9 +585,10 @@ class SalonFirestore {
 
   // --- Commissions ---
 
-  Future<List<FSCommissionRecord>> listCommissions({String? employeeId}) async {
+  Future<List<FSCommissionRecord>> listCommissions({String? employeeId, int limit = 1000}) async {
     Query<Map<String, dynamic>> q = db.collection('commissionRecords');
     if (employeeId != null) q = q.where('employeeId', isEqualTo: employeeId);
+    q = q.orderBy('createdAt', descending: true).limit(limit);
     final snap = await q.get();
     return snap.docs.map(FSCommissionRecord.fromFirestore).toList();
   }
@@ -551,20 +601,24 @@ class SalonFirestore {
 
   // --- Discount requests ---
 
-  Future<List<FSDiscountRequest>> listDiscountRequests({String? requestedBy}) async {
+  Future<List<FSDiscountRequest>> listDiscountRequests({String? requestedBy, int limit = 300}) async {
     Query<Map<String, dynamic>> q = db.collection('discountRequests');
     if (requestedBy != null) q = q.where('requestedBy', isEqualTo: requestedBy);
+    q = q.orderBy('createdAt', descending: true).limit(limit);
     final snap = await q.get();
     return snap.docs.map(FSDiscountRequest.fromFirestore).toList();
   }
 
-  Future<void> createDiscountRequest(FSDiscountRequest request) => db.collection('discountRequests').add(request.toFirestore(isCreate: true));
+  Future<FSDiscountRequest> createDiscountRequest(FSDiscountRequest request) async {
+    final ref = await db.collection('discountRequests').add(request.toFirestore(isCreate: true));
+    return FSDiscountRequest.fromFirestore(await ref.get());
+  }
 
   // Mirrors discountRequest.service.ts: only a still-PENDING request can be
   // resolved, and approving generates the random authorizedCode the
   // employee shows at checkout - matches `crypto.randomBytes(4).toString
   // ('hex').toUpperCase()`.
-  Future<void> resolveDiscountRequest(String id, {required bool approve}) async {
+  Future<FSDiscountRequest> resolveDiscountRequest(String id, {required bool approve}) async {
     final ref = db.collection('discountRequests').doc(id);
     final doc = await ref.get();
     if (!doc.exists) throw Exception('Discount request not found');
@@ -577,16 +631,20 @@ class SalonFirestore {
     } else {
       await ref.update({'status': 'REJECTED'});
     }
+    return FSDiscountRequest.fromFirestore(await ref.get());
   }
 
   // --- Expenses ---
 
-  Future<List<FSExpense>> listExpenses() async {
-    final snap = await db.collection('expenses').orderBy('date', descending: true).get();
+  Future<List<FSExpense>> listExpenses({int limit = 500}) async {
+    final snap = await db.collection('expenses').orderBy('date', descending: true).limit(limit).get();
     return snap.docs.map(FSExpense.fromFirestore).toList();
   }
 
-  Future<void> createExpense(FSExpense expense) => db.collection('expenses').add(expense.toFirestore());
+  Future<FSExpense> createExpense(FSExpense expense) async {
+    final ref = await db.collection('expenses').add(expense.toFirestore());
+    return FSExpense.fromFirestore(await ref.get());
+  }
 }
 
 // Input shape for one line of createBill() - deliberately not FSBillItem

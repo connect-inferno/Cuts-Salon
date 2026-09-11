@@ -1203,10 +1203,7 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
                             itemCount: filtered.length,
                             itemBuilder: (context, index) {
                               final c = filtered[index];
-                              final custBills = state.bills.where((b) => b.customerId == c.id).toList()
-                                ..sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
-                              final totalSpent = custBills.fold<double>(0, (s, b) => s + b.finalAmount);
-                              final lastVisit = custBills.isEmpty ? 'Never' : _formatDate(custBills.first.createdAt);
+                              final lastVisit = c.lastVisitAt == null ? 'Never' : _formatDate(c.lastVisitAt);
 
                               return Container(
                                 margin: const EdgeInsets.only(bottom: 10),
@@ -1230,7 +1227,7 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
                                     ],
                                   ),
                                   subtitle: Text('${c.phone} • Last visit: $lastVisit', style: const TextStyle(fontSize: 12, color: AppTheme.slateLight)),
-                                  trailing: Text('Rs. ${totalSpent.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w800, color: AppTheme.slateDark)),
+                                  trailing: Text('Rs. ${c.totalSpent.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w800, color: AppTheme.slateDark)),
                                 ),
                               );
                             },
