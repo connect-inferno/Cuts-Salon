@@ -1,6 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'login_directory.dart';
 import 'salon_directory.dart';
 
@@ -19,18 +19,19 @@ class SalonAuthException implements Exception {
 }
 
 class SalonAuth {
-  static const _storage = FlutterSecureStorage();
-  static const _lastSalonIdKey = 'firebase_last_salon_id';
-  static const _lastEmailKey = 'firebase_last_email';
+  static const _lastSalonIdKey = 'last_salon_id';
+  static const _lastEmailKey = 'last_email';
 
-  // Safari (Private Browsing) and some iOS WebViews block localStorage /
-  // IndexedDB - the backing store for flutter_secure_storage on web - and
-  // throw a SecurityError or return null instead of throwing.  Wrap every
-  // read/write so a storage failure just means "no session persistence"
-  // rather than a crash that silently prevents login.
+  // SharedPreferences uses localStorage on web - simple key/value, no
+  // encryption needed since we only store a salon ID and email (no passwords).
+  // All methods are wrapped in try/catch: Safari in Private Browsing mode
+  // blocks localStorage and throws a SecurityError, which would otherwise
+  // crash the login flow.  A storage failure just means no auto-login
+  // next time - the user simply logs in manually again.
   static Future<void> _safeWrite(String key, String value) async {
     try {
-      await _storage.write(key: key, value: value);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(key, value);
     } catch (_) {
       // Storage unavailable (e.g. Safari Private Browsing) - ignore.
     }
@@ -38,7 +39,8 @@ class SalonAuth {
 
   static Future<String?> _safeRead(String key) async {
     try {
-      return await _storage.read(key: key);
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(key);
     } catch (_) {
       return null;
     }
@@ -46,7 +48,8 @@ class SalonAuth {
 
   static Future<void> _safeDelete(String key) async {
     try {
-      await _storage.delete(key: key);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(key);
     } catch (_) {
       // ignore
     }
