@@ -23,6 +23,35 @@ class SalonAuth {
   static const _lastSalonIdKey = 'firebase_last_salon_id';
   static const _lastEmailKey = 'firebase_last_email';
 
+  // Safari (Private Browsing) and some iOS WebViews block localStorage /
+  // IndexedDB - the backing store for flutter_secure_storage on web - and
+  // throw a SecurityError or return null instead of throwing.  Wrap every
+  // read/write so a storage failure just means "no session persistence"
+  // rather than a crash that silently prevents login.
+  static Future<void> _safeWrite(String key, String value) async {
+    try {
+      await _storage.write(key: key, value: value);
+    } catch (_) {
+      // Storage unavailable (e.g. Safari Private Browsing) - ignore.
+    }
+  }
+
+  static Future<String?> _safeRead(String key) async {
+    try {
+      return await _storage.read(key: key);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> _safeDelete(String key) async {
+    try {
+      await _storage.delete(key: key);
+    } catch (_) {
+      // ignore
+    }
+  }
+
   // Firebase.initializeApp throws if called twice with the same name - this
   // can happen across a hot restart on web, or if sign-in runs again after
   // a restored session, so always check Firebase.apps first.
@@ -76,8 +105,8 @@ class SalonAuth {
       final user = credential.user;
       if (user == null) return null;
 
-      await _storage.write(key: _lastSalonIdKey, value: config.salonId);
-      await _storage.write(key: _lastEmailKey, value: email.toLowerCase());
+      await _safeWrite(_lastSalonIdKey, config.salonId);
+      await _safeWrite(_lastEmailKey, email.toLowerCase());
 
       return SalonLoginResult(salonId: config.salonId, app: app, user: user);
     } on FirebaseAuthException {
@@ -92,8 +121,8 @@ class SalonAuth {
   // previous session the same way the old REST backend's "read stored JWT,
   // call /auth/me" flow did.
   static Future<SalonLoginResult?> restoreSession() async {
-    final salonId = await _storage.read(key: _lastSalonIdKey);
-    final email = await _storage.read(key: _lastEmailKey);
+    final salonId = await _safeRead(_lastSalonIdKey);
+    final email = await _safeRead(_lastEmailKey);
     if (salonId == null || email == null) return null;
 
     final config = configForSalonId(salonId);
@@ -103,7 +132,12 @@ class SalonAuth {
     final auth = FirebaseAuth.instanceFor(app: app);
     // authStateChanges().first waits for Firebase Auth's async local-session
     // check to resolve, rather than reading currentUser before it's loaded.
-    final user = await auth.authStateChanges().first;
+    // Use a timeout to avoid Safari hanging indefinitely on slow/blocked
+    // async Firebase Auth local-session checks.
+    final user = await auth.authStateChanges().first.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => null,
+    );
     if (user == null) return null;
 
     return SalonLoginResult(salonId: config.salonId, app: app, user: user);
@@ -123,8 +157,8 @@ class SalonAuth {
       final app = await _appFor(config);
       await FirebaseAuth.instanceFor(app: app).signOut();
     }
-    await _storage.delete(key: _lastSalonIdKey);
-    await _storage.delete(key: _lastEmailKey);
+    await _safeDelete(_lastSalonIdKey);
+    await _safeDelete(_lastEmailKey);
   }
 
   // Creates a new employee's Firebase Auth account without disturbing the
