@@ -103,23 +103,25 @@ class SalonAuth {
   }
 
   static Future<SalonLoginResult?> _trySignIn(SalonFirebaseConfig config, String email, String password) async {
-    final app = await _appFor(config);
     try {
+      // _appFor is INSIDE the try block: Firebase.apps / Firebase.initializeApp
+      // can throw a "Null check operator used on a null value" on Safari when
+      // the Firebase JS SDK's internal JS interop touches a null property during
+      // initialization (e.g. when IndexedDB is blocked).  Keeping it outside
+      // the try block was the root cause of the null-check error escaping all
+      // catch blocks and surfacing as a raw error in the snackbar.
+      final app = await _appFor(config);
       final auth = FirebaseAuth.instanceFor(app: app);
 
       // On Safari, Firebase Auth's default LOCAL persistence (IndexedDB) is
-      // blocked by ITP / Private Browsing.  The persistence write happens as
-      // a separate async microtask AFTER signInWithEmailAndPassword resolves,
-      // so our catch(_) below never sees it - it becomes an unhandled promise
-      // rejection that Flutter's error boundary catches as a null-check crash.
-      // Setting SESSION persistence makes Firebase use sessionStorage instead,
-      // which IS available in Safari Private mode (session-scoped = no privacy
-      // concern) and survives page refreshes within the same tab.
+      // blocked by ITP / Private Browsing.  Setting SESSION persistence makes
+      // Firebase use sessionStorage instead, which IS available in Safari
+      // Private mode (session-scoped = no privacy concern).
       if (kIsWeb) {
         try {
           await auth.setPersistence(Persistence.SESSION);
         } catch (_) {
-          // If SESSION also fails, Firebase falls back to in-memory.
+          // If SESSION also fails, Firebase falls back to in-memory — fine.
         }
       }
 
@@ -135,11 +137,8 @@ class SalonAuth {
       // Wrong password / no such user - don't reveal which.
       return null;
     } catch (_) {
-      // Mobile Safari (and some iOS WebViews) throw generic JS/Platform
-      // exceptions — NOT FirebaseAuthException — when IndexedDB or
-      // localStorage is blocked (ITP / Private Browsing).  The narrow
-      // FirebaseAuthException catch above was letting these escape and
-      // silently crash the login flow.  Treat any non-auth exception as
+      // Catches Firebase JS SDK null-check errors, Platform exceptions from
+      // blocked IndexedDB, and any other unexpected errors - all treated as
       // "this project didn't match" so the fallback loop can continue.
       return null;
     }
