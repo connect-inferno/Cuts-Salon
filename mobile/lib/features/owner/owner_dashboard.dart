@@ -54,6 +54,8 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
 
   Widget _buildSidebar(BuildContext context, {required bool isMobile}) {
     final pendingDiscountCount = ref.watch(appDataProvider).valueOrNull?.discountRequests.where((r) => r.status == 'PENDING').length ?? 0;
+    final appData = ref.watch(appDataProvider).valueOrNull;
+    final salonName = appData?.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Salon';
     return Container(
       width: 260,
       decoration: BoxDecoration(
@@ -84,13 +86,13 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                   ),
                 ),
                 const SizedBox(width: 10),
-                const Flexible(
+                Flexible(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Cuts-Salon',
-                        style: TextStyle(
+                        salonName,
+                        style: const TextStyle(
                           fontWeight: FontWeight.w800,
                           fontSize: 16,
                           color: AppTheme.primaryBlue,
@@ -98,7 +100,7 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
-                      Text(
+                      const Text(
                         'Owner Portal',
                         style: TextStyle(
                           color: AppTheme.slateLight,
@@ -325,13 +327,16 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  const Text(
-                    'Cuts-Salon',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: AppTheme.primaryBlue,
-                      letterSpacing: -0.5,
+                  Expanded(
+                    child: Text(
+                      ref.watch(appDataProvider).valueOrNull?.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Salon',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.primaryBlue,
+                        letterSpacing: -0.5,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],

@@ -89,6 +89,9 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
   ];
 
   Widget _buildSidebar(BuildContext context, EmployeeProfile empProfile, {required bool isMobile}) {
+    final salonName = ref.watch(appDataProvider).valueOrNull?.settings?.salonName ??
+        ref.watch(authControllerProvider).salonName ??
+        'Salon';
     return Container(
       width: 260,
       decoration: BoxDecoration(
@@ -119,9 +122,9 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Cuts-Salon',
-                        style: TextStyle(
+                      Text(
+                        salonName,
+                        style: const TextStyle(
                           fontWeight: FontWeight.w800,
                           fontSize: 16,
                           color: AppTheme.primaryBlue,
@@ -261,13 +264,18 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  const Text(
-                    'Cuts-Salon',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: AppTheme.primaryBlue,
-                      letterSpacing: -0.5,
+                  Expanded(
+                    child: Text(
+                      ref.watch(appDataProvider).valueOrNull?.settings?.salonName ??
+                          ref.watch(authControllerProvider).salonName ??
+                          'Salon',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.primaryBlue,
+                        letterSpacing: -0.5,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],

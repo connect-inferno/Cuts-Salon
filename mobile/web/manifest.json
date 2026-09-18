@@ -1,11 +1,11 @@
 {
-    "name": "Cuts-Salon",
-    "short_name": "Cuts-Salon",
+    "name": "Trimly — Salon Management",
+    "short_name": "Trimly",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "Salon management dashboard for staff and owners.",
+    "background_color": "#0F172A",
+    "theme_color": "#4F46E5",
+    "description": "Trimly is a modern multi-tenant salon management platform for staff and owners.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

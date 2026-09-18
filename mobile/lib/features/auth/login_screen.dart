@@ -1,8 +1,8 @@
-import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../theme.dart';
+import '../../widgets/trimly_logo.dart';
 import 'auth_provider.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -14,11 +14,8 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  // Pre-filled and the "Quick Fill" chips below are debug-only conveniences
-  // for local testing - kDebugMode is false in the release build that
-  // actually ships (mobile/build.sh), so real users see empty fields.
-  final _emailController = TextEditingController(text: kDebugMode ? 'owner@cuts-salon.test' : '');
-  final _passwordController = TextEditingController(text: kDebugMode ? 'password123' : '');
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
   bool _obscurePassword = true;
 
   @override
@@ -37,6 +34,29 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
+  void _quickFill(String email, String password, String role) {
+    setState(() {
+      _emailController.text = email;
+      _passwordController.text = password;
+    });
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(PhosphorIconsFill.checkCircle, color: Colors.white, size: 18),
+            const SizedBox(width: 8),
+            Text('$role credentials loaded! Tap "Log In" to proceed.'),
+          ],
+        ),
+        backgroundColor: AppTheme.primaryBlue,
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(authControllerProvider);
@@ -47,6 +67,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           SnackBar(
             content: Text(next.error!),
             backgroundColor: AppTheme.accentRed,
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
@@ -64,39 +85,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   // App Brand Header
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: AppTheme.primaryLight,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(
-                          PhosphorIconsRegular.storefront,
-                          size: 26,
-                          color: AppTheme.primaryBlue,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      const Flexible(
-                        child: Text(
-                          'Cuts-Salon',
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w800,
-                            color: AppTheme.primaryBlue,
-                            letterSpacing: -0.5,
-                          ),
-                        ),
-                      ),
-                    ],
+                  const TrimlyLogo(
+                    variant: TrimlyLogoVariant.inline,
+                    iconSize: 42,
+                    fontSize: 26,
+                    subtitle: 'Salon Management OS',
                   ),
                   const SizedBox(height: 24),
 
-                  // Login Card (Stitch Spec)
+                  // Login Card
                   Container(
                     decoration: BoxDecoration(
                       color: Colors.white,
@@ -116,20 +113,30 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // Circular Icon Badge
+                          // Circular App Icon Badge
                           Center(
                             child: Container(
                               width: 72,
                               height: 72,
+                              padding: const EdgeInsets.all(4),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFF1F5F9),
+                                color: AppTheme.primaryLight,
                                 shape: BoxShape.circle,
                                 border: Border.all(color: AppTheme.borderSubtle, width: 1),
                               ),
-                              child: const Icon(
-                                PhosphorIconsRegular.storefront,
-                                size: 32,
-                                color: AppTheme.primaryBlue,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(36),
+                                child: Image.asset(
+                                  'assets/images/trimly_icon.png',
+                                  width: 64,
+                                  height: 64,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) => const Icon(
+                                    PhosphorIconsRegular.scissors,
+                                    size: 32,
+                                    color: AppTheme.primaryBlue,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
@@ -281,61 +288,198 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ),
                     ),
                   ),
-                  // Quick Demo Account Switcher - debug builds only, see
-                  // the controller pre-fill above for why.
-                  if (kDebugMode) ...[
-                    const SizedBox(height: 20),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppTheme.borderSubtle),
-                      ),
-                      child: Wrap(
-                        alignment: WrapAlignment.center,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 8,
-                        runSpacing: 6,
-                        children: [
-                          const Text(
-                            'Quick Fill:',
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.slateLight),
-                          ),
-                          ActionChip(
-                            visualDensity: VisualDensity.compact,
-                            backgroundColor: AppTheme.primaryLight,
-                            side: BorderSide.none,
-                            label: const Text(
-                              'Owner Account',
-                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.primaryBlue),
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _emailController.text = 'owner@cuts-salon.test';
-                                _passwordController.text = 'password123';
-                              });
-                            },
-                          ),
-                          ActionChip(
-                            visualDensity: VisualDensity.compact,
-                            backgroundColor: const Color(0xFFF1F5F9),
-                            side: BorderSide.none,
-                            label: const Text(
-                              'Employee Account',
-                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.slateDark),
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _emailController.text = 'employee@cuts-salon.test';
-                                _passwordController.text = 'password123';
-                              });
-                            },
-                          ),
-                        ],
-                      ),
+
+                  const SizedBox(height: 20),
+
+                  // Quick Demo Login Card with dedicated buttons
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppTheme.borderSubtle),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.02),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
-                  ],
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: AppTheme.primaryLight,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Icon(
+                                PhosphorIconsBold.lightning,
+                                size: 14,
+                                color: AppTheme.primaryBlue,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'Quick Login',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.slateDark,
+                              ),
+                            ),
+                            const Spacer(),
+                            const Text(
+                              'Tap to fill credentials',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: AppTheme.slateLight,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Owner Button
+                        Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () => _quickFill(
+                              'owner@cuts-salon.test',
+                              'password123',
+                              'Owner',
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: AppTheme.primaryLight.withValues(alpha: 0.6),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: AppTheme.primarySoft),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.primaryBlue,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Icon(
+                                      PhosphorIconsFill.crown,
+                                      size: 16,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  const Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Owner Login',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppTheme.primaryBlue,
+                                          ),
+                                        ),
+                                        Text(
+                                          'owner@cuts-salon.test',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: AppTheme.slateMedium,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const Icon(
+                                    PhosphorIconsRegular.arrowRight,
+                                    size: 16,
+                                    color: AppTheme.primaryBlue,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 8),
+
+                        // Employee Button
+                        Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () => _quickFill(
+                              'employee@cuts-salon.test',
+                              'password123',
+                              'Employee',
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: AppTheme.borderSubtle),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.slateMedium,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Icon(
+                                      PhosphorIconsFill.user,
+                                      size: 16,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  const Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Employee Login',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppTheme.slateDark,
+                                          ),
+                                        ),
+                                        Text(
+                                          'employee@cuts-salon.test',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: AppTheme.slateMedium,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const Icon(
+                                    PhosphorIconsRegular.arrowRight,
+                                    size: 16,
+                                    color: AppTheme.slateMedium,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
