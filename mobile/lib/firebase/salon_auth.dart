@@ -110,9 +110,15 @@ class SalonAuth {
 
       return SalonLoginResult(salonId: config.salonId, app: app, user: user);
     } on FirebaseAuthException {
-      // Wrong password and "no such user" are deliberately indistinguishable
-      // in modern Firebase Auth error codes (anti-enumeration) - either way,
-      // just report "no match" to the caller.
+      // Wrong password / no such user - don't reveal which.
+      return null;
+    } catch (_) {
+      // Mobile Safari (and some iOS WebViews) throw generic JS/Platform
+      // exceptions — NOT FirebaseAuthException — when IndexedDB or
+      // localStorage is blocked (ITP / Private Browsing).  The narrow
+      // FirebaseAuthException catch above was letting these escape and
+      // silently crash the login flow.  Treat any non-auth exception as
+      // "this project didn't match" so the fallback loop can continue.
       return null;
     }
   }
