@@ -18,7 +18,14 @@ int _int(dynamic v) {
   return int.tryParse(v.toString()) ?? 0;
 }
 
-DateTime? _ts(dynamic v) => v is Timestamp ? v.toDate() : null;
+DateTime? _ts(dynamic v) {
+  if (v == null) return null;
+  if (v is Timestamp) return v.toDate();
+  if (v is DateTime) return v;
+  if (v is String) return DateTime.tryParse(v);
+  if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
+  return null;
+}
 
 class FSBranch {
   final String id;
@@ -40,7 +47,7 @@ class FSBranch {
   });
 
   factory FSBranch.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data()!;
+    final d = doc.data() ?? {};
     return FSBranch(
       id: doc.id,
       name: d['name'] ?? '',
@@ -94,10 +101,10 @@ class FSEmployee {
   });
 
   factory FSEmployee.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data()!;
+    final d = doc.data() ?? {};
     return FSEmployee(
       id: doc.id,
-      userId: d['userId'] ?? '',
+      userId: d['userId'] ?? doc.id,
       email: d['email'] ?? '',
       name: d['name'] ?? '',
       phone: d['phone'] ?? '',
@@ -138,10 +145,6 @@ class FSCustomer {
   final bool isVip;
   final String branchId;
   final DateTime? createdAt;
-  // Denormalized onto the customer doc (incremented atomically inside
-  // createBill's transaction) instead of computed by re-reading a salon's
-  // entire bill history on every load - see the comment on listBills() for
-  // why that doesn't scale.
   final int visitCount;
   final double totalSpent;
   final DateTime? lastVisitAt;
@@ -162,7 +165,7 @@ class FSCustomer {
   });
 
   factory FSCustomer.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data()!;
+    final d = doc.data() ?? {};
     return FSCustomer(
       id: doc.id,
       name: d['name'] ?? '',
@@ -199,8 +202,10 @@ class FSServiceCategory {
 
   FSServiceCategory({required this.id, required this.name});
 
-  factory FSServiceCategory.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) =>
-      FSServiceCategory(id: doc.id, name: doc.data()!['name'] ?? '');
+  factory FSServiceCategory.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final d = doc.data() ?? {};
+    return FSServiceCategory(id: doc.id, name: d['name'] ?? '');
+  }
 
   Map<String, dynamic> toFirestore() => {'name': name};
 }
@@ -221,7 +226,7 @@ class FSService {
   });
 
   factory FSService.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data()!;
+    final d = doc.data() ?? {};
     return FSService(
       id: doc.id,
       name: d['name'] ?? '',
@@ -263,7 +268,7 @@ class FSInventoryItem {
   bool get isLowStock => stockCount <= minAlertThreshold;
 
   factory FSInventoryItem.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data()!;
+    final d = doc.data() ?? {};
     return FSInventoryItem(
       id: doc.id,
       sku: d['sku'] ?? '',
@@ -317,7 +322,7 @@ class FSBillItem {
   });
 
   factory FSBillItem.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data()!;
+    final d = doc.data() ?? {};
     return FSBillItem(
       id: doc.id,
       type: d['type'] ?? 'SERVICE',
@@ -334,9 +339,6 @@ class FSBillItem {
     );
   }
 
-  // Names are denormalized here at write time - there's no server-side
-  // `include` in Firestore, so whatever's passed in is what every future
-  // reader sees, even if the service/employee is later renamed.
   Map<String, dynamic> toFirestore() => {
         'type': type,
         'serviceId': serviceId,
@@ -365,7 +367,7 @@ class FSBill {
   final String paymentMethod; // CASH | CARD | UPI
   final String createdBy;
   final DateTime? createdAt;
-  final List<FSBillItem> items; // populated separately from the subcollection
+  final List<FSBillItem> items;
 
   FSBill({
     required this.id,
@@ -384,7 +386,7 @@ class FSBill {
   });
 
   factory FSBill.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc, {List<FSBillItem> items = const []}) {
-    final d = doc.data()!;
+    final d = doc.data() ?? {};
     return FSBill(
       id: doc.id,
       invoiceNumber: d['invoiceNumber'] ?? '',
@@ -435,7 +437,7 @@ class FSAttendanceRecord {
   });
 
   factory FSAttendanceRecord.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data()!;
+    final d = doc.data() ?? {};
     return FSAttendanceRecord(
       id: doc.id,
       employeeId: d['employeeId'] ?? '',
@@ -479,7 +481,7 @@ class FSSalaryRecord {
   });
 
   factory FSSalaryRecord.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data()!;
+    final d = doc.data() ?? {};
     return FSSalaryRecord(
       id: doc.id,
       employeeId: d['employeeId'] ?? '',
@@ -525,7 +527,7 @@ class FSCommissionRecord {
   });
 
   factory FSCommissionRecord.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data()!;
+    final d = doc.data() ?? {};
     return FSCommissionRecord(
       id: doc.id,
       employeeId: d['employeeId'] ?? '',
@@ -571,7 +573,7 @@ class FSSalesTarget {
   double get progressFraction => targetValue == 0 ? 0 : (progressValue / targetValue).clamp(0, 1);
 
   factory FSSalesTarget.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data()!;
+    final d = doc.data() ?? {};
     return FSSalesTarget(
       id: doc.id,
       employeeId: d['employeeId'] ?? '',
@@ -613,7 +615,7 @@ class FSExpense {
   });
 
   factory FSExpense.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data()!;
+    final d = doc.data() ?? {};
     return FSExpense(
       id: doc.id,
       title: d['title'] ?? '',
@@ -657,7 +659,7 @@ class FSDiscountRequest {
   });
 
   factory FSDiscountRequest.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data()!;
+    final d = doc.data() ?? {};
     return FSDiscountRequest(
       id: doc.id,
       requestedBy: d['requestedBy'] ?? '',

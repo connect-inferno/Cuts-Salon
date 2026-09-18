@@ -26,7 +26,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   void _submit() {
-    if (_formKey.currentState!.validate()) {
+    if (_formKey.currentState?.validate() ?? false) {
       ref.read(authControllerProvider.notifier).login(
             _emailController.text.trim(),
             _passwordController.text.trim(),
@@ -65,7 +65,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (next.error != null && next.error != previous?.error) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(next.error!),
+            content: Text(next.error ?? 'Authentication failed'),
             backgroundColor: AppTheme.accentRed,
             behavior: SnackBarBehavior.floating,
           ),

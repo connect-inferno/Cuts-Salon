@@ -33,8 +33,15 @@ class SalonFirestore {
   // --- Settings (single fixed-id document) ---
 
   Future<FSSettings> getSettings() async {
-    final doc = await db.collection('settings').doc('main').get();
-    return FSSettings.fromFirestore(doc);
+    try {
+      final doc = await db.collection('settings').doc('main').get();
+      if (!doc.exists) {
+        return FSSettings(salonName: 'Trimly Salon', gstRate: 18, lateAttendancePenalty: 0);
+      }
+      return FSSettings.fromFirestore(doc);
+    } catch (_) {
+      return FSSettings(salonName: 'Trimly Salon', gstRate: 18, lateAttendancePenalty: 0);
+    }
   }
 
   Future<void> updateSettings(Map<String, dynamic> changes) =>
