@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'login_directory.dart';
 import 'salon_directory.dart';
@@ -104,7 +105,25 @@ class SalonAuth {
   static Future<SalonLoginResult?> _trySignIn(SalonFirebaseConfig config, String email, String password) async {
     final app = await _appFor(config);
     try {
-      final credential = await FirebaseAuth.instanceFor(app: app).signInWithEmailAndPassword(email: email, password: password);
+      final auth = FirebaseAuth.instanceFor(app: app);
+
+      // On Safari, Firebase Auth's default LOCAL persistence (IndexedDB) is
+      // blocked by ITP / Private Browsing.  The persistence write happens as
+      // a separate async microtask AFTER signInWithEmailAndPassword resolves,
+      // so our catch(_) below never sees it - it becomes an unhandled promise
+      // rejection that Flutter's error boundary catches as a null-check crash.
+      // Setting SESSION persistence makes Firebase use sessionStorage instead,
+      // which IS available in Safari Private mode (session-scoped = no privacy
+      // concern) and survives page refreshes within the same tab.
+      if (kIsWeb) {
+        try {
+          await auth.setPersistence(Persistence.SESSION);
+        } catch (_) {
+          // If SESSION also fails, Firebase falls back to in-memory.
+        }
+      }
+
+      final credential = await auth.signInWithEmailAndPassword(email: email, password: password);
       final user = credential.user;
       if (user == null) return null;
 
@@ -139,6 +158,14 @@ class SalonAuth {
 
     final app = await _appFor(config);
     final auth = FirebaseAuth.instanceFor(app: app);
+    // Match the SESSION persistence set during sign-in so Firebase looks in
+    // sessionStorage for the saved token (not IndexedDB which is blocked on
+    // Safari ITP / Private Browsing).
+    if (kIsWeb) {
+      try {
+        await auth.setPersistence(Persistence.SESSION);
+      } catch (_) {}
+    }
     // authStateChanges().first waits for Firebase Auth's async local-session
     // check to resolve, rather than reading currentUser before it's loaded.
     // Use a timeout to avoid Safari hanging indefinitely on slow/blocked
