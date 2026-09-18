@@ -113,15 +113,22 @@ class SalonAuth {
       final app = await _appFor(config);
       final auth = FirebaseAuth.instanceFor(app: app);
 
-      // On Safari, Firebase Auth's default LOCAL persistence (IndexedDB) is
-      // blocked by ITP / Private Browsing.  Setting SESSION persistence makes
-      // Firebase use sessionStorage instead, which IS available in Safari
-      // Private mode (session-scoped = no privacy concern).
+      // Firebase Auth JS SDK v9 includes the IndexedDB persistence write
+      // INSIDE the signInWithEmailAndPassword Promise chain.  On Safari,
+      // IndexedDB is blocked → the write fails → the entire Promise rejects →
+      // our catch(_) returns null → "Invalid email or password" even with
+      // correct credentials.
+      //
+      // Persistence.NONE = in-memory only, zero storage writes.  The REST
+      // API sign-in call still completes successfully and returns the
+      // UserCredential; there is simply nothing to write afterward.
+      // The trade-off is that the session is not persisted across page
+      // refreshes, but it is far better than login failing completely.
       if (kIsWeb) {
         try {
-          await auth.setPersistence(Persistence.SESSION);
+          await auth.setPersistence(Persistence.NONE);
         } catch (_) {
-          // If SESSION also fails, Firebase falls back to in-memory — fine.
+          // Even NONE can fail if Firebase is in a broken state — ignore.
         }
       }
 
@@ -157,18 +164,10 @@ class SalonAuth {
 
     final app = await _appFor(config);
     final auth = FirebaseAuth.instanceFor(app: app);
-    // Match the SESSION persistence set during sign-in so Firebase looks in
-    // sessionStorage for the saved token (not IndexedDB which is blocked on
-    // Safari ITP / Private Browsing).
-    if (kIsWeb) {
-      try {
-        await auth.setPersistence(Persistence.SESSION);
-      } catch (_) {}
-    }
-    // authStateChanges().first waits for Firebase Auth's async local-session
-    // check to resolve, rather than reading currentUser before it's loaded.
-    // Use a timeout to avoid Safari hanging indefinitely on slow/blocked
-    // async Firebase Auth local-session checks.
+    // On Safari, IndexedDB (LOCAL persistence) is blocked so
+    // authStateChanges().first will immediately emit null — which is fine.
+    // We rely on the 5-second timeout as a safety net for any browser that
+    // hangs during the async local-session check.
     final user = await auth.authStateChanges().first.timeout(
       const Duration(seconds: 5),
       onTimeout: () => null,
