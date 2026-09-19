@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'salon_directory.dart';
 
 // A tiny, separate Firebase project whose only job is answering "which
 // salon does this email belong to" - so sign-in (salon_auth.dart) can go
@@ -34,11 +35,7 @@ const FirebaseOptions _directoryOptions = FirebaseOptions(
 
 const String _directoryAppName = 'login-directory';
 
-Future<FirebaseApp> _directoryApp() async {
-  final existing = Firebase.apps.where((a) => a.name == _directoryAppName);
-  if (existing.isNotEmpty) return existing.first;
-  return Firebase.initializeApp(name: _directoryAppName, options: _directoryOptions);
-}
+Future<FirebaseApp> _directoryApp() => firebaseAppNamed(_directoryAppName, _directoryOptions);
 
 // Returns null whenever the fast path can't be used for any reason - the
 // directory isn't configured yet, this email isn't registered in it, or

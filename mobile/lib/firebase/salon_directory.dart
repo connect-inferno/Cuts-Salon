@@ -41,3 +41,18 @@ SalonFirebaseConfig? configForSalonId(String salonId) {
   }
   return null;
 }
+
+// Returns the already-initialized named app, or initializes it. Deliberately
+// never reads Firebase.apps: on web, firebase_core_web's `apps` getter only
+// tolerates "no app initialized yet" when the JS error message contains
+// "of undefined" - Chrome's wording - so on Safari it rethrows instead of
+// returning an empty list, and every sign-in failed before the Firebase JS
+// SDK was even loaded. Firebase.app(name) throws in that state on every
+// browser, which the catch below turns into "initialize it".
+Future<FirebaseApp> firebaseAppNamed(String name, FirebaseOptions options) async {
+  try {
+    return Firebase.app(name);
+  } catch (_) {
+    return Firebase.initializeApp(name: name, options: options);
+  }
+}

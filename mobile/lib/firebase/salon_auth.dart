@@ -58,12 +58,10 @@ class SalonAuth {
 
   // Firebase.initializeApp throws if called twice with the same name - this
   // can happen across a hot restart on web, or if sign-in runs again after
-  // a restored session, so always check Firebase.apps first.
-  static Future<FirebaseApp> _appFor(SalonFirebaseConfig config) async {
-    final existing = Firebase.apps.where((a) => a.name == config.salonId);
-    if (existing.isNotEmpty) return existing.first;
-    return Firebase.initializeApp(name: config.salonId, options: config.options);
-  }
+  // a restored session, so reuse the existing app when there is one (see
+  // firebaseAppNamed for why that check must not use Firebase.apps).
+  static Future<FirebaseApp> _appFor(SalonFirebaseConfig config) =>
+      firebaseAppNamed(config.salonId, config.options);
 
   // Fast path: ask the login directory (login_directory.dart) which salon
   // this email belongs to, so sign-in only ever tries the ONE right
@@ -104,31 +102,17 @@ class SalonAuth {
 
   static Future<SalonLoginResult?> _trySignIn(SalonFirebaseConfig config, String email, String password) async {
     try {
-      // _appFor is INSIDE the try block: Firebase.apps / Firebase.initializeApp
-      // can throw a "Null check operator used on a null value" on Safari when
-      // the Firebase JS SDK's internal JS interop touches a null property during
-      // initialization (e.g. when IndexedDB is blocked).  Keeping it outside
-      // the try block was the root cause of the null-check error escaping all
-      // catch blocks and surfacing as a raw error in the snackbar.
       final app = await _appFor(config);
       final auth = FirebaseAuth.instanceFor(app: app);
 
-      // Firebase Auth JS SDK v9 includes the IndexedDB persistence write
-      // INSIDE the signInWithEmailAndPassword Promise chain.  On Safari,
-      // IndexedDB is blocked → the write fails → the entire Promise rejects →
-      // our catch(_) returns null → "Invalid email or password" even with
-      // correct credentials.
-      //
-      // Persistence.NONE = in-memory only, zero storage writes.  The REST
-      // API sign-in call still completes successfully and returns the
-      // UserCredential; there is simply nothing to write afterward.
-      // The trade-off is that the session is not persisted across page
-      // refreshes, but it is far better than login failing completely.
+      // SESSION persistence keeps the signed-in user in sessionStorage: it
+      // survives a page refresh in the same tab (restoreSession below reads
+      // it back) and works in Safari Private Browsing too.
       if (kIsWeb) {
         try {
-          await auth.setPersistence(Persistence.NONE);
+          await auth.setPersistence(Persistence.SESSION);
         } catch (_) {
-          // Even NONE can fail if Firebase is in a broken state — ignore.
+          // If SESSION fails, Firebase falls back to in-memory - fine.
         }
       }
 
@@ -164,10 +148,16 @@ class SalonAuth {
 
     final app = await _appFor(config);
     final auth = FirebaseAuth.instanceFor(app: app);
-    // On Safari, IndexedDB (LOCAL persistence) is blocked so
-    // authStateChanges().first will immediately emit null — which is fine.
-    // We rely on the 5-second timeout as a safety net for any browser that
-    // hangs during the async local-session check.
+    // Match the SESSION persistence set during sign-in so Firebase looks in
+    // sessionStorage for the saved user.
+    if (kIsWeb) {
+      try {
+        await auth.setPersistence(Persistence.SESSION);
+      } catch (_) {}
+    }
+    // authStateChanges().first waits for Firebase Auth's async local-session
+    // check to resolve, rather than reading currentUser before it's loaded;
+    // the timeout keeps a hung check from blocking the login screen.
     final user = await auth.authStateChanges().first.timeout(
       const Duration(seconds: 5),
       onTimeout: () => null,
@@ -179,10 +169,13 @@ class SalonAuth {
 
   // Looks up the already-initialized named app for a salon that's currently
   // logged in - safe any time after a successful signIn/restoreSession,
-  // since both guarantee this app exists in Firebase.apps by then.
+  // since both guarantee this app has been initialized by then.
   static FirebaseApp? currentApp(String salonId) {
-    final matches = Firebase.apps.where((a) => a.name == salonId);
-    return matches.isEmpty ? null : matches.first;
+    try {
+      return Firebase.app(salonId);
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<void> signOut(String salonId) async {
