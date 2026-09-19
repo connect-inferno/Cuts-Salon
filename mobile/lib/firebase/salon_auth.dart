@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
@@ -74,7 +75,13 @@ class SalonAuth {
   // Deliberately does NOT fall through to the loop after a directory HIT
   // whose password check then fails - trying every other project too would
   // leak whether this email exists in one of them (the same anti-
-  // enumeration reasoning as the FirebaseAuthException catch below).
+  // enumeration reasoning as _credentialErrorCodes below).
+  //
+  // Throws SalonAuthException with the real reason for anything that isn't
+  // a plain email/password mismatch (network down, too many attempts,
+  // disabled account, Firebase failing to load, ...) - those used to be
+  // swallowed and shown as "Invalid email or password", which hid real
+  // outages (e.g. the Safari Firebase.apps bug) behind a misleading message.
   static Future<SalonLoginResult> signIn(String email, String password) async {
     final normalizedEmail = email.trim();
 
@@ -84,25 +91,56 @@ class SalonAuth {
       if (config != null) {
         final result = await _trySignIn(config, normalizedEmail, password);
         if (result != null) return result;
-        throw SalonAuthException('Invalid email or password');
+        throw SalonAuthException(_invalidCredentialsMessage);
       }
     }
 
     // Fallback: try every configured salon project in turn - covers salons
     // not yet added to the directory, and keeps sign-in working even if the
-    // directory project itself is unreachable.
+    // directory project itself is unreachable. A real error from one project
+    // doesn't stop the loop (the account may live in a later one), but if
+    // no project accepts the login, that error is what the user sees - it's
+    // more useful than a generic mismatch message.
+    SalonAuthException? firstRealError;
     for (final config in salonFirebaseConfigs) {
-      final result = await _trySignIn(config, normalizedEmail, password);
-      if (result != null) return result;
+      try {
+        final result = await _trySignIn(config, normalizedEmail, password);
+        if (result != null) return result;
+      } on SalonAuthException catch (e) {
+        firstRealError ??= e;
+      }
     }
-    // Same generic message regardless of which step failed - don't reveal
-    // whether an email exists in any salon's directory.
-    throw SalonAuthException('Invalid email or password');
+    if (firstRealError != null) throw firstRealError;
+    // Same generic message whichever project(s) rejected the credentials -
+    // don't reveal whether an email exists in any salon's project.
+    throw SalonAuthException(_invalidCredentialsMessage);
   }
 
+  static const _invalidCredentialsMessage = 'Invalid email or password';
+
+  static const _sdkLoadTimeout = Duration(seconds: 15);
+
+  // Firebase Auth codes that only mean "this email/password doesn't match an
+  // account in this project". With email-enumeration protection (on by
+  // default) Firebase already folds wrong-password and user-not-found into
+  // invalid-credential, so these all get the same generic message and let
+  // the fallback loop move on to the next project.
+  static const _credentialErrorCodes = {
+    'invalid-credential',
+    'invalid-login-credentials',
+    'wrong-password',
+    'user-not-found',
+  };
+
+  // Returns null when the credentials don't match an account in this
+  // project; throws SalonAuthException with the real reason for any other
+  // failure.
   static Future<SalonLoginResult?> _trySignIn(SalonFirebaseConfig config, String email, String password) async {
     try {
-      final app = await _appFor(config);
+      // On web the first _appFor loads the Firebase JS SDK from gstatic.com;
+      // if that script is blocked (content blocker, flaky network)
+      // firebase_core_web waits for it forever, so bound it.
+      final app = await _appFor(config).timeout(_sdkLoadTimeout);
       final auth = FirebaseAuth.instanceFor(app: app);
 
       // SESSION persistence keeps the signed-in user in sessionStorage: it
@@ -124,14 +162,19 @@ class SalonAuth {
       await _safeWrite(_lastEmailKey, email.toLowerCase());
 
       return SalonLoginResult(salonId: config.salonId, app: app, user: user);
-    } on FirebaseAuthException {
+    } on FirebaseAuthException catch (e) {
       // Wrong password / no such user - don't reveal which.
-      return null;
-    } catch (_) {
-      // Catches Firebase JS SDK null-check errors, Platform exceptions from
-      // blocked IndexedDB, and any other unexpected errors - all treated as
-      // "this project didn't match" so the fallback loop can continue.
-      return null;
+      if (_credentialErrorCodes.contains(e.code)) return null;
+      debugPrint('[Trimly] sign-in to ${config.salonId} failed: ${e.code} ${e.message}');
+      throw SalonAuthException(_authErrorMessage(e));
+    } on TimeoutException {
+      debugPrint('[Trimly] sign-in to ${config.salonId} failed: Firebase did not load within ${_sdkLoadTimeout.inSeconds}s');
+      throw SalonAuthException('Could not load the sign-in service. Check your internet connection (or turn off any content blocker) and try again.');
+    } catch (e) {
+      // Not an Auth response at all - Firebase failed to load/initialize,
+      // a JS interop error, etc. Surface it rather than blaming the password.
+      debugPrint('[Trimly] sign-in to ${config.salonId} failed: $e');
+      throw SalonAuthException('Could not sign in: $e');
     }
   }
 
@@ -261,6 +304,16 @@ class SalonAuth {
         return 'Invalid email address';
       case 'user-not-found':
         return 'No account found for this email';
+      case 'user-disabled':
+        return 'This account has been disabled. Ask the salon owner to re-enable it.';
+      case 'too-many-requests':
+        return 'Too many attempts. Wait a few minutes and try again, or reset your password.';
+      case 'network-request-failed':
+        return 'Could not reach the server. Check your internet connection and try again.';
+      case 'operation-not-allowed':
+        return 'Email/password sign-in is not enabled for this salon.';
+      case 'web-storage-unsupported':
+        return 'This browser is blocking the storage sign-in needs. Allow site data (or leave Private Browsing) and try again.';
       default:
         return e.message ?? 'Something went wrong';
     }

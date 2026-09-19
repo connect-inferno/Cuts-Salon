@@ -43,11 +43,15 @@ Future<FirebaseApp> _directoryApp() => firebaseAppNamed(_directoryAppName, _dire
 // case means exactly the same thing to the caller: fall back to the
 // try-every-project loop. This never throws - a directory outage should
 // degrade sign-in speed, not break it.
+//
+// Bounded by a timeout for the same reason: if the Firebase JS SDK can't be
+// loaded, _directoryApp() would otherwise wait forever and sign-in would
+// never even reach the fallback (which then reports the real problem).
 Future<String?> lookupSalonIdForEmail(String email) async {
   if (!directoryConfigured) return null;
   try {
-    final app = await _directoryApp();
-    final doc = await FirebaseFirestore.instanceFor(app: app).collection('emailDirectory').doc(email.trim().toLowerCase()).get();
+    final app = await _directoryApp().timeout(const Duration(seconds: 10));
+    final doc = await FirebaseFirestore.instanceFor(app: app).collection('emailDirectory').doc(email.trim().toLowerCase()).get().timeout(const Duration(seconds: 10));
     return doc.data()?['salonId'] as String?;
   } catch (_) {
     return null;
