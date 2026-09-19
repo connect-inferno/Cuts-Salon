@@ -143,17 +143,11 @@ class SalonAuth {
       final app = await _appFor(config).timeout(_sdkLoadTimeout);
       final auth = FirebaseAuth.instanceFor(app: app);
 
-      // SESSION persistence keeps the signed-in user in sessionStorage: it
-      // survives a page refresh in the same tab (restoreSession below reads
-      // it back) and works in Safari Private Browsing too.
-      if (kIsWeb) {
-        try {
-          await auth.setPersistence(Persistence.SESSION);
-        } catch (_) {
-          // If SESSION fails, Firebase falls back to in-memory - fine.
-        }
-      }
-
+      // No setPersistence here on purpose: firebase_auth_web's default is
+      // IndexedDB -> localStorage -> sessionStorage (first one that works),
+      // so the login survives closing the tab/browser and still degrades on
+      // its own where IndexedDB is unavailable. Forcing SESSION logged users
+      // out every time the app was reopened in a new tab.
       final credential = await auth.signInWithEmailAndPassword(email: email, password: password);
       final user = credential.user;
       if (user == null) return null;
@@ -191,13 +185,6 @@ class SalonAuth {
 
     final app = await _appFor(config);
     final auth = FirebaseAuth.instanceFor(app: app);
-    // Match the SESSION persistence set during sign-in so Firebase looks in
-    // sessionStorage for the saved user.
-    if (kIsWeb) {
-      try {
-        await auth.setPersistence(Persistence.SESSION);
-      } catch (_) {}
-    }
     // authStateChanges().first waits for Firebase Auth's async local-session
     // check to resolve, rather than reading currentUser before it's loaded;
     // the timeout keeps a hung check from blocking the login screen.
