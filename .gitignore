@@ -55,3 +55,8 @@ lerna-debug.log*
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
+
+# Operator dashboard
+operator-dashboard/
+operator/
+
