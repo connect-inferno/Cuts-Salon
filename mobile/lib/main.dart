@@ -18,12 +18,12 @@ void main() {
   // running.  Our try/catch blocks in salon_auth.dart then catch the Dart-
   // level errors normally and show the correct error messages in the UI.
   PlatformDispatcher.instance.onError = (error, stack) {
-    debugPrint('[Trimly] Unhandled platform error: $error');
+    debugPrint('[Stylux] Unhandled platform error: $error');
     return true; // handled — do NOT crash the Flutter engine
   };
 
   FlutterError.onError = (FlutterErrorDetails details) {
-    debugPrint('[Trimly] Flutter error: ${details.exception}');
+    debugPrint('[Stylux] Flutter error: ${details.exception}');
     // Do not call FlutterError.presentError — that would show the red error
     // overlay in debug mode which blocks the UI.  Log and continue.
   };
@@ -43,7 +43,7 @@ class MyApp extends ConsumerWidget {
     final router = ref.watch(goRouterProvider);
 
     return MaterialApp.router(
-      title: 'Trimly',
+      title: 'Stylux',
       theme: AppTheme.lightTheme,
       routerConfig: router,
       debugShowCheckedModeBanner: false,

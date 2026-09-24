@@ -5,6 +5,8 @@ import 'features/auth/auth_provider.dart';
 import 'features/auth/login_screen.dart';
 import 'features/owner/owner_dashboard.dart';
 import 'features/employee/employee_dashboard.dart';
+import 'theme.dart';
+import 'widgets/stylux_logo.dart';
 
 class RouterListenable extends ChangeNotifier {
   final Ref _ref;
@@ -22,10 +24,20 @@ final goRouterProvider = Provider<GoRouter>((ref) {
   final listenable = ref.watch(routerListenableProvider);
 
   return GoRouter(
-    initialLocation: '/login',
+    initialLocation: '/splash',
     refreshListenable: listenable,
     redirect: (context, state) {
       final currentAuth = ref.read(authControllerProvider);
+      final isSplash = state.matchedLocation == '/splash';
+
+      // Restoring a persisted Firebase session is async - holding here
+      // (instead of defaulting straight to /login) is what stops an
+      // already-logged-in user from seeing the login form flash before
+      // bouncing to their dashboard.
+      if (!currentAuth.sessionChecked) {
+        return isSplash ? null : '/splash';
+      }
+
       final isLoggedIn = currentAuth.isAuthenticated;
       final isLoggingIn = state.matchedLocation == '/login';
 
@@ -33,13 +45,17 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         return isLoggingIn ? null : '/login';
       }
 
-      if (isLoggingIn) {
+      if (isLoggingIn || isSplash) {
         return currentAuth.role == 'OWNER' ? '/owner/dashboard' : '/employee/dashboard';
       }
 
       return null;
     },
     routes: [
+      GoRoute(
+        path: '/splash',
+        pageBuilder: (context, state) => _fadeSlidePage(state, const _SplashScreen()),
+      ),
       GoRoute(
         path: '/login',
         pageBuilder: (context, state) => _fadeSlidePage(state, const LoginScreen()),
@@ -77,4 +93,33 @@ CustomTransitionPage _fadeSlidePage(GoRouterState state, Widget child) {
       );
     },
   );
+}
+
+// Shown only while the initial auto-login check is in flight (see
+// AuthState.sessionChecked) - never long enough to need its own animation,
+// just enough to avoid a bare white frame between app boot and the first
+// real route.
+class _SplashScreen extends StatelessWidget {
+  const _SplashScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.bgSurface,
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            StyluxLogo.hero(subtitle: null),
+            const SizedBox(height: 32),
+            const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2.5, color: AppTheme.primaryBlue),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
