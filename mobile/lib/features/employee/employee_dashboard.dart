@@ -8,6 +8,7 @@ import '../../data/models.dart';
 import '../auth/auth_provider.dart';
 import '../../firebase/salon_auth.dart';
 import '../../widgets/app_page_switcher.dart';
+import '../../widgets/app_dialog.dart';
 import '../../widgets/async_state_views.dart';
 import '../../widgets/searchable_picker.dart';
 
@@ -453,7 +454,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final now = DateTime.now();
     final todayRecord = _todayAttendance(state, profile.id);
-    final isClockedIn = todayRecord != null && todayRecord.clockOut == null;
+    final isClockedIn = todayRecord != null && todayRecord.clockIn != null && todayRecord.clockOut == null;
     final firstName = profile.name.split(' ').first;
 
     final myBills = state.bills.where((b) => b.items.any((i) => i.employeeId == profile.id)).toList()
@@ -1037,7 +1038,12 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final todayRecord = _todayAttendance(state, profile.id);
-    final isClockedIn = todayRecord != null && todayRecord.clockOut == null;
+    // A record can exist with only `status` set (owner marked the roster
+    // P/L/A without the employee clocking in) - salon_firestore.dart's
+    // clockOut() rejects that since it has no clockIn timestamp, so this
+    // must require clockIn too or the button gets stuck on "Clock Out" and
+    // always throws "You have not clocked in today".
+    final isClockedIn = todayRecord != null && todayRecord.clockIn != null && todayRecord.clockOut == null;
     final statusLine = todayRecord == null
         ? 'Tap below to log attendance'
         : (isClockedIn ? 'You clocked in today at ${_formatTime(todayRecord.clockIn)}' : 'You clocked out today at ${_formatTime(todayRecord.clockOut)}');
@@ -1507,7 +1513,15 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Total Amount:', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppTheme.slateDark)),
-                    Text('Rs. ${total.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: AppTheme.primaryBlue)),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        'Rs. ${total.toStringAsFixed(0)}',
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: AppTheme.primaryBlue),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 20),
@@ -1546,11 +1560,19 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
       if (!context.mounted) return;
       showDialog(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Row(children: [Icon(PhosphorIconsRegular.checkCircle, color: AppTheme.accentGreen, size: 28), SizedBox(width: 8), Text('Bill Generated')]),
-          content: Text('Invoice ${bill.invoiceNumber} created.\nTotal: Rs. ${bill.finalAmount.toStringAsFixed(0)} via $_paymentMethod.'),
-          actions: [
-            TextButton(
+        builder: (ctx) => AppDialog(
+          icon: PhosphorIconsRegular.checkCircle,
+          iconColor: AppTheme.accentGreen,
+          iconBackground: AppTheme.accentGreenBg,
+          title: 'Bill Generated',
+          subtitle: bill.invoiceNumber,
+          child: Text(
+            'Total: Rs. ${bill.finalAmount.toStringAsFixed(0)} via $_paymentMethod.',
+            style: const TextStyle(fontSize: 14, color: AppTheme.slateMedium),
+          ),
+          actions: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
               onPressed: () {
                 Navigator.pop(ctx);
                 setState(() {
@@ -1559,9 +1581,9 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                   _selectedProductQuantities.clear();
                 });
               },
-              child: const Text('OK'),
+              child: const Text('Done'),
             ),
-          ],
+          ),
         ),
       );
     } catch (e) {
@@ -1694,7 +1716,10 @@ class _EmployeeSalaryTab extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(title, style: const TextStyle(fontSize: 13, color: AppTheme.slateMedium, fontWeight: FontWeight.w500)),
+        Expanded(
+          child: Text(title, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: AppTheme.slateMedium, fontWeight: FontWeight.w500)),
+        ),
+        const SizedBox(width: 8),
         Text(val, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.slateDark)),
       ],
     );
@@ -1831,79 +1856,68 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Row(
-            children: [
-              Icon(PhosphorIconsRegular.lockKey, color: AppTheme.primaryBlue),
-              SizedBox(width: 10),
-              Text('Change Password', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            ],
-          ),
-          content: Column(
+        builder: (ctx, setDialogState) => AppDialog(
+          icon: PhosphorIconsRegular.lockKey,
+          title: 'Change Password',
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: currentPassController,
                 obscureText: true,
-                decoration: const InputDecoration(labelText: 'Current Password', hintText: 'Enter current password'),
+                decoration: appDialogFieldDecoration(label: 'Current Password', hint: 'Enter current password', icon: PhosphorIconsRegular.lockKey),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: newPassController,
                 obscureText: true,
-                decoration: const InputDecoration(labelText: 'New Password', hintText: 'min 8 characters'),
+                decoration: appDialogFieldDecoration(label: 'New Password', hint: 'min 8 characters', icon: PhosphorIconsRegular.lockSimple),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: confirmPassController,
                 obscureText: true,
-                decoration: const InputDecoration(labelText: 'Confirm New Password', hintText: 'Re-enter new password'),
+                decoration: appDialogFieldDecoration(label: 'Confirm New Password', hint: 'Re-enter new password', icon: PhosphorIconsRegular.lockSimple),
               ),
             ],
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: submitting
-                  ? null
-                  : () async {
-                      if (newPassController.text.length < 8) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('New password must be at least 8 characters long.'), backgroundColor: AppTheme.accentRed),
-                        );
-                        return;
-                      }
-                      if (newPassController.text != confirmPassController.text) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('New passwords do not match.'), backgroundColor: AppTheme.accentRed),
-                        );
-                        return;
-                      }
-                      setDialogState(() => submitting = true);
-                      try {
-                        final auth = ref.read(authControllerProvider);
-                        final app = SalonAuth.currentApp(auth.salonId!);
-                        if (app == null) throw Exception('No initialized Firebase app for salon "${auth.salonId}"');
-                        await SalonAuth.changeOwnPassword(app, currentPassword: currentPassController.text, newPassword: newPassController.text);
-                        if (ctx.mounted) Navigator.pop(ctx);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Password updated successfully!'), backgroundColor: AppTheme.accentGreen),
-                          );
-                        }
-                      } catch (e) {
-                        setDialogState(() => submitting = false);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
-                        }
-                      }
-                    },
-              child: submitting
-                  ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Text('Save Password'),
-            ),
-          ],
+          actions: AppDialogActions(
+            submitLabel: 'Save Password',
+            submitting: submitting,
+            onCancel: () => Navigator.pop(ctx),
+            onSubmit: () async {
+              if (newPassController.text.length < 8) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('New password must be at least 8 characters long.'), backgroundColor: AppTheme.accentRed),
+                );
+                return;
+              }
+              if (newPassController.text != confirmPassController.text) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('New passwords do not match.'), backgroundColor: AppTheme.accentRed),
+                );
+                return;
+              }
+              setDialogState(() => submitting = true);
+              try {
+                final auth = ref.read(authControllerProvider);
+                final app = SalonAuth.currentApp(auth.salonId!);
+                if (app == null) throw Exception('No initialized Firebase app for salon "${auth.salonId}"');
+                await SalonAuth.changeOwnPassword(app, currentPassword: currentPassController.text, newPassword: newPassController.text);
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Password updated successfully!'), backgroundColor: AppTheme.accentGreen),
+                  );
+                }
+              } catch (e) {
+                setDialogState(() => submitting = false);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
+                }
+              }
+            },
+          ),
         ),
       ),
     );
@@ -1914,7 +1928,7 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
     final profile = widget.profile;
     final state = widget.state;
     final todayRecord = _todayAttendance(state, profile.id);
-    final isClockedIn = todayRecord != null && todayRecord.clockOut == null;
+    final isClockedIn = todayRecord != null && todayRecord.clockIn != null && todayRecord.clockOut == null;
 
     final now = DateTime.now();
     final monthAttendance = state.attendance.where((a) => a.date != null && a.date!.month == now.month && a.date!.year == now.year).toList();
@@ -2070,21 +2084,24 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
                         onPressed: () {
                           showDialog(
                             context: context,
-                            builder: (ctx) => AlertDialog(
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                              title: const Text('Confirm Logout'),
-                              content: const Text('Are you sure you want to end your current session?'),
-                              actions: [
-                                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-                                ElevatedButton(
-                                  onPressed: () {
-                                    Navigator.pop(ctx);
-                                    ref.read(authControllerProvider.notifier).logout();
-                                  },
-                                  style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accentRed),
-                                  child: const Text('Log Out'),
-                                ),
-                              ],
+                            builder: (ctx) => AppDialog(
+                              icon: PhosphorIconsRegular.signOut,
+                              iconColor: AppTheme.accentRed,
+                              iconBackground: AppTheme.accentRedBg,
+                              title: 'Confirm Logout',
+                              child: const Text(
+                                'Are you sure you want to end your current session?',
+                                style: TextStyle(fontSize: 14, color: AppTheme.slateMedium),
+                              ),
+                              actions: AppDialogActions(
+                                submitLabel: 'Log Out',
+                                submitColor: AppTheme.accentRed,
+                                onCancel: () => Navigator.pop(ctx),
+                                onSubmit: () {
+                                  Navigator.pop(ctx);
+                                  ref.read(authControllerProvider.notifier).logout();
+                                },
+                              ),
                             ),
                           );
                         },
@@ -2123,13 +2140,15 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
           child: Icon(icon, size: 18, color: AppTheme.slateMedium),
         ),
         const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: const TextStyle(fontSize: 11, color: AppTheme.slateLight, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 2),
-            Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.slateDark)),
-          ],
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: const TextStyle(fontSize: 11, color: AppTheme.slateLight, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 2),
+              Text(value, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.slateDark)),
+            ],
+          ),
         ),
       ],
     );
@@ -2162,106 +2181,94 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Row(
+        builder: (ctx, setDialogState) => AppDialog(
+          icon: PhosphorIconsRegular.tag,
+          title: 'Request Discount',
+          subtitle: 'Sent to your manager for approval.',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(PhosphorIconsRegular.tag, color: AppTheme.primaryBlue),
-              SizedBox(width: 10),
-              Text('Request Discount Approval', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+              DropdownButtonFormField<String?>(
+                initialValue: selectedBillId,
+                decoration: appDialogFieldDecoration(label: 'Linked Bill (optional)', icon: PhosphorIconsRegular.receipt),
+                isExpanded: true,
+                borderRadius: BorderRadius.circular(14),
+                dropdownColor: Colors.white,
+                elevation: 3,
+                items: [
+                  const DropdownMenuItem<String?>(value: null, child: Text('General request - no bill')),
+                  for (final b in myBills.take(15))
+                    DropdownMenuItem<String?>(
+                      value: b.id,
+                      child: Text(
+                        '${b.invoiceNumber} - ${b.customerName ?? "Customer"} (Rs. ${b.finalAmount.toStringAsFixed(0)})',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+                onChanged: (v) => setDialogState(() => selectedBillId = v),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: discountController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: appDialogFieldDecoration(label: 'Requested Discount (Rs.) *', hint: 'e.g. 200', icon: PhosphorIconsRegular.percent),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: overrideController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: appDialogFieldDecoration(label: 'Override Price (Rs., optional)', hint: 'Leave blank unless setting a fixed final price', icon: PhosphorIconsRegular.currencyInr),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonController,
+                maxLines: 2,
+                decoration: appDialogFieldDecoration(label: 'Reason *', hint: 'Why does this customer need extra discount?', icon: PhosphorIconsRegular.chatText),
+              ),
             ],
           ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                DropdownButtonFormField<String?>(
-                  initialValue: selectedBillId,
-                  decoration: const InputDecoration(labelText: 'Linked Bill (optional)'),
-                  isExpanded: true,
-                  borderRadius: BorderRadius.circular(14),
-                  dropdownColor: Colors.white,
-                  elevation: 3,
-                  items: [
-                    const DropdownMenuItem<String?>(value: null, child: Text('General request - no bill')),
-                    for (final b in myBills.take(15))
-                      DropdownMenuItem<String?>(
-                        value: b.id,
-                        child: Text(
-                          '${b.invoiceNumber} - ${b.customerName ?? "Customer"} (Rs. ${b.finalAmount.toStringAsFixed(0)})',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                  ],
-                  onChanged: (v) => setDialogState(() => selectedBillId = v),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: discountController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Requested Discount (Rs.) *', hintText: 'e.g. 200'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: overrideController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Override Price (Rs., optional)', hintText: 'Leave blank unless setting a fixed final price'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: reasonController,
-                  maxLines: 2,
-                  decoration: const InputDecoration(labelText: 'Reason *', hintText: 'Why does this customer need extra discount?'),
-                ),
-              ],
-            ),
+          actions: AppDialogActions(
+            submitLabel: 'Send Request',
+            submitting: submitting,
+            onCancel: () => Navigator.pop(ctx),
+            onSubmit: () async {
+              final discount = double.tryParse(discountController.text.trim());
+              if (discount == null || discount <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Enter a valid discount amount.'), backgroundColor: AppTheme.accentRed),
+                );
+                return;
+              }
+              if (reasonController.text.trim().isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('A reason is required.'), backgroundColor: AppTheme.accentRed),
+                );
+                return;
+              }
+              setDialogState(() => submitting = true);
+              try {
+                await ref.read(appDataProvider.notifier).requestDiscount(
+                      billId: selectedBillId,
+                      requestedDiscount: discount,
+                      overridePrice: double.tryParse(overrideController.text.trim()),
+                      reason: reasonController.text.trim(),
+                    );
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Request sent to your manager.'), backgroundColor: AppTheme.accentGreen),
+                  );
+                }
+              } catch (e) {
+                setDialogState(() => submitting = false);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
+                }
+              }
+            },
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: submitting
-                  ? null
-                  : () async {
-                      final discount = double.tryParse(discountController.text.trim());
-                      if (discount == null || discount <= 0) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Enter a valid discount amount.'), backgroundColor: AppTheme.accentRed),
-                        );
-                        return;
-                      }
-                      if (reasonController.text.trim().isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('A reason is required.'), backgroundColor: AppTheme.accentRed),
-                        );
-                        return;
-                      }
-                      setDialogState(() => submitting = true);
-                      try {
-                        await ref.read(appDataProvider.notifier).requestDiscount(
-                              billId: selectedBillId,
-                              requestedDiscount: discount,
-                              overridePrice: double.tryParse(overrideController.text.trim()),
-                              reason: reasonController.text.trim(),
-                            );
-                        if (ctx.mounted) Navigator.pop(ctx);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Request sent to your manager.'), backgroundColor: AppTheme.accentGreen),
-                          );
-                        }
-                      } catch (e) {
-                        setDialogState(() => submitting = false);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
-                        }
-                      }
-                    },
-              child: submitting
-                  ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Text('Send Request'),
-            ),
-          ],
         ),
       ),
     );
