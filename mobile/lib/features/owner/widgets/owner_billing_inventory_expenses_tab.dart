@@ -2154,7 +2154,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                           const Text('Category', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
                           const SizedBox(height: 6),
                           DropdownButtonFormField<String>(
-                            initialValue: _category,
+                            value: _category,
                             decoration: InputDecoration(
                               filled: true,
                               fillColor: const Color(0xFFF9FAFB),

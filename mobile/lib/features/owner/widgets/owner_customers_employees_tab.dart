@@ -121,7 +121,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
               const SizedBox(height: 12),
               if (branches.length > 1)
                 DropdownButtonFormField<String>(
-                  initialValue: branchId,
+                  value: branchId,
                   decoration: appDialogFieldDecoration(label: 'Branch', icon: PhosphorIconsRegular.storefront),
                   borderRadius: BorderRadius.circular(14),
                   dropdownColor: Colors.white,
@@ -1245,7 +1245,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: DropdownButtonFormField<String>(
-                    initialValue: branchId,
+                    value: branchId,
                     decoration: appDialogFieldDecoration(label: 'Branch', icon: PhosphorIconsRegular.storefront),
                     borderRadius: BorderRadius.circular(14),
                     dropdownColor: Colors.white,
@@ -1404,7 +1404,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: DropdownButtonFormField<String>(
-                    initialValue: branchId,
+                    value: branchId,
                     decoration: appDialogFieldDecoration(label: 'Branch', icon: PhosphorIconsRegular.storefront),
                     borderRadius: BorderRadius.circular(14),
                     dropdownColor: Colors.white,
@@ -1506,7 +1506,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               DropdownButtonFormField<String>(
-                initialValue: type,
+                value: type,
                 decoration: appDialogFieldDecoration(label: 'Target Type', icon: PhosphorIconsRegular.flag),
                 items: const [
                   DropdownMenuItem(value: 'SERVICE_VOLUME', child: Text('Service Revenue (Rs.)')),
@@ -1621,7 +1621,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
                 children: [
                   Expanded(
                     child: DropdownButtonFormField<int>(
-                      initialValue: month,
+                      value: month,
                       decoration: appDialogFieldDecoration(label: 'Month', icon: PhosphorIconsRegular.calendarBlank),
                       items: [for (var m = 1; m <= 12; m++) DropdownMenuItem(value: m, child: Text(_monthNames[m - 1]))],
                       onChanged: (val) => setDialogState(() => month = val ?? month),
@@ -1630,7 +1630,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: DropdownButtonFormField<int>(
-                      initialValue: year,
+                      value: year,
                       decoration: appDialogFieldDecoration(label: 'Year'),
                       items: [for (var y = now.year - 1; y <= now.year; y++) DropdownMenuItem(value: y, child: Text('$y'))],
                       onChanged: (val) => setDialogState(() => year = val ?? year),
