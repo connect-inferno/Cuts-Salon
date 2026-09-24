@@ -113,7 +113,7 @@ class OwnerBranchTab extends StatelessWidget {
               TextField(controller: phoneController, keyboardType: TextInputType.phone, decoration: appDialogFieldDecoration(label: 'Phone Number', icon: PhosphorIconsRegular.phone)),
               const SizedBox(height: 12),
               DropdownButtonFormField<String?>(
-                initialValue: managerId,
+                value: managerId,
                 decoration: appDialogFieldDecoration(label: 'Branch Manager', icon: PhosphorIconsRegular.userGear),
                 borderRadius: BorderRadius.circular(14),
                 dropdownColor: Colors.white,
