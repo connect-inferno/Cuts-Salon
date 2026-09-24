@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../theme.dart';
 
 enum TrimlyLogoVariant {
@@ -91,7 +90,7 @@ class TrimlyLogo extends StatelessWidget {
     Widget iconWidget = ClipRRect(
       borderRadius: BorderRadius.circular(iconSize * 0.28),
       child: Image.asset(
-        'assets/images/trimly_icon.png',
+        'assets/images/stylux_icon.png',
         width: iconSize,
         height: iconSize,
         fit: BoxFit.cover,
@@ -101,24 +100,13 @@ class TrimlyLogo extends StatelessWidget {
             width: iconSize,
             height: iconSize,
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
+              color: AppTheme.slateDark,
               borderRadius: BorderRadius.circular(iconSize * 0.28),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF4F46E5).withValues(alpha: 0.25),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
             ),
             child: Center(
               child: Text(
-                'T',
-                style: GoogleFonts.plusJakartaSans(
+                'S',
+                style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
                   color: Colors.white,
                   fontWeight: FontWeight.w900,
                   fontSize: iconSize * 0.55,
@@ -141,13 +129,13 @@ class TrimlyLogo extends StatelessWidget {
           : CrossAxisAlignment.start,
       children: [
         Text(
-          'Trimly',
+          'STYLUX',
           overflow: TextOverflow.ellipsis,
-          style: GoogleFonts.plusJakartaSans(
+          style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
             fontSize: calculatedFontSize,
             fontWeight: FontWeight.w800,
             color: effectiveTextColor,
-            letterSpacing: -0.6,
+            letterSpacing: 1.2,
           ),
         ),
         if (subtitle != null && subtitle!.isNotEmpty) ...[
@@ -155,11 +143,11 @@ class TrimlyLogo extends StatelessWidget {
           Text(
             subtitle!,
             overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: (calculatedFontSize * 0.60).clamp(9.5, 14.0),
+            style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
+              fontSize: (calculatedFontSize * 0.52).clamp(9.5, 14.0),
               fontWeight: FontWeight.w600,
               color: effectiveSubtitleColor,
-              letterSpacing: -0.1,
+              letterSpacing: 0.8,
             ),
           ),
         ],
