@@ -159,15 +159,15 @@ class SalonAuth {
     } on FirebaseAuthException catch (e) {
       // Wrong password / no such user - don't reveal which.
       if (_credentialErrorCodes.contains(e.code)) return null;
-      debugPrint('[Trimly] sign-in to ${config.salonId} failed: ${e.code} ${e.message}');
+      debugPrint('[Stylux] sign-in to ${config.salonId} failed: ${e.code} ${e.message}');
       throw SalonAuthException(_authErrorMessage(e));
     } on TimeoutException {
-      debugPrint('[Trimly] sign-in to ${config.salonId} failed: Firebase did not load within ${_sdkLoadTimeout.inSeconds}s');
+      debugPrint('[Stylux] sign-in to ${config.salonId} failed: Firebase did not load within ${_sdkLoadTimeout.inSeconds}s');
       throw SalonAuthException('Could not load the sign-in service. Check your internet connection (or turn off any content blocker) and try again.');
     } catch (e) {
       // Not an Auth response at all - Firebase failed to load/initialize,
       // a JS interop error, etc. Surface it rather than blaming the password.
-      debugPrint('[Trimly] sign-in to ${config.salonId} failed: $e');
+      debugPrint('[Stylux] sign-in to ${config.salonId} failed: $e');
       throw SalonAuthException('Could not sign in: $e');
     }
   }

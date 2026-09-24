@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../theme.dart';
-import '../../widgets/trimly_logo.dart';
 import 'auth_provider.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -14,8 +13,8 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  final _emailController = TextEditingController(text: 'owner@cuts-salon.test');
+  final _passwordController = TextEditingController(text: '••••••••••••');
   bool _obscurePassword = true;
 
   @override
@@ -27,9 +26,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   void _submit() {
     if (_formKey.currentState?.validate() ?? false) {
+      // If still filled with dummy mask, use demo password
+      final pw = _passwordController.text == '••••••••••••' ? 'password123' : _passwordController.text.trim();
       ref.read(authControllerProvider.notifier).login(
             _emailController.text.trim(),
-            _passwordController.text.trim(),
+            pw,
           );
     }
   }
@@ -46,10 +47,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           children: [
             const Icon(PhosphorIconsFill.checkCircle, color: Colors.white, size: 18),
             const SizedBox(width: 8),
-            Text('$role credentials loaded! Tap "Log In" to proceed.'),
+            Expanded(child: Text('$role credentials loaded! Tap "Log In" to proceed.')),
           ],
         ),
-        backgroundColor: AppTheme.primaryBlue,
+        backgroundColor: const Color(0xFF4F46E5),
         duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -74,415 +75,505 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     });
 
     return Scaffold(
-      backgroundColor: AppTheme.bgSurface,
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 32.0),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // App Brand Header
-                  const TrimlyLogo(
-                    variant: TrimlyLogoVariant.inline,
-                    iconSize: 42,
-                    fontSize: 26,
-                    subtitle: 'Salon Management OS',
-                  ),
-                  const SizedBox(height: 24),
+      backgroundColor: const Color(0xFFF8FAFC),
+      body: Stack(
+        children: [
+          // Background soft gradient ambient glow
+          Positioned(
+            top: -100,
+            left: -50,
+            right: -50,
+            height: 350,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: Alignment.topCenter,
+                  radius: 1.2,
+                  colors: [
+                    const Color(0xFF6366F1).withValues(alpha: 0.18),
+                    const Color(0xFF818CF8).withValues(alpha: 0.08),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
 
-                  // Login Card
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AppTheme.borderSubtle, width: 1),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.03),
-                          blurRadius: 20,
-                          offset: const Offset(0, 8),
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 22.0, vertical: 24.0),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 400),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const SizedBox(height: 12),
+
+                      // Logo Squircle Badge with Stylux Logo & Soft Purple Shadow
+                      Container(
+                        width: 76,
+                        height: 76,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
+                          ),
+                          borderRadius: BorderRadius.circular(22),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF4F46E5).withValues(alpha: 0.38),
+                              blurRadius: 20,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                    padding: const EdgeInsets.all(28.0),
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // Circular App Icon Badge
-                          Center(
-                            child: Container(
-                              width: 72,
-                              height: 72,
-                              padding: const EdgeInsets.all(4),
-                              decoration: BoxDecoration(
-                                color: AppTheme.primaryLight,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: AppTheme.borderSubtle, width: 1),
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(36),
-                                child: Image.asset(
-                                  'assets/images/trimly_icon.png',
-                                  width: 64,
-                                  height: 64,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) => const Icon(
-                                    PhosphorIconsRegular.scissors,
-                                    size: 32,
-                                    color: AppTheme.primaryBlue,
-                                  ),
-                                ),
-                              ),
+                        child: Center(
+                          child: Image.asset(
+                            'assets/images/stylux_mark.png',
+                            width: 44,
+                            height: 44,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) => const Icon(
+                              PhosphorIconsFill.scissors,
+                              size: 36,
+                              color: Colors.white,
                             ),
                           ),
-                          const SizedBox(height: 18),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
 
-                          // Title
-                          const Text(
-                            'Sign in to your salon dashboard',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.slateDark,
-                            ),
-                          ),
-                          const SizedBox(height: 24),
+                      // Brand Name & Subtitle
+                      const Text(
+                        'Stylux',
+                        style: TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.5,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Salon Management OS • v2.4',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                      const SizedBox(height: 28),
 
-                          // Email Field
-                          const Text(
-                            'Email',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.slateMedium,
+                      // Main Sign In Card
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(color: const Color(0xFFF1F5F9), width: 1.2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF0F172A).withValues(alpha: 0.05),
+                              blurRadius: 28,
+                              offset: const Offset(0, 12),
                             ),
-                          ),
-                          const SizedBox(height: 6),
-                          TextFormField(
-                            controller: _emailController,
-                            keyboardType: TextInputType.emailAddress,
-                            style: const TextStyle(fontSize: 14, color: AppTheme.slateDark),
-                            decoration: const InputDecoration(
-                              hintText: 'Enter your email',
-                              prefixIcon: Icon(PhosphorIconsRegular.envelopeSimple, size: 20, color: AppTheme.slateLight),
-                            ),
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Please enter your email';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 16),
-
-                          // Password Field & Forgot Password Row
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          ],
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 22.0, vertical: 26.0),
+                        child: Form(
+                          key: _formKey,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               const Text(
-                                'Password',
+                                'Sign in to your salon dashboard',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF0F172A),
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+
+                              // Email Label & Pill Input
+                              const Text(
+                                'Email Address',
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
-                                  color: AppTheme.slateMedium,
+                                  color: Color(0xFF475569),
                                 ),
                               ),
-                              GestureDetector(
-                                onTap: () {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Contact your Salon Owner to reset password.'),
-                                    ),
-                                  );
+                              const SizedBox(height: 8),
+                              TextFormField(
+                                controller: _emailController,
+                                keyboardType: TextInputType.emailAddress,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: Color(0xFF0F172A),
+                                ),
+                                decoration: InputDecoration(
+                                  hintText: 'owner@cuts-salon.test',
+                                  hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                                  prefixIcon: const Icon(
+                                    PhosphorIconsRegular.envelopeSimple,
+                                    size: 19,
+                                    color: Color(0xFF94A3B8),
+                                  ),
+                                  filled: true,
+                                  fillColor: const Color(0xFFF8FAFC),
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                                  ),
+                                ),
+                                validator: (value) {
+                                  if (value == null || value.trim().isEmpty) {
+                                    return 'Please enter your email';
+                                  }
+                                  return null;
                                 },
-                                child: const Text(
-                                  'Forgot password?',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppTheme.primaryBlue,
+                              ),
+                              const SizedBox(height: 18),
+
+                              // Password Label & Forgot Password Row
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Password',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF475569),
+                                    ),
+                                  ),
+                                  GestureDetector(
+                                    onTap: () {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Contact your Salon Superadmin to reset password.'),
+                                          behavior: SnackBarBehavior.floating,
+                                        ),
+                                      );
+                                    },
+                                    child: const Text(
+                                      'Forgot password?',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF4F46E5),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+
+                              // Password Pill Input
+                              TextFormField(
+                                controller: _passwordController,
+                                obscureText: _obscurePassword,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: Color(0xFF0F172A),
+                                ),
+                                decoration: InputDecoration(
+                                  hintText: 'Enter your password',
+                                  hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                                  prefixIcon: const Icon(
+                                    PhosphorIconsRegular.lock,
+                                    size: 19,
+                                    color: Color(0xFF94A3B8),
+                                  ),
+                                  suffixIcon: IconButton(
+                                    icon: Icon(
+                                      _obscurePassword ? PhosphorIconsRegular.eyeSlash : PhosphorIconsRegular.eye,
+                                      size: 19,
+                                      color: const Color(0xFF94A3B8),
+                                    ),
+                                    onPressed: () {
+                                      setState(() {
+                                        _obscurePassword = !_obscurePassword;
+                                      });
+                                    },
+                                  ),
+                                  filled: true,
+                                  fillColor: const Color(0xFFF8FAFC),
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                                  ),
+                                ),
+                                validator: (value) {
+                                  if (value == null || value.isEmpty) {
+                                    return 'Please enter your password';
+                                  }
+                                  return null;
+                                },
+                              ),
+                              const SizedBox(height: 24),
+
+                              // Gradient "Log In ->" Button
+                              Container(
+                                height: 50,
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
+                                  ),
+                                  borderRadius: BorderRadius.circular(16),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF4F46E5).withValues(alpha: 0.35),
+                                      blurRadius: 16,
+                                      offset: const Offset(0, 8),
+                                    ),
+                                  ],
+                                ),
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(16),
+                                    onTap: state.isLoading ? null : _submit,
+                                    child: Center(
+                                      child: state.isLoading
+                                          ? const SizedBox(
+                                              height: 20,
+                                              width: 20,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2.2,
+                                                color: Colors.white,
+                                              ),
+                                            )
+                                          : const Row(
+                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              children: [
+                                                Text(
+                                                  'Log In',
+                                                  style: TextStyle(
+                                                    fontSize: 15,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                                SizedBox(width: 8),
+                                                Icon(
+                                                  PhosphorIconsBold.arrowRight,
+                                                  size: 16,
+                                                  color: Colors.white,
+                                                ),
+                                              ],
+                                            ),
+                                    ),
                                   ),
                                 ),
                               ),
+                              const SizedBox(height: 18),
+
+                              // Shield Security Note
+                              const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    PhosphorIconsFill.shieldCheck,
+                                    size: 14,
+                                    color: Color(0xFF64748B),
+                                  ),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'Secure access for authorized personnel only.',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500,
+                                      color: Color(0xFF64748B),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ],
                           ),
-                          const SizedBox(height: 6),
-                          TextFormField(
-                            controller: _passwordController,
-                            obscureText: _obscurePassword,
-                            style: const TextStyle(fontSize: 14, color: AppTheme.slateDark),
-                            decoration: InputDecoration(
-                              hintText: 'Enter your password',
-                              prefixIcon: const Icon(PhosphorIconsRegular.lock, size: 20, color: AppTheme.slateLight),
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  _obscurePassword ? PhosphorIconsRegular.eyeSlash : PhosphorIconsRegular.eye,
-                                  size: 18,
-                                  color: AppTheme.slateLight,
-                                ),
-                                onPressed: () {
-                                  setState(() {
-                                    _obscurePassword = !_obscurePassword;
-                                  });
-                                },
-                              ),
-                            ),
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Please enter your password';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 24),
-
-                          // Log In Button
-                          SizedBox(
-                            height: 48,
-                            child: ElevatedButton(
-                              onPressed: state.isLoading ? null : _submit,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppTheme.primaryBlue,
-                                foregroundColor: Colors.white,
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                              child: state.isLoading
-                                  ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Text(
-                                      'Log In',
-                                      style: TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-
-                          // Footer Security Note
-                          const Text(
-                            'Secure access for authorized personnel only.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Color(0xFF94A3B8),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  // Quick Demo Login Card with dedicated buttons
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppTheme.borderSubtle),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.02),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
                         ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Quick Demo Access Card
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(color: const Color(0xFFF1F5F9), width: 1.2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF0F172A).withValues(alpha: 0.03),
+                              blurRadius: 20,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Container(
-                              padding: const EdgeInsets.all(4),
-                              decoration: BoxDecoration(
-                                color: AppTheme.primaryLight,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: const Icon(
-                                PhosphorIconsBold.lightning,
-                                size: 14,
-                                color: AppTheme.primaryBlue,
+                            Row(
+                              children: [
+                                const Icon(
+                                  PhosphorIconsFill.lightning,
+                                  size: 15,
+                                  color: Color(0xFFF59E0B),
+                                ),
+                                const SizedBox(width: 6),
+                                const Text(
+                                  'Quick Demo Access',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF0F172A),
+                                  ),
+                                ),
+                                const Spacer(),
+                                Flexible(
+                                  child: Text(
+                                    'Tap to auto-fill',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500,
+                                      color: Color(0xFF94A3B8),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 14),
+
+                            // Owner Login Card Item
+                            _buildQuickLoginTile(
+                              icon: PhosphorIconsFill.medal,
+                              iconBg: const Color(0xFFFEF3C7),
+                              iconColor: const Color(0xFFD97706),
+                              title: 'Owner Login',
+                              subtitle: 'owner@cuts-salon.test',
+                              onTap: () => _quickFill(
+                                'owner@cuts-salon.test',
+                                'password123',
+                                'Owner',
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            const Text(
-                              'Quick Login',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: AppTheme.slateDark,
-                              ),
-                            ),
-                            const Spacer(),
-                            const Text(
-                              'Tap to fill credentials',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
-                                color: AppTheme.slateLight,
+                            const SizedBox(height: 10),
+
+                            // Employee Login Card Item
+                            _buildQuickLoginTile(
+                              icon: PhosphorIconsFill.storefront,
+                              iconBg: const Color(0xFFEEF2FF),
+                              iconColor: const Color(0xFF4F46E5),
+                              title: 'Employee Login',
+                              subtitle: 'employee@cuts-salon.test',
+                              onTap: () => _quickFill(
+                                'employee@cuts-salon.test',
+                                'password123',
+                                'Employee',
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12),
-
-                        // Owner Button
-                        Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: () => _quickFill(
-                              'owner@cuts-salon.test',
-                              'password123',
-                              'Owner',
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: AppTheme.primaryLight.withValues(alpha: 0.6),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: AppTheme.primarySoft),
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(6),
-                                    decoration: BoxDecoration(
-                                      color: AppTheme.primaryBlue,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Icon(
-                                      PhosphorIconsFill.crown,
-                                      size: 16,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  const Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Owner Login',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w700,
-                                            color: AppTheme.primaryBlue,
-                                          ),
-                                        ),
-                                        Text(
-                                          'owner@cuts-salon.test',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: AppTheme.slateMedium,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const Icon(
-                                    PhosphorIconsRegular.arrowRight,
-                                    size: 16,
-                                    color: AppTheme.primaryBlue,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-
-                        const SizedBox(height: 8),
-
-                        // Employee Button
-                        Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: () => _quickFill(
-                              'employee@cuts-salon.test',
-                              'password123',
-                              'Employee',
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF8FAFC),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: AppTheme.borderSubtle),
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(6),
-                                    decoration: BoxDecoration(
-                                      color: AppTheme.slateMedium,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Icon(
-                                      PhosphorIconsFill.user,
-                                      size: 16,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  const Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Employee Login',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w700,
-                                            color: AppTheme.slateDark,
-                                          ),
-                                        ),
-                                        Text(
-                                          'employee@cuts-salon.test',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: AppTheme.slateMedium,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const Icon(
-                                    PhosphorIconsRegular.arrowRight,
-                                    size: 16,
-                                    color: AppTheme.slateMedium,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 20),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickLoginTile({
+    required IconData icon,
+    required Color iconBg,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: const Color(0xFFF8FAFC),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFF1F5F9)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: iconBg,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, size: 18, color: iconColor),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                PhosphorIconsRegular.caretRight,
+                size: 16,
+                color: Color(0xFF94A3B8),
+              ),
+            ],
           ),
         ),
       ),

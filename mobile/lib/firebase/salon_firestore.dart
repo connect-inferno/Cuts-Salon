@@ -36,11 +36,11 @@ class SalonFirestore {
     try {
       final doc = await db.collection('settings').doc('main').get();
       if (!doc.exists) {
-        return FSSettings(salonName: 'Trimly Salon', gstRate: 18, lateAttendancePenalty: 0);
+        return FSSettings(salonName: 'Stylux Salon', gstRate: 18, lateAttendancePenalty: 0);
       }
       return FSSettings.fromFirestore(doc);
     } catch (_) {
-      return FSSettings(salonName: 'Trimly Salon', gstRate: 18, lateAttendancePenalty: 0);
+      return FSSettings(salonName: 'Stylux Salon', gstRate: 18, lateAttendancePenalty: 0);
     }
   }
 

@@ -22,12 +22,14 @@ rules_version = '2';
 // unrelated to sign-in: it's an operator-only registry (salon name, owner
 // name, owner email, that salon's Firebase project config) for whoever runs
 // this SaaS to have one place to look up "what salons exist and who owns
-// them" instead of grepping salon_directory.dart. No app code reads or
-// writes it - entries are added/edited by hand in the Firebase Console as
-// part of onboarding (see CLAUDE.md), the same way emailDirectory entries
-// are. Unlike emailDirectory, nothing here needs to be client-readable
-// (login never needs it), so it's locked down entirely - Console/Admin SDK
-// only, same access level Console editing already implies.
+// them" instead of grepping salon_directory.dart. No SALON app code reads or
+// writes it - it's managed from the separate operator-dashboard/ tool, whose
+// only users are operator accounts created by hand in this project's
+// Firebase Auth (Console > Authentication > Add user - there's no public
+// sign-up flow, so `request.auth != null` here means "one of the handful of
+// people who run this SaaS," not "anyone"). App code and salon
+// owners/employees never authenticate against this project, so this gate
+// can't be satisfied by salon-side credentials.
 service cloud.firestore {
   match /databases/{database}/documents {
     match /emailDirectory/{email} {
@@ -37,7 +39,7 @@ service cloud.firestore {
     }
 
     match /salons/{salonId} {
-      allow read, write: if false;
+      allow read, write: if request.auth != null;
     }
   }
 }

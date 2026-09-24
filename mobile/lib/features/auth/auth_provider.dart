@@ -24,6 +24,7 @@ class AuthController extends Notifier<AuthState> {
     final settings = await fs.getSettings();
     return AuthState(
       isLoading: false,
+      sessionChecked: true,
       userId: session.user.uid,
       email: session.user.email,
       name: profile.name,
@@ -46,14 +47,14 @@ class AuthController extends Notifier<AuthState> {
       // screen from rendering - fall through to it below.
     }
     if (firebaseSession == null) {
-      state = state.copyWith(isLoading: false);
+      state = state.copyWith(isLoading: false, sessionChecked: true);
       return;
     }
 
     try {
       state = await _stateFromFirebase(firebaseSession);
     } catch (e) {
-      state = AuthState(error: e.toString(), isLoading: false);
+      state = AuthState(error: e.toString(), isLoading: false, sessionChecked: true);
     }
   }
 
@@ -64,7 +65,7 @@ class AuthController extends Notifier<AuthState> {
       final session = await SalonAuth.signIn(email, password);
       state = await _stateFromFirebase(session);
     } catch (e) {
-      state = AuthState(error: e.toString(), isLoading: false);
+      state = AuthState(error: e.toString(), isLoading: false, sessionChecked: true);
     }
   }
 
@@ -73,7 +74,7 @@ class AuthController extends Notifier<AuthState> {
     if (state.salonId != null) {
       await SalonAuth.signOut(state.salonId!);
     }
-    state = AuthState();
+    state = AuthState(sessionChecked: true);
   }
 }
 
