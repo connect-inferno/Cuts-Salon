@@ -1,5 +1,24 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+
+// Plus Jakarta Sans is bundled locally (see pubspec.yaml `fonts:`) rather
+// than fetched at runtime via the google_fonts package - a slow/blocked
+// connection to Google's CDN would otherwise make the whole app silently
+// fall back to the platform default font instead of matching the Stitch
+// design's weights.
+TextStyle _pjs({
+  required double fontSize,
+  FontWeight fontWeight = FontWeight.w400,
+  Color? color,
+  double? letterSpacing,
+}) {
+  return TextStyle(
+    fontFamily: 'Plus Jakarta Sans',
+    fontSize: fontSize,
+    fontWeight: fontWeight,
+    color: color,
+    letterSpacing: letterSpacing,
+  );
+}
 
 class AppTheme {
   // Brand — refined indigo, modern SaaS.
@@ -44,21 +63,22 @@ class AppTheme {
       ];
 
   static ThemeData get lightTheme {
-    final baseTextTheme = GoogleFonts.plusJakartaSansTextTheme().apply(
-      bodyColor: slateDark,
-      displayColor: slateDark,
-    );
+    final baseTextTheme = ThemeData.light().textTheme.apply(
+          fontFamily: 'Plus Jakarta Sans',
+          bodyColor: slateDark,
+          displayColor: slateDark,
+        );
 
     final textTheme = baseTextTheme.copyWith(
-      headlineSmall: GoogleFonts.plusJakartaSans(fontSize: 24, fontWeight: FontWeight.w700, letterSpacing: -0.4, color: slateDark),
-      titleLarge: GoogleFonts.plusJakartaSans(fontSize: 19, fontWeight: FontWeight.w700, letterSpacing: -0.3, color: slateDark),
-      titleMedium: GoogleFonts.plusJakartaSans(fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: -0.1, color: slateDark),
-      titleSmall: GoogleFonts.plusJakartaSans(fontSize: 13.5, fontWeight: FontWeight.w600, color: slateDark),
-      bodyLarge: GoogleFonts.plusJakartaSans(fontSize: 15, fontWeight: FontWeight.w400, color: slateDark),
-      bodyMedium: GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.w400, color: slateMedium),
-      bodySmall: GoogleFonts.plusJakartaSans(fontSize: 12.5, fontWeight: FontWeight.w400, color: slateLight),
-      labelLarge: GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.1),
-      labelMedium: GoogleFonts.plusJakartaSans(fontSize: 12.5, fontWeight: FontWeight.w600, letterSpacing: 0.1, color: slateMedium),
+      headlineSmall: _pjs(fontSize: 24, fontWeight: FontWeight.w700, letterSpacing: -0.4, color: slateDark),
+      titleLarge: _pjs(fontSize: 19, fontWeight: FontWeight.w700, letterSpacing: -0.3, color: slateDark),
+      titleMedium: _pjs(fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: -0.1, color: slateDark),
+      titleSmall: _pjs(fontSize: 13.5, fontWeight: FontWeight.w600, color: slateDark),
+      bodyLarge: _pjs(fontSize: 15, fontWeight: FontWeight.w400, color: slateDark),
+      bodyMedium: _pjs(fontSize: 14, fontWeight: FontWeight.w400, color: slateMedium),
+      bodySmall: _pjs(fontSize: 12.5, fontWeight: FontWeight.w400, color: slateLight),
+      labelLarge: _pjs(fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.1),
+      labelMedium: _pjs(fontSize: 12.5, fontWeight: FontWeight.w600, letterSpacing: 0.1, color: slateMedium),
     );
 
     final buttonShape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(14));
@@ -89,7 +109,7 @@ class AppTheme {
         onErrorContainer: accentRed,
       ),
       textTheme: textTheme,
-      fontFamily: GoogleFonts.plusJakartaSans().fontFamily,
+      fontFamily: 'Plus Jakarta Sans',
       iconTheme: const IconThemeData(color: slateMedium, size: 22),
       dividerTheme: const DividerThemeData(color: borderSubtle, thickness: 1, space: 1),
       appBarTheme: AppBarTheme(
@@ -100,7 +120,7 @@ class AppTheme {
         shadowColor: slateDark.withValues(alpha: 0.08),
         surfaceTintColor: Colors.transparent,
         centerTitle: false,
-        titleTextStyle: GoogleFonts.plusJakartaSans(fontSize: 18, fontWeight: FontWeight.w700, color: slateDark, letterSpacing: -0.2),
+        titleTextStyle: _pjs(fontSize: 18, fontWeight: FontWeight.w700, color: slateDark, letterSpacing: -0.2),
         iconTheme: const IconThemeData(color: slateDark),
       ),
       cardTheme: CardThemeData(
@@ -137,7 +157,7 @@ class AppTheme {
           shadowColor: WidgetStateProperty.all(primaryBlue.withValues(alpha: 0.35)),
           shape: WidgetStateProperty.all(buttonShape),
           padding: WidgetStateProperty.all(buttonPadding),
-          textStyle: WidgetStateProperty.all(GoogleFonts.plusJakartaSans(fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: 0.1)),
+          textStyle: WidgetStateProperty.all(_pjs(fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: 0.1)),
           animationDuration: const Duration(milliseconds: 150),
         ),
       ),
@@ -152,7 +172,7 @@ class AppTheme {
           foregroundColor: WidgetStateProperty.all(Colors.white),
           shape: WidgetStateProperty.all(buttonShape),
           padding: WidgetStateProperty.all(buttonPadding),
-          textStyle: WidgetStateProperty.all(GoogleFonts.plusJakartaSans(fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: 0.1)),
+          textStyle: WidgetStateProperty.all(_pjs(fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: 0.1)),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
@@ -174,7 +194,7 @@ class AppTheme {
           }),
           shape: WidgetStateProperty.all(buttonShape),
           padding: WidgetStateProperty.all(buttonPadding),
-          textStyle: WidgetStateProperty.all(GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.w600)),
+          textStyle: WidgetStateProperty.all(_pjs(fontSize: 14, fontWeight: FontWeight.w600)),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
@@ -183,7 +203,7 @@ class AppTheme {
           overlayColor: WidgetStateProperty.all(primaryLight),
           shape: WidgetStateProperty.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
           padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 14, vertical: 10)),
-          textStyle: WidgetStateProperty.all(GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.w600)),
+          textStyle: WidgetStateProperty.all(_pjs(fontSize: 14, fontWeight: FontWeight.w600)),
         ),
       ),
       iconButtonTheme: IconButtonThemeData(
@@ -221,10 +241,10 @@ class AppTheme {
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: accentRed, width: 1.6),
         ),
-        labelStyle: GoogleFonts.plusJakartaSans(fontSize: 14, color: slateMedium, fontWeight: FontWeight.w500),
-        floatingLabelStyle: GoogleFonts.plusJakartaSans(fontSize: 13, color: primaryBlue, fontWeight: FontWeight.w600),
-        hintStyle: GoogleFonts.plusJakartaSans(fontSize: 14, color: textMuted),
-        errorStyle: GoogleFonts.plusJakartaSans(fontSize: 12, color: accentRed, fontWeight: FontWeight.w500),
+        labelStyle: _pjs(fontSize: 14, color: slateMedium, fontWeight: FontWeight.w500),
+        floatingLabelStyle: _pjs(fontSize: 13, color: primaryBlue, fontWeight: FontWeight.w600),
+        hintStyle: _pjs(fontSize: 14, color: textMuted),
+        errorStyle: _pjs(fontSize: 12, color: accentRed, fontWeight: FontWeight.w500),
         prefixIconColor: slateLight,
         suffixIconColor: slateLight,
       ),
@@ -245,14 +265,14 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         shadowColor: slateDark.withValues(alpha: 0.15),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: borderSubtle)),
-        textStyle: GoogleFonts.plusJakartaSans(fontSize: 14, color: slateDark),
+        textStyle: _pjs(fontSize: 14, color: slateDark),
       ),
       chipTheme: ChipThemeData(
         backgroundColor: bgSurface,
         selectedColor: primaryLight,
         disabledColor: bgSurface,
-        labelStyle: GoogleFonts.plusJakartaSans(fontSize: 13, fontWeight: FontWeight.w600, color: slateDark),
-        secondaryLabelStyle: GoogleFonts.plusJakartaSans(fontSize: 13, fontWeight: FontWeight.w600, color: primaryDark),
+        labelStyle: _pjs(fontSize: 13, fontWeight: FontWeight.w600, color: slateDark),
+        secondaryLabelStyle: _pjs(fontSize: 13, fontWeight: FontWeight.w600, color: primaryDark),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         side: const BorderSide(color: borderSubtle),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -263,12 +283,12 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         shadowColor: slateDark.withValues(alpha: 0.2),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        titleTextStyle: GoogleFonts.plusJakartaSans(fontSize: 18, fontWeight: FontWeight.w700, color: slateDark),
-        contentTextStyle: GoogleFonts.plusJakartaSans(fontSize: 14, color: slateMedium),
+        titleTextStyle: _pjs(fontSize: 18, fontWeight: FontWeight.w700, color: slateDark),
+        contentTextStyle: _pjs(fontSize: 14, color: slateMedium),
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: slateDark,
-        contentTextStyle: GoogleFonts.plusJakartaSans(fontSize: 14, color: Colors.white, fontWeight: FontWeight.w500),
+        contentTextStyle: _pjs(fontSize: 14, color: Colors.white, fontWeight: FontWeight.w500),
         actionTextColor: primarySoft,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -276,7 +296,7 @@ class AppTheme {
       ),
       tooltipTheme: TooltipThemeData(
         decoration: BoxDecoration(color: slateDark, borderRadius: BorderRadius.circular(8)),
-        textStyle: GoogleFonts.plusJakartaSans(fontSize: 12, color: Colors.white),
+        textStyle: _pjs(fontSize: 12, color: Colors.white),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       ),
       switchTheme: SwitchThemeData(
@@ -307,8 +327,8 @@ class AppTheme {
       tabBarTheme: TabBarThemeData(
         labelColor: primaryBlue,
         unselectedLabelColor: slateLight,
-        labelStyle: GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.w600),
-        unselectedLabelStyle: GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.w500),
+        labelStyle: _pjs(fontSize: 14, fontWeight: FontWeight.w600),
+        unselectedLabelStyle: _pjs(fontSize: 14, fontWeight: FontWeight.w500),
         indicatorColor: primaryBlue,
         indicatorSize: TabBarIndicatorSize.label,
         dividerColor: borderSubtle,
@@ -322,8 +342,8 @@ class AppTheme {
       listTileTheme: ListTileThemeData(
         iconColor: slateLight,
         textColor: slateDark,
-        titleTextStyle: GoogleFonts.plusJakartaSans(fontSize: 14.5, fontWeight: FontWeight.w600, color: slateDark),
-        subtitleTextStyle: GoogleFonts.plusJakartaSans(fontSize: 13, color: slateLight),
+        titleTextStyle: _pjs(fontSize: 14.5, fontWeight: FontWeight.w600, color: slateDark),
+        subtitleTextStyle: _pjs(fontSize: 13, color: slateLight),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
       scrollbarTheme: ScrollbarThemeData(
