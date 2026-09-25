@@ -271,7 +271,7 @@ class OwnerBranchTab extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      '$activeCount Active Branches • Real-time Overview',
+                      '$activeCount Active Branch${activeCount == 1 ? '' : 'es'} • Real-time Overview',
                       style: const TextStyle(
                         color: Color(0xFF64748B),
                         fontSize: 11,
@@ -571,13 +571,19 @@ class OwnerBranchTab extends StatelessWidget {
                                             color: Color(0xFF0F172A),
                                           ),
                                         ),
+                                        // "Served here", not "belong here" -
+                                        // the client directory is shared by
+                                        // every branch, so this counts
+                                        // distinct clients billed at this one.
                                         const Text(
-                                          'Clients',
+                                          'Served',
                                           style: TextStyle(
                                             fontSize: 9,
                                             fontWeight: FontWeight.w500,
                                             color: Color(0xFF64748B),
                                           ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                         ),
                                       ],
                                     ),
@@ -974,7 +980,7 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
   final _businessNameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
-  final _gstRateController = TextEditingController(text: '18');
+  final _gstRateController = TextEditingController(text: '0');
   final _latePenaltyController = TextEditingController(text: '150');
   bool _initialized = false;
   bool _saving = false;
@@ -993,7 +999,7 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
     if (settings.salonName.isNotEmpty) _businessNameController.text = settings.salonName;
     if (settings.phone?.isNotEmpty ?? false) _phoneController.text = settings.phone!;
     if (settings.address?.isNotEmpty ?? false) _addressController.text = settings.address!;
-    if (settings.gstRate > 0) _gstRateController.text = settings.gstRate.toStringAsFixed(0);
+    _gstRateController.text = settings.gstRate.toStringAsFixed(0);
     if (settings.lateAttendancePenalty > 0) _latePenaltyController.text = settings.lateAttendancePenalty.toStringAsFixed(0);
     _initialized = true;
   }
@@ -1005,7 +1011,7 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
         'salonName': _businessNameController.text.trim(),
         'phone': _phoneController.text.trim(),
         'address': _addressController.text.trim(),
-        'gstRate': double.tryParse(_gstRateController.text.replaceAll('%', '').trim()) ?? 18.0,
+        'gstRate': double.tryParse(_gstRateController.text.replaceAll('%', '').trim()) ?? 0.0,
         'lateAttendancePenalty': double.tryParse(_latePenaltyController.text.replaceAll('₹', '').replaceAll('/ hr', '').trim()) ?? 150.0,
       });
       if (mounted) {

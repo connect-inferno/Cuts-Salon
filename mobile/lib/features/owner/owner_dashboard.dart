@@ -10,6 +10,7 @@ import 'widgets/owner_billing_inventory_expenses_tab.dart';
 import 'widgets/owner_management_tabs.dart';
 import '../../widgets/app_page_switcher.dart';
 import '../../widgets/async_state_views.dart';
+import '../../widgets/liquid_nav_bar.dart';
 
 const double kOwnerMobileBreakpoint = 900;
 
@@ -32,6 +33,8 @@ class OwnerDashboard extends ConsumerStatefulWidget {
 class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
   int _activeTabIndex = 0;
   String? _preselectedCustomerId;
+  // null = the whole salon; set from _showBranchSelector.
+  String? _selectedBranchId;
   late final PageController _pageController;
 
   final List<String> _tabNames = [
@@ -242,200 +245,64 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
   }
 
 
+  // The bar itself (glass, the flowing selection capsule, the press
+  // springs) lives in widgets/liquid_nav_bar.dart - it's shared verbatim
+  // with the employee dashboard, which used to carry its own copy of this
+  // whole method.
   Widget _buildModernFloatingNavBar(BuildContext context, int navIndex, int pendingDiscountCount) {
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.only(left: 18, right: 18, bottom: 12, top: 16),
-        child: Stack(
-          clipBehavior: Clip.none,
-          alignment: Alignment.center,
-          children: [
-            // White Rounded Pill Background Container
-            Container(
-              // 64 was tuned against whatever fallback font rendered before
-              // Plus Jakarta Sans was bundled locally - its real line-height
-              // metrics run taller, overflowing the label Column by ~13px.
-              height: 78,
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(32),
-                border: Border.all(color: const Color(0xFFF1F5F9), width: 1.2),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF0F172A).withValues(alpha: 0.08),
-                    blurRadius: 24,
-                    offset: const Offset(0, 8),
-                    spreadRadius: 0,
-                  ),
-                  BoxShadow(
-                    color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  // 1. Dashboard
-                  Expanded(
-                    child: _buildNavItem(
-                      icon: PhosphorIconsRegular.squaresFour,
-                      activeIcon: PhosphorIconsFill.squaresFour,
-                      label: 'Dashboard',
-                      isSelected: navIndex == 0,
-                      onTap: () => _switchToTab(0),
-                    ),
-                  ),
-                  // 2. Billing
-                  Expanded(
-                    child: _buildNavItem(
-                      icon: PhosphorIconsRegular.receipt,
-                      activeIcon: PhosphorIconsFill.receipt,
-                      label: 'Billing',
-                      isSelected: navIndex == 1,
-                      onTap: () => _switchToTab(1),
-                    ),
-                  ),
-                  // 3. Center Space for the Floating Button + "New" label
-                  Expanded(
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => _showQuickCreateSheet(context),
-                      child: const Column(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          SizedBox(height: 36),
-                          Text(
-                            'New',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF334155),
-                              letterSpacing: -0.2,
-                            ),
-                          ),
-                          SizedBox(height: 8),
-                        ],
-                      ),
-                    ),
-                  ),
-                  // 4. Customers
-                  Expanded(
-                    child: _buildNavItem(
-                      icon: PhosphorIconsRegular.users,
-                      activeIcon: PhosphorIconsFill.users,
-                      label: 'Customers',
-                      isSelected: navIndex == 3,
-                      onTap: () => _switchToTab(2),
-                    ),
-                  ),
-                  // 5. More
-                  Expanded(
-                    child: _buildNavItem(
-                      icon: PhosphorIconsRegular.dotsThree,
-                      activeIcon: PhosphorIconsFill.dotsThree,
-                      label: 'More',
-                      isSelected: navIndex == 4,
-                      badgeCount: pendingDiscountCount,
-                      onTap: () => _showMoreMenu(context),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Protruding Elevated Purple Circular "+" Button
-            Positioned(
-              top: -18,
-              child: GestureDetector(
-                onTap: () => _showQuickCreateSheet(context),
-                child: Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF4F46E5),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF4F46E5).withValues(alpha: 0.42),
-                        blurRadius: 18,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
-                  ),
-                  child: const Center(
-                    child: Icon(
-                      PhosphorIconsBold.plus,
-                      color: Colors.white,
-                      size: 24,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
+    return LiquidNavBar(
+      selectedIndex: navIndex,
+      onCenterTap: () => _showQuickCreateSheet(context),
+      centerIcon: PhosphorIconsBold.plus,
+      items: [
+        LiquidNavItem(
+          icon: PhosphorIconsRegular.squaresFour,
+          activeIcon: PhosphorIconsFill.squaresFour,
+          label: 'Dashboard',
+          onTap: () => _switchToTab(0),
         ),
-      ),
-    );
-  }
-
-  Widget _buildNavItem({
-    required IconData icon,
-    required IconData activeIcon,
-    required String label,
-    required bool isSelected,
-    required VoidCallback onTap,
-    int badgeCount = 0,
-  }) {
-    final color = isSelected ? const Color(0xFF4F46E5) : const Color(0xFF334155);
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Badge(
-              isLabelVisible: badgeCount > 0,
-              label: Text('$badgeCount', style: const TextStyle(fontSize: 10)),
-              backgroundColor: const Color(0xFFF04438),
-              child: Icon(
-                isSelected ? activeIcon : icon,
-                color: color,
-                size: 23,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                color: color,
-                letterSpacing: -0.2,
-              ),
-            ),
-          ],
+        LiquidNavItem(
+          icon: PhosphorIconsRegular.receipt,
+          activeIcon: PhosphorIconsFill.receipt,
+          label: 'Billing',
+          onTap: () => _switchToTab(1),
         ),
-      ),
+        null, // the protruding "+" button is drawn over this slot
+        LiquidNavItem(
+          icon: PhosphorIconsRegular.users,
+          activeIcon: PhosphorIconsFill.users,
+          label: 'Customers',
+          onTap: () => _switchToTab(2),
+        ),
+        LiquidNavItem(
+          icon: PhosphorIconsRegular.dotsThree,
+          activeIcon: PhosphorIconsFill.dotsThree,
+          label: 'More',
+          badgeCount: pendingDiscountCount,
+          onTap: () => _showMoreMenu(context),
+        ),
+      ],
     );
   }
 
   void _showQuickCreateSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
+      // Without this the sheet is capped at 9/16 of the screen and the four
+      // tiles overflow it; the ConstrainedBox then stops it growing past the
+      // screen on short viewports, and the tiles scroll inside instead.
+      isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
         return SafeArea(
-          child: Padding(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.88,
+            ),
+            child: Padding(
             padding: const EdgeInsets.all(20.0),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -461,54 +328,65 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                _buildQuickActionTile(
-                  icon: PhosphorIconsBold.shoppingCart,
-                  iconColor: const Color(0xFF4F46E5),
-                  bgColor: const Color(0xFFEEF2FF),
-                  title: 'Start New Bill',
-                  subtitle: 'Create a new invoice and checkout services',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _switchToTab(1);
-                  },
-                ),
-                const SizedBox(height: 10),
-                _buildQuickActionTile(
-                  icon: PhosphorIconsBold.userPlus,
-                  iconColor: const Color(0xFF0D9488),
-                  bgColor: const Color(0xFFE6FFFA),
-                  title: 'Add Customer',
-                  subtitle: 'Register new client profile',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _switchToTab(2);
-                  },
-                ),
-                const SizedBox(height: 10),
-                _buildQuickActionTile(
-                  icon: PhosphorIconsBold.money,
-                  iconColor: const Color(0xFFD97706),
-                  bgColor: const Color(0xFFFFFBEB),
-                  title: 'Record Expense',
-                  subtitle: 'Log operational salon spending',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _switchToTab(6);
-                  },
-                ),
-                const SizedBox(height: 10),
-                _buildQuickActionTile(
-                  icon: PhosphorIconsBold.calendarCheck,
-                  iconColor: const Color(0xFF7C3AED),
-                  bgColor: const Color(0xFFF5F3FF),
-                  title: 'Attendance Log',
-                  subtitle: 'Clock in or manage staff check-ins',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _switchToTab(4);
-                  },
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                      _buildQuickActionTile(
+                        icon: PhosphorIconsBold.shoppingCart,
+                        iconColor: const Color(0xFF4F46E5),
+                        bgColor: const Color(0xFFEEF2FF),
+                        title: 'Start New Bill',
+                        subtitle: 'Create a new invoice and checkout services',
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _switchToTab(1);
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      _buildQuickActionTile(
+                        icon: PhosphorIconsBold.userPlus,
+                        iconColor: const Color(0xFF0D9488),
+                        bgColor: const Color(0xFFE6FFFA),
+                        title: 'Add Customer',
+                        subtitle: 'Register new client profile',
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _switchToTab(2);
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      _buildQuickActionTile(
+                        icon: PhosphorIconsBold.money,
+                        iconColor: const Color(0xFFD97706),
+                        bgColor: const Color(0xFFFFFBEB),
+                        title: 'Record Expense',
+                        subtitle: 'Log operational salon spending',
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _switchToTab(6);
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      _buildQuickActionTile(
+                        icon: PhosphorIconsBold.calendarCheck,
+                        iconColor: const Color(0xFF7C3AED),
+                        bgColor: const Color(0xFFF5F3FF),
+                        title: 'Attendance Log',
+                        subtitle: 'Clock in or manage staff check-ins',
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _switchToTab(4);
+                        },
+                      ),
+                      ],
+                    ),
+                  ),
                 ),
               ],
+            ),
             ),
           ),
         );
@@ -587,199 +465,213 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
       ),
       builder: (ctx) {
         return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE2E8F0),
-                      borderRadius: BorderRadius.circular(2),
+          // The 2x4 grid plus header and Log Out button is taller than a
+          // short viewport, and this Column can't scroll - that is what
+          // produced the "BOTTOM OVERFLOWED BY 29 PIXELS" stripe. Bound the
+          // sheet to the screen and scroll the grid inside it, so the handle,
+          // title and Log Out button stay anchored.
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.88,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE2E8F0),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: const [
-                          Text(
-                            'More Management Options',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF0F172A),
-                              letterSpacing: -0.3,
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Text(
+                              'More Management Options',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF0F172A),
+                                letterSpacing: -0.3,
+                              ),
                             ),
+                            SizedBox(height: 3),
+                            Text(
+                              'Quick access to administrative tools & salon operations',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w500,
+                                color: Color(0xFF64748B),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      InkWell(
+                        onTap: () => Navigator.pop(ctx),
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFFF1F5F9),
+                            shape: BoxShape.circle,
                           ),
-                          SizedBox(height: 3),
-                          Text(
-                            'Quick access to administrative tools & salon operations',
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF64748B),
-                            ),
+                          child: const Icon(PhosphorIconsRegular.x, size: 16, color: Color(0xFF475467)),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: GridView.count(
+                        crossAxisCount: 2,
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                        // 1.5 was tuned against whatever fallback font rendered
+                        // before Plus Jakarta Sans was bundled locally - its real
+                        // line-height metrics run taller, overflowing each card
+                        // by ~2px.
+                        childAspectRatio: 1.4,
+                        children: [
+                          _buildMoreOptionCard(
+                            icon: PhosphorIconsRegular.identificationCard,
+                            iconColor: const Color(0xFF3B82F6),
+                            iconBg: const Color(0xFFEFF6FF),
+                            title: 'Employees',
+                            subtitle: 'Rosters & Stylists',
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              _switchToTab(3);
+                            },
+                          ),
+                          _buildMoreOptionCard(
+                            icon: PhosphorIconsRegular.calendarCheck,
+                            iconColor: const Color(0xFF10B981),
+                            iconBg: const Color(0xFFECFDF5),
+                            title: 'Attendance',
+                            subtitle: 'Clock-in & Shifts',
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              _switchToTab(4);
+                            },
+                          ),
+                          _buildMoreOptionCard(
+                            icon: PhosphorIconsRegular.wallet,
+                            iconColor: const Color(0xFFF59E0B),
+                            iconBg: const Color(0xFFFFFBEB),
+                            title: 'Expenses Log',
+                            subtitle: 'Petty cash & bills',
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              _switchToTab(6);
+                            },
+                          ),
+                          _buildMoreOptionCard(
+                            icon: PhosphorIconsRegular.chartLineUp,
+                            iconColor: const Color(0xFF8B5CF6),
+                            iconBg: const Color(0xFFF5F3FF),
+                            title: 'Analytical Reports',
+                            subtitle: 'Sales & client flow',
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              _switchToTab(7);
+                            },
+                          ),
+                          _buildMoreOptionCard(
+                            icon: PhosphorIconsRegular.storefront,
+                            iconColor: const Color(0xFF06B6D4),
+                            iconBg: const Color(0xFFECFEFF),
+                            title: 'Branch Management',
+                            subtitle: 'Floors & chairs',
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              _switchToTab(8);
+                            },
+                          ),
+                          _buildMoreOptionCard(
+                            icon: PhosphorIconsRegular.percent,
+                            iconColor: const Color(0xFFF43F5E),
+                            iconBg: const Color(0xFFFFF1F2),
+                            title: 'Discount Requests',
+                            subtitle: '$pendingCount pending approval',
+                            subtitleColor: const Color(0xFFE11D48),
+                            badgeCount: pendingCount,
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              _switchToTab(9);
+                            },
+                          ),
+                          _buildMoreOptionCard(
+                            icon: PhosphorIconsRegular.package,
+                            iconColor: const Color(0xFF0D9488),
+                            iconBg: const Color(0xFFF0FDFA),
+                            title: 'Catalog & Services',
+                            subtitle: 'Prices & packages',
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              _switchToTab(5);
+                            },
+                          ),
+                          _buildMoreOptionCard(
+                            icon: PhosphorIconsRegular.gearSix,
+                            iconColor: const Color(0xFF64748B),
+                            iconBg: const Color(0xFFF8FAFC),
+                            title: 'System Settings',
+                            subtitle: 'Permissions & sync',
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              _switchToTab(10);
+                            },
                           ),
                         ],
                       ),
                     ),
-                    InkWell(
-                      onTap: () => Navigator.pop(ctx),
-                      borderRadius: BorderRadius.circular(16),
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFF1F5F9),
-                          shape: BoxShape.circle,
+                  ),
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        ref.read(authControllerProvider.notifier).logout();
+                      },
+                      icon: const Icon(PhosphorIconsRegular.signOut, color: Color(0xFFEF4444), size: 18),
+                      label: const Text(
+                        'Log Out',
+                        style: TextStyle(
+                          color: Color(0xFFEF4444),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
                         ),
-                        child: const Icon(PhosphorIconsRegular.x, size: 16, color: Color(0xFF475467)),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                GridView.count(
-                  crossAxisCount: 2,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  // 1.5 was tuned against whatever fallback font rendered
-                  // before Plus Jakarta Sans was bundled locally - its real
-                  // line-height metrics run taller, overflowing each card
-                  // by ~2px.
-                  childAspectRatio: 1.4,
-                  children: [
-                    _buildMoreOptionCard(
-                      icon: PhosphorIconsRegular.identificationCard,
-                      iconColor: const Color(0xFF3B82F6),
-                      iconBg: const Color(0xFFEFF6FF),
-                      title: 'Employees',
-                      subtitle: 'Rosters & Stylists',
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        _switchToTab(3);
-                      },
-                    ),
-                    _buildMoreOptionCard(
-                      icon: PhosphorIconsRegular.calendarCheck,
-                      iconColor: const Color(0xFF10B981),
-                      iconBg: const Color(0xFFECFDF5),
-                      title: 'Attendance',
-                      subtitle: 'Clock-in & Shifts',
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        _switchToTab(4);
-                      },
-                    ),
-                    _buildMoreOptionCard(
-                      icon: PhosphorIconsRegular.wallet,
-                      iconColor: const Color(0xFFF59E0B),
-                      iconBg: const Color(0xFFFFFBEB),
-                      title: 'Expenses Log',
-                      subtitle: 'Petty cash & bills',
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        _switchToTab(6);
-                      },
-                    ),
-                    _buildMoreOptionCard(
-                      icon: PhosphorIconsRegular.chartLineUp,
-                      iconColor: const Color(0xFF8B5CF6),
-                      iconBg: const Color(0xFFF5F3FF),
-                      title: 'Analytical Reports',
-                      subtitle: 'Sales & client flow',
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        _switchToTab(7);
-                      },
-                    ),
-                    _buildMoreOptionCard(
-                      icon: PhosphorIconsRegular.storefront,
-                      iconColor: const Color(0xFF06B6D4),
-                      iconBg: const Color(0xFFECFEFF),
-                      title: 'Branch Management',
-                      subtitle: 'Floors & chairs',
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        _switchToTab(8);
-                      },
-                    ),
-                    _buildMoreOptionCard(
-                      icon: PhosphorIconsRegular.percent,
-                      iconColor: const Color(0xFFF43F5E),
-                      iconBg: const Color(0xFFFFF1F2),
-                      title: 'Discount Requests',
-                      subtitle: '$pendingCount pending approval',
-                      subtitleColor: const Color(0xFFE11D48),
-                      badgeCount: pendingCount,
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        _switchToTab(9);
-                      },
-                    ),
-                    _buildMoreOptionCard(
-                      icon: PhosphorIconsRegular.package,
-                      iconColor: const Color(0xFF0D9488),
-                      iconBg: const Color(0xFFF0FDFA),
-                      title: 'Catalog & Services',
-                      subtitle: 'Prices & packages',
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        _switchToTab(5);
-                      },
-                    ),
-                    _buildMoreOptionCard(
-                      icon: PhosphorIconsRegular.gearSix,
-                      iconColor: const Color(0xFF64748B),
-                      iconBg: const Color(0xFFF8FAFC),
-                      title: 'System Settings',
-                      subtitle: 'Permissions & sync',
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        _switchToTab(10);
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      ref.read(authControllerProvider.notifier).logout();
-                    },
-                    icon: const Icon(PhosphorIconsRegular.signOut, color: Color(0xFFEF4444), size: 18),
-                    label: const Text(
-                      'Log Out',
-                      style: TextStyle(
-                        color: Color(0xFFEF4444),
-                        fontWeight: FontWeight.w700,
-                        fontSize: 14,
-                      ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFFFECDD3)),
-                      backgroundColor: const Color(0xFFFFF1F2),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFFFECDD3)),
+                        backgroundColor: const Color(0xFFFFF1F2),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 10),
-              ],
+                  const SizedBox(height: 10),
+                ],
+              ),
             ),
           ),
         );
@@ -884,6 +776,10 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
     );
   }
 
+  // Which branch the dashboard header is pointed at; null means the whole
+  // salon. This sheet used to draw a checkmark on *every* row and discard
+  // the tap, so it looked like a branch picker while selecting nothing - the
+  // header then always showed branches.first regardless of what you chose.
   void _showBranchSelector(BuildContext context, List<dynamic> branches) {
     showModalBottomSheet(
       context: context,
@@ -912,19 +808,39 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                   ListTile(
                     leading: const Icon(PhosphorIconsFill.mapPin, color: Color(0xFF4F46E5)),
                     title: const Text('Main Branch', style: TextStyle(fontWeight: FontWeight.w700)),
-                    subtitle: const Text('Primary store location'),
+                    subtitle: const Text('No branches set up yet - add one in Branch Management'),
                     trailing: const Icon(PhosphorIconsBold.check, color: Color(0xFF4F46E5)),
                     onTap: () => Navigator.pop(ctx),
                   )
-                else
+                else ...[
+                  ListTile(
+                    leading: const Icon(PhosphorIconsFill.buildings, color: Color(0xFF4F46E5)),
+                    title: const Text('All Branches', style: TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: const Text('Salon-wide totals'),
+                    trailing: _selectedBranchId == null
+                        ? const Icon(PhosphorIconsBold.check, color: Color(0xFF4F46E5))
+                        : null,
+                    onTap: () {
+                      setState(() => _selectedBranchId = null);
+                      Navigator.pop(ctx);
+                    },
+                  ),
                   for (final b in branches)
                     ListTile(
                       leading: const Icon(PhosphorIconsFill.mapPin, color: Color(0xFF4F46E5)),
                       title: Text(b.name, style: const TextStyle(fontWeight: FontWeight.w700)),
-                      subtitle: Text(b.address ?? 'Active branch'),
-                      trailing: const Icon(PhosphorIconsBold.check, color: Color(0xFF4F46E5)),
-                      onTap: () => Navigator.pop(ctx),
+                      subtitle: Text(b.address?.isNotEmpty == true
+                          ? b.address
+                          : (b.active ? 'Active branch' : 'Deactivated')),
+                      trailing: _selectedBranchId == b.id
+                          ? const Icon(PhosphorIconsBold.check, color: Color(0xFF4F46E5))
+                          : null,
+                      onTap: () {
+                        setState(() => _selectedBranchId = b.id);
+                        Navigator.pop(ctx);
+                      },
                     ),
+                ],
               ],
             ),
           ),
@@ -1090,6 +1006,10 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
         },
         onOpenProfile: () => _showProfileMenu(context, salonName),
         onSelectBranch: () => _showBranchSelector(context, branches),
+        // Drop the selection if that branch has since disappeared, so the
+        // header can't keep pointing at a branch that no longer loads.
+        selectedBranchId:
+            branches.any((b) => b.id == _selectedBranchId) ? _selectedBranchId : null,
       ),
       OwnerBillingTab(
         key: const ValueKey('billing'),
@@ -1190,7 +1110,11 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
       builder: (context, constraints) {
         final isMobile = constraints.maxWidth < 768;
         final salonName = state.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Cuts Salon';
-        final branchName = state.branches.isNotEmpty ? state.branches.first.name : 'Main Branch';
+        // Reports are always salon-wide, so naming one branch here (it used
+        // to print branches.first) read as a scope that was never applied.
+        final branchName = state.branches.length > 1
+            ? 'All Branches'
+            : (state.branches.isNotEmpty ? state.branches.first.name : 'Main Branch');
         final pendingDiscountCount = state.discountRequests.where((r) => r.status == 'PENDING').length;
 
         final now = DateTime.now();

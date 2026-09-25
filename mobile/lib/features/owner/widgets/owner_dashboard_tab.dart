@@ -20,6 +20,8 @@ class OwnerDashboardTab extends ConsumerWidget {
   final VoidCallback? onOpenNotifications;
   final VoidCallback? onOpenProfile;
   final VoidCallback? onSelectBranch;
+  // Which branch the header pill is pointed at; null means the whole salon.
+  final String? selectedBranchId;
 
   const OwnerDashboardTab({
     super.key,
@@ -27,7 +29,48 @@ class OwnerDashboardTab extends ConsumerWidget {
     this.onOpenNotifications,
     this.onOpenProfile,
     this.onSelectBranch,
+    this.selectedBranchId,
   });
+
+  // The salon-wide figures come from getDashboardSummary()'s own aggregate
+  // queries. There's no per-branch equivalent of that (and no server to add
+  // one), so narrowing to a single branch re-derives the same numbers from
+  // the already-loaded bills instead - which is why the header pill says
+  // which scope you're looking at. Only the bill-derived fields change;
+  // attendance/low-stock/pending-approvals stay salon-wide either way.
+  DashboardSummary _scopedSummary(AppData state) {
+    final salonWide = state.dashboard ?? DashboardSummary.empty();
+    final branchId = selectedBranchId;
+    if (branchId == null) return salonWide;
+
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final weekStart = todayStart.subtract(const Duration(days: 6));
+    final monthStart = DateTime(now.year, now.month, 1);
+
+    final branchBills = state.bills.where((b) => b.branchId == branchId && b.createdAt != null);
+    double sumSince(DateTime from) => branchBills
+        .where((b) => !b.createdAt!.isBefore(from))
+        .fold(0.0, (sum, b) => sum + b.finalAmount);
+    final todayBills = branchBills.where((b) => !b.createdAt!.isBefore(todayStart)).toList();
+    double byMethod(String method) => todayBills
+        .where((b) => b.paymentMethod == method)
+        .fold(0.0, (sum, b) => sum + b.finalAmount);
+
+    return DashboardSummary(
+      todaySales: sumSince(todayStart),
+      weekSales: sumSince(weekStart),
+      monthSales: sumSince(monthStart),
+      todayCash: byMethod('CASH'),
+      todayCard: byMethod('CARD'),
+      todayUpi: byMethod('UPI'),
+      todayCustomersCount: todayBills.map((b) => b.customerId).where((id) => id.isNotEmpty).toSet().length,
+      todayBillCount: todayBills.length,
+      todayAttendanceCount: salonWide.todayAttendanceCount,
+      pendingDiscountRequests: salonWide.pendingDiscountRequests,
+      lowStockItemCount: salonWide.lowStockItemCount,
+    );
+  }
 
   // Currency formatting helper
   String _formatCurrency(double amount) {
@@ -63,7 +106,7 @@ class OwnerDashboardTab extends ConsumerWidget {
   }
 
   Widget _buildContent(BuildContext context, WidgetRef ref, AppData state) {
-    final dashboard = state.dashboard ?? DashboardSummary.empty();
+    final dashboard = _scopedSummary(state);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -120,7 +163,16 @@ class OwnerDashboardTab extends ConsumerWidget {
     final salonName = state.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Salon';
     final ownerName = ref.watch(authControllerProvider).name;
     final branches = state.branches;
-    final currentBranchName = branches.isNotEmpty ? branches.first.name : 'Main Branch';
+    // Reflects the actual selection, not just branches.first - the picker
+    // used to be decorative and this line made that invisible.
+    final selected = branches.where((b) => b.id == selectedBranchId);
+    final currentBranchName = selected.isNotEmpty
+        ? selected.first.name
+        // A single-branch salon has nothing to aggregate, so "All Branches"
+        // would just be a worse way of naming the one branch it has.
+        : (branches.length == 1
+            ? branches.first.name
+            : (branches.isEmpty ? 'Main Branch' : 'All Branches'));
     final pendingDiscountCount = state.discountRequests.where((r) => r.status == 'PENDING').length;
 
     return SafeArea(
@@ -637,9 +689,15 @@ class OwnerDashboardTab extends ConsumerWidget {
           const SizedBox(height: 12),
           // Remaining helper note
           Text(
-            remaining > 0
-                ? '${_formatCurrency(remaining)} needed to reach daily target'
-                : '🎯 Daily target achieved!',
+            // `remaining` is clamped at 0, so a branch (or a salon) with no
+            // bills at all had planned == actual == 0 and got congratulated
+            // on hitting a target that doesn't exist yet. Same condition the
+            // 'Target Met' badge above uses.
+            planned <= 0 && actual <= 0
+                ? 'No sales recorded yet today'
+                : remaining > 0
+                    ? '${_formatCurrency(remaining)} needed to reach daily target'
+                    : '🎯 Daily target achieved!',
             style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
               fontSize: 11.5,
               fontWeight: FontWeight.w600,
