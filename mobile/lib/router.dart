@@ -5,8 +5,7 @@ import 'features/auth/auth_provider.dart';
 import 'features/auth/login_screen.dart';
 import 'features/owner/owner_dashboard.dart';
 import 'features/employee/employee_dashboard.dart';
-import 'theme.dart';
-import 'widgets/stylux_logo.dart';
+import 'features/splash/splash_screen.dart';
 
 class RouterListenable extends ChangeNotifier {
   final Ref _ref;
@@ -54,7 +53,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(
         path: '/splash',
-        pageBuilder: (context, state) => _fadeSlidePage(state, const _SplashScreen()),
+        pageBuilder: (context, state) => _fadeSlidePage(state, const StyluxSplashScreen()),
       ),
       GoRoute(
         path: '/login',
@@ -93,33 +92,4 @@ CustomTransitionPage _fadeSlidePage(GoRouterState state, Widget child) {
       );
     },
   );
-}
-
-// Shown only while the initial auto-login check is in flight (see
-// AuthState.sessionChecked) - never long enough to need its own animation,
-// just enough to avoid a bare white frame between app boot and the first
-// real route.
-class _SplashScreen extends StatelessWidget {
-  const _SplashScreen();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.bgSurface,
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            StyluxLogo.hero(subtitle: null),
-            const SizedBox(height: 32),
-            const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2.5, color: AppTheme.primaryBlue),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
