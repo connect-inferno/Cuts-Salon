@@ -407,6 +407,10 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     required String paymentMethod,
     double? discountAmount,
     required List<BillItemInput> items,
+    /// What the client is handing over now. null = the whole bill (the
+    /// ordinary case); 0 = paying entirely later. The balance becomes a due
+    /// against the customer - see SalonFirestore.recordPayment for settling.
+    double? amountPaidNow,
   }) async {
     final auth = ref.read(authControllerProvider);
     final current = state.value;
@@ -472,11 +476,13 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       branchId: branchId,
       paymentMethod: paymentMethod,
       createdBy: auth.userId!,
-      // GST is opt-in: a salon charges no tax until the owner sets a rate
-      // in Settings, so the fallback here is 0, not 18.
-      gstRate: current.settings?.gstRate ?? 0,
+      // GST is opt-in: a salon charges no tax until the owner turns it on in
+      // Settings, so the fallback here is 0, not 18. effectiveGstRate is
+      // what folds the on/off switch into the configured rate.
+      gstRate: current.settings?.effectiveGstRate ?? 0,
       billDiscountAmount: discountAmount ?? 0,
       items: drafts,
+      amountPaidNow: amountPaidNow,
     );
     // The transaction's own return value never has createdAt set (that's
     // FieldValue.serverTimestamp(), which only resolves once read back) -
@@ -530,6 +536,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
               createdAt: c.createdAt,
               visitCount: c.visitCount + 1,
               totalSpent: _round2(c.totalSpent + created.finalAmount),
+              outstandingBalance: _round2(c.outstandingBalance + created.amountDue),
               lastVisitAt: created.createdAt ?? DateTime.now(),
             ),
       ],
@@ -557,6 +564,93 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       dashboard: dashboard,
     ));
     return created;
+  }
+
+  /// Settles all or part of what's still owed on a bill. The bill is
+  /// immutable, so this appends to its payments ledger and draws the
+  /// client's outstanding balance down - see SalonFirestore.recordPayment.
+  ///
+  /// Validated against the already-loaded snapshot first so an obviously bad
+  /// amount fails immediately with a clear message, exactly like createBill;
+  /// the transaction re-checks against live data before writing, since this
+  /// snapshot can be stale.
+  Future<void> recordPayment({
+    required String billId,
+    required double amount,
+    required String method,
+    String? note,
+  }) async {
+    final auth = ref.read(authControllerProvider);
+    final current = state.value;
+    if (current == null) throw Exception('Not ready yet - try again in a moment');
+
+    final match = current.bills.where((b) => b.id == billId);
+    if (match.isEmpty) throw Exception('Bill not found');
+    final bill = match.first;
+    if (bill.isFullyPaid) throw Exception('This bill is already fully paid');
+    if (amount <= 0) throw Exception('Enter an amount greater than zero');
+    if (amount - bill.amountDue > 0.009) {
+      throw Exception('Only ₹${bill.amountDue.toStringAsFixed(0)} is outstanding on this bill');
+    }
+
+    await _fs.recordPayment(
+      billId: billId,
+      amount: amount,
+      method: method,
+      receivedBy: auth.userId!,
+      note: note,
+    );
+
+    final latest = state.value ?? current;
+    final applied = _round2(amount);
+    state = AsyncData(latest.copyWith(
+      bills: [
+        for (final b in latest.bills)
+          if (b.id != billId)
+            b
+          else
+            Bill(
+              id: b.id,
+              invoiceNumber: b.invoiceNumber,
+              customerId: b.customerId,
+              customerName: b.customerName,
+              branchId: b.branchId,
+              subTotal: b.subTotal,
+              discountAmount: b.discountAmount,
+              taxAmount: b.taxAmount,
+              finalAmount: b.finalAmount,
+              paymentMethod: b.paymentMethod,
+              amountPaid: _round2(b.amountPaid + applied),
+              status: b.status,
+              createdAt: b.createdAt,
+              items: b.items,
+            ),
+      ],
+      customers: [
+        for (final c in latest.customers)
+          if (c.id != bill.customerId)
+            c
+          else
+            Customer(
+              id: c.id,
+              name: c.name,
+              phone: c.phone,
+              email: c.email,
+              gender: c.gender,
+              notes: c.notes,
+              isVip: c.isVip,
+              branchId: c.branchId,
+              createdAt: c.createdAt,
+              visitCount: c.visitCount,
+              totalSpent: c.totalSpent,
+              // Clamped: a correction could otherwise drive a client's
+              // balance below zero in the local snapshot.
+              outstandingBalance: _round2((c.outstandingBalance - applied).clamp(0, double.infinity)),
+              lastVisitAt: c.lastVisitAt,
+              archived: c.archived,
+            ),
+      ],
+    ));
   }
 
   // --- Expenses ---
