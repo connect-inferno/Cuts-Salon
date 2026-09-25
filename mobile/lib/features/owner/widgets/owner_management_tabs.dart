@@ -201,55 +201,6 @@ class OwnerBranchTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Top Mini Header with Storefront & Bell
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(7),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEEF2FF),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(PhosphorIconsFill.storefront, size: 18, color: Color(0xFF4F46E5)),
-              ),
-              const SizedBox(width: 10),
-              const Text(
-                'Cuts Salon',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
-                ),
-              ),
-              const Spacer(),
-              Stack(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(7),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF1F5F9),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(PhosphorIconsRegular.bell, size: 18, color: Color(0xFF475569)),
-                  ),
-                  Positioned(
-                    top: 6,
-                    right: 6,
-                    child: Container(
-                      width: 7,
-                      height: 7,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFEF4444),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-
           // Header Row: Title & Add Branch Pill Button
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -685,7 +636,7 @@ class OwnerBranchTab extends StatelessWidget {
             ),
 
           // Bottom Spacing for floating navbar
-          const SizedBox(height: 110),
+          const SizedBox(height: 32),
         ],
       ),
     );
@@ -981,6 +932,8 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
   final _gstRateController = TextEditingController(text: '0');
+  // GST ships off; the rate below only applies once this is on.
+  bool _gstEnabled = false;
   final _latePenaltyController = TextEditingController(text: '150');
   bool _initialized = false;
   bool _saving = false;
@@ -999,6 +952,7 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
     if (settings.salonName.isNotEmpty) _businessNameController.text = settings.salonName;
     if (settings.phone?.isNotEmpty ?? false) _phoneController.text = settings.phone!;
     if (settings.address?.isNotEmpty ?? false) _addressController.text = settings.address!;
+    _gstEnabled = settings.gstEnabled;
     _gstRateController.text = settings.gstRate.toStringAsFixed(0);
     if (settings.lateAttendancePenalty > 0) _latePenaltyController.text = settings.lateAttendancePenalty.toStringAsFixed(0);
     _initialized = true;
@@ -1011,6 +965,9 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
         'salonName': _businessNameController.text.trim(),
         'phone': _phoneController.text.trim(),
         'address': _addressController.text.trim(),
+        'gstEnabled': _gstEnabled,
+        // Saved even while disabled, so turning GST back on restores the
+        // rate they already configured instead of asking for it again.
         'gstRate': double.tryParse(_gstRateController.text.replaceAll('%', '').trim()) ?? 0.0,
         'lateAttendancePenalty': double.tryParse(_latePenaltyController.text.replaceAll('₹', '').replaceAll('/ hr', '').trim()) ?? 150.0,
       });
@@ -1063,68 +1020,6 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Top Header Bar
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(7),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEEF2FF),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(PhosphorIconsFill.storefront, size: 18, color: Color(0xFF4F46E5)),
-                      ),
-                      const SizedBox(width: 10),
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'System Settings',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF0F172A),
-                            ),
-                          ),
-                          Text(
-                            'Cuts Salon • Main Branch',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Color(0xFF64748B),
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const Spacer(),
-                      Stack(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(7),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF1F5F9),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(PhosphorIconsRegular.bell, size: 18, color: Color(0xFF475569)),
-                          ),
-                          Positioned(
-                            top: 6,
-                            right: 6,
-                            child: Container(
-                              width: 7,
-                              height: 7,
-                              decoration: const BoxDecoration(
-                                color: Color(0xFFEF4444),
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-
                   // Owner Account Profile Card
                   Container(
                     padding: const EdgeInsets.all(20),
@@ -1415,6 +1310,35 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
                         ),
                         const SizedBox(height: 16),
 
+                        // GST on/off. A salon charges no tax until the owner
+                        // turns this on; the rate field below stays greyed
+                        // out (but keeps its value) while it's off.
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            value: _gstEnabled,
+                            onChanged: (val) => setState(() => _gstEnabled = val),
+                            title: const Text(
+                              'Charge GST on bills',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                            ),
+                            subtitle: Text(
+                              _gstEnabled
+                                  ? 'Tax is added to every new bill at the rate below.'
+                                  : 'Off - bills show no tax line and no tax is charged.',
+                              style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+
                         // GST Rate & Late Attendance Penalty Row
                         Row(
                           children: [
@@ -1422,20 +1346,25 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text(
+                                  Text(
                                     'GST RATE (%)',
                                     style: TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.w700,
                                       letterSpacing: 0.6,
-                                      color: Color(0xFF64748B),
+                                      color: _gstEnabled ? const Color(0xFF64748B) : const Color(0xFFCBD5E1),
                                     ),
                                   ),
                                   const SizedBox(height: 6),
                                   TextField(
                                     controller: _gstRateController,
+                                    enabled: _gstEnabled,
                                     keyboardType: TextInputType.number,
-                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: _gstEnabled ? const Color(0xFF0F172A) : const Color(0xFF94A3B8),
+                                    ),
                                     decoration: _buildInputDecoration(
                                       prefixText: '% ',
                                       hint: '18%',
@@ -1528,7 +1457,7 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
                   const SizedBox(height: 24),
 
                   // Navbar spacing
-                  const SizedBox(height: 110),
+                  const SizedBox(height: 32),
                 ],
               ),
             );
@@ -1561,6 +1490,12 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+      ),
+      // Without this, a disabled field (the GST rate while GST is off) falls
+      // back to the theme's default and stops looking like the others.
+      disabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFFEDF1F5)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),

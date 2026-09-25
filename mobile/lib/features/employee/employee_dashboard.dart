@@ -2045,7 +2045,18 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
   final Set<String> _selectedServiceIds = {};
   final Map<String, int> _selectedProductQuantities = {};
   String _paymentMethod = 'UPI';
+  // Only used when _paymentMethod == 'PENDING': what the client hands over
+  // now, with the balance becoming a due against them. Blank = paying it all
+  // later.
+  final _partPaymentController = TextEditingController();
+  String _partPaymentMethod = 'CASH';
   bool _submitting = false;
+
+  @override
+  void dispose() {
+    _partPaymentController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2110,7 +2121,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
     }
 
     final subtotal = serviceTotal + productTotal;
-    final gstRate = state.settings?.gstRate ?? 0;
+    final gstRate = state.settings?.effectiveGstRate ?? 0;
     final gstAmount = subtotal * (gstRate / 100);
     final total = subtotal + gstAmount;
     final itemCount = serviceCount + productItemCount;
@@ -2429,9 +2440,18 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                   const SizedBox(width: 8),
                   _buildPaymentCard('CARD', 'Card', PhosphorIconsRegular.creditCard),
                   const SizedBox(width: 8),
-                  _buildPaymentCard('SPLIT', 'Split / Later', PhosphorIconsRegular.gitFork),
+                  _buildPaymentCard('PENDING', 'Pay Later', PhosphorIconsRegular.clockCountdown),
                 ],
               ),
+
+              // 'SPLIT' used to sit in that last slot and did nothing at all
+              // - it was stored as the bill's payment method and no balance
+              // was ever tracked against it. It's now PENDING, and this is
+              // where the amount actually collected gets captured.
+              if (_paymentMethod == 'PENDING') ...[
+                const SizedBox(height: 10),
+                _buildPartPaymentBox(total),
+              ],
               const SizedBox(height: 18),
 
               // 6. Bill Breakdown Card
@@ -2782,6 +2802,110 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
     );
   }
 
+  /// Appears under the payment row once "Pay Later" is chosen: how much is
+  /// being collected now, and what that leaves owing. Blank means nothing is
+  /// collected today, which is the usual "settle next visit" case.
+  Widget _buildPartPaymentBox(double total) {
+    final entered = double.tryParse(_partPaymentController.text.trim()) ?? 0;
+    final paidNow = entered.clamp(0, total).toDouble();
+    final due = total - paidNow;
+    final overTyped = entered > total;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(PhosphorIconsRegular.clockCountdown, size: 14, color: Color(0xFFB45309)),
+              const SizedBox(width: 5),
+              const Text(
+                'Paying later',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF92400E)),
+              ),
+              const Spacer(),
+              Text(
+                '₹${due.toStringAsFixed(0)} will be owed',
+                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFFB45309)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _partPaymentController,
+            keyboardType: TextInputType.number,
+            onChanged: (_) => setState(() {}),
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+            decoration: InputDecoration(
+              isDense: true,
+              filled: true,
+              fillColor: Colors.white,
+              prefixText: '₹ ',
+              prefixStyle: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF92400E), fontSize: 13),
+              hintText: 'Collecting now (blank for nothing)',
+              hintStyle: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+              errorText: overTyped ? 'More than the bill total' : null,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Color(0xFFFDE68A)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Color(0xFFFDE68A)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Color(0xFFD97706), width: 1.5),
+              ),
+            ),
+          ),
+          if (paidNow > 0) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Text(
+                  'via',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF92400E)),
+                ),
+                const SizedBox(width: 8),
+                for (final m in ['CASH', 'UPI', 'CARD'])
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: GestureDetector(
+                      onTap: () => setState(() => _partPaymentMethod = m),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: _partPaymentMethod == m ? const Color(0xFFD97706) : Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFFDE68A)),
+                        ),
+                        child: Text(
+                          m,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: _partPaymentMethod == m ? Colors.white : const Color(0xFF92400E),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildPaymentCard(String method, String label, IconData icon) {
     final isSelected = _paymentMethod == method;
 
@@ -2872,11 +2996,16 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
       // createBill re-resolves every price, commission and GST rate against
       // the loaded AppData snapshot, so the bill it returns - not the figure
       // this screen rendered - is the source of truth for what was charged.
+      final isPending = _paymentMethod == 'PENDING';
+      final typedNow = double.tryParse(_partPaymentController.text.trim()) ?? 0;
       final bill = await ref.read(appDataProvider.notifier).createBill(
             customerId: customerId,
             branchId: widget.profile.branchId,
-            paymentMethod: _paymentMethod,
+            // A part-paid bill records the method the collected portion came
+            // in on; only a wholly unpaid one stays PENDING.
+            paymentMethod: isPending && typedNow > 0 ? _partPaymentMethod : _paymentMethod,
             items: items,
+            amountPaidNow: isPending ? typedNow : null,
           );
 
       if (!mounted) return;
@@ -2884,6 +3013,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
         _selectedServiceIds.clear();
         _selectedProductQuantities.clear();
         _selectedCustomerId = null;
+        _partPaymentController.clear();
       });
 
       if (!context.mounted) return;
@@ -2896,7 +3026,11 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
           title: 'Bill Completed',
           subtitle: 'Invoice ${bill.invoiceNumber} generated',
           child: Text(
-            'Total amount ₹${bill.finalAmount.toStringAsFixed(0)} collected via $_paymentMethod.',
+            bill.amountDue > 0
+                ? 'Total ₹${bill.finalAmount.toStringAsFixed(0)}. '
+                    '${bill.amountPaid > 0 ? 'Collected ₹${bill.amountPaid.toStringAsFixed(0)}. ' : ''}'
+                    '₹${bill.amountDue.toStringAsFixed(0)} left to collect from this client.'
+                : 'Total amount ₹${bill.finalAmount.toStringAsFixed(0)} collected via ${bill.paymentMethod}.',
             style: const TextStyle(fontSize: 13, color: AppTheme.slateMedium),
           ),
           actions: SizedBox(

@@ -3,31 +3,32 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/app_data_provider.dart';
 import '../../../data/models.dart';
+import '../../../theme.dart';
+import '../../../widgets/app_page_header.dart';
+import '../../../widgets/app_settings_page.dart';
 import '../../../widgets/async_state_views.dart';
-import '../../auth/auth_provider.dart';
-
-// The signed-in owner's own initials for their avatar badge - this used to
-// be hardcoded to 'TO' (right only for the "Test Owner" demo account), so
-// every other real owner would see someone else's initials on their own
-// account.
-String _ownerInitials(String? name) {
-  final initials = (name ?? '').split(' ').where((n) => n.isNotEmpty).map((n) => n[0].toUpperCase()).take(2).join();
-  return initials.isEmpty ? 'OW' : initials;
-}
 
 class OwnerDashboardTab extends ConsumerWidget {
-  final Function(int) onTabSelected;
+  // Named for where they go rather than for a tab index. The old
+  // `onTabSelected(int)` meant this widget had to know that 1 was Billing
+  // and 4 was Attendance - numbering that lived in another file and broke
+  // silently the moment the tab list was reordered.
+  final VoidCallback onOpenBilling;
+  final VoidCallback onOpenAttendance;
   final VoidCallback? onOpenNotifications;
   final VoidCallback? onOpenProfile;
+  final VoidCallback? onOpenSettings;
   final VoidCallback? onSelectBranch;
   // Which branch the header pill is pointed at; null means the whole salon.
   final String? selectedBranchId;
 
   const OwnerDashboardTab({
     super.key,
-    required this.onTabSelected,
+    required this.onOpenBilling,
+    required this.onOpenAttendance,
     this.onOpenNotifications,
     this.onOpenProfile,
+    this.onOpenSettings,
     this.onSelectBranch,
     this.selectedBranchId,
   });
@@ -53,9 +54,11 @@ class OwnerDashboardTab extends ConsumerWidget {
         .where((b) => !b.createdAt!.isBefore(from))
         .fold(0.0, (sum, b) => sum + b.finalAmount);
     final todayBills = branchBills.where((b) => !b.createdAt!.isBefore(todayStart)).toList();
+    // Collected, not billed - matches getDashboardSummary's salon-wide
+    // version, so a part-paid bill only contributes what was handed over.
     double byMethod(String method) => todayBills
         .where((b) => b.paymentMethod == method)
-        .fold(0.0, (sum, b) => sum + b.finalAmount);
+        .fold(0.0, (sum, b) => sum + b.amountPaid);
 
     return DashboardSummary(
       todaySales: sumSince(todayStart),
@@ -64,6 +67,7 @@ class OwnerDashboardTab extends ConsumerWidget {
       todayCash: byMethod('CASH'),
       todayCard: byMethod('CARD'),
       todayUpi: byMethod('UPI'),
+      todayOutstanding: todayBills.fold(0.0, (sum, b) => sum + b.amountDue),
       todayCustomersCount: todayBills.map((b) => b.customerId).where((id) => id.isNotEmpty).toSet().length,
       todayBillCount: todayBills.length,
       todayAttendanceCount: salonWide.todayAttendanceCount,
@@ -101,8 +105,45 @@ class OwnerDashboardTab extends ConsumerWidget {
     return asyncData.when(
       loading: () => const AppLoadingView(),
       error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
-      data: (state) => _buildContent(context, ref, state),
+      data: (state) => Container(
+        color: AppTheme.bgSurface,
+        child: Column(
+          children: [
+            // The same header every other page wears. This page used to
+            // draw two: a "salon name + branch pill + bell + avatar" bar,
+            // and then a 28px "Dashboard" title under it - so the top third
+            // of the screen was chrome before a single number appeared.
+            AppPageHeader(
+              title: 'Home',
+              subtitle: _headerSubtitle(state),
+              actions: [
+                AppPageAction(
+                  icon: PhosphorIconsRegular.bell,
+                  tooltip: 'Notifications',
+                  badgeCount: state.discountRequests.where((r) => r.status == 'PENDING').length,
+                  onTap: () => onOpenNotifications?.call(),
+                ),
+                appSettingsAction(
+                  tooltip: 'Salon settings',
+                  onTap: () => onOpenSettings?.call(),
+                ),
+              ],
+            ),
+            Expanded(child: _buildContent(context, ref, state)),
+          ],
+        ),
+      ),
     );
+  }
+
+  /// Date plus the scope the numbers below are for, so the header says what
+  /// you are looking at instead of leaving the branch pill to imply it.
+  String _headerSubtitle(AppData state) {
+    final branches = state.branches;
+    final selected = branches.where((b) => b.id == selectedBranchId);
+    if (selected.isNotEmpty) return '${_formatDate()} · ${selected.first.name}';
+    if (branches.length > 1) return '${_formatDate()} · All branches';
+    return _formatDate();
   }
 
   Widget _buildContent(BuildContext context, WidgetRef ref, AppData state) {
@@ -126,13 +167,14 @@ class OwnerDashboardTab extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (!isWide) ...[
-                      _buildMobileTopBar(context, ref, state),
-                      const SizedBox(height: 12),
+                    // Branch scope, only where there is a choice to make.
+                    // This is content, not a setting: it changes which
+                    // numbers the cards below show, so it stays one tap
+                    // away rather than moving behind the gear.
+                    if (state.branches.length > 1) ...[
+                      _buildBranchPill(state),
+                      const SizedBox(height: 14),
                     ],
-                    // 1. Dashboard Header: Title + Subtitle with live status
-                    _buildHeader(),
-                    const SizedBox(height: 20),
 
                     // 2. Bento 2x2 Metric Cards
                     _buildMetricGrid(dashboard),
@@ -148,7 +190,7 @@ class OwnerDashboardTab extends ConsumerWidget {
 
                     // 5. Quick Actions
                     _buildQuickActionsCard(),
-                    const SizedBox(height: 110), // Extra bottom spacing for floating navbar
+                    const SizedBox(height: 88), // clearance for the floating nav bar
                   ],
                 ),
               ),
@@ -159,201 +201,38 @@ class OwnerDashboardTab extends ConsumerWidget {
     );
   }
 
-  Widget _buildMobileTopBar(BuildContext context, WidgetRef ref, AppData state) {
-    final salonName = state.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Salon';
-    final ownerName = ref.watch(authControllerProvider).name;
-    final branches = state.branches;
-    // Reflects the actual selection, not just branches.first - the picker
-    // used to be decorative and this line made that invisible.
-    final selected = branches.where((b) => b.id == selectedBranchId);
-    final currentBranchName = selected.isNotEmpty
-        ? selected.first.name
-        // A single-branch salon has nothing to aggregate, so "All Branches"
-        // would just be a worse way of naming the one branch it has.
-        : (branches.length == 1
-            ? branches.first.name
-            : (branches.isEmpty ? 'Main Branch' : 'All Branches'));
-    final pendingDiscountCount = state.discountRequests.where((r) => r.status == 'PENDING').length;
+  Widget _buildBranchPill(AppData state) {
+    final selected = state.branches.where((b) => b.id == selectedBranchId);
+    final label = selected.isNotEmpty ? selected.first.name : 'All branches';
 
-    return SafeArea(
-      bottom: false,
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 4.0),
+    return InkWell(
+      onTap: onSelectBranch,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppTheme.borderSubtle),
+        ),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // Salon Branding Icon & Name
-            Container(
-              padding: const EdgeInsets.all(7),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEEF2FF),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(
-                PhosphorIconsBold.storefront,
-                color: Color(0xFF4F46E5),
-                size: 19,
+            const Icon(PhosphorIconsFill.mapPin, size: 14, color: AppTheme.primaryBlue),
+            const SizedBox(width: 7),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.slateDark,
               ),
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    salonName,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
-                      letterSpacing: -0.3,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  // Branch Selector Pill
-                  InkWell(
-                    onTap: onSelectBranch,
-                    borderRadius: BorderRadius.circular(20),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            PhosphorIconsFill.mapPin,
-                            size: 11,
-                            color: Color(0xFF4F46E5),
-                          ),
-                          const SizedBox(width: 4),
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 120),
-                            child: Text(
-                              currentBranchName,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF475467),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 2),
-                          const Icon(
-                            PhosphorIconsBold.caretDown,
-                            size: 10,
-                            color: Color(0xFF64748B),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // Notification Bell
-            IconButton(
-              icon: Badge(
-                isLabelVisible: pendingDiscountCount > 0,
-                label: Text('$pendingDiscountCount'),
-                backgroundColor: const Color(0xFFF04438),
-                child: const Icon(
-                  PhosphorIconsRegular.bell,
-                  color: Color(0xFF334155),
-                  size: 22,
-                ),
-              ),
-              onPressed: onOpenNotifications,
-              tooltip: 'Notifications',
-            ),
-            const SizedBox(width: 4),
-            // Owner Profile Avatar (Initials "TO")
-            InkWell(
-              onTap: onOpenProfile,
-              borderRadius: BorderRadius.circular(20),
-              child: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E1B4B),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.1),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Center(
-                  child: Text(
-                    _ownerInitials(ownerName),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-              ),
-            ),
+            const SizedBox(width: 5),
+            const Icon(PhosphorIconsBold.caretDown, size: 11, color: AppTheme.slateLight),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Dashboard',
-          style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
-            fontSize: 28,
-            fontWeight: FontWeight.w800,
-            color: const Color(0xFF0F172A),
-            letterSpacing: -0.6,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Row(
-          children: [
-            Text(
-              _formatDate(),
-              style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: const Color(0xFF64748B),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Container(
-              width: 5,
-              height: 5,
-              decoration: const BoxDecoration(
-                color: Color(0xFF4F46E5),
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              'Live Store Data',
-              style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: const Color(0xFF4F46E5),
-              ),
-            ),
-          ],
-        ),
-      ],
     );
   }
 
@@ -918,7 +797,7 @@ class OwnerDashboardTab extends ConsumerWidget {
             // Start Billing Button (Primary)
             Expanded(
               child: InkWell(
-                onTap: () => onTabSelected(1),
+                onTap: onOpenBilling,
                 borderRadius: BorderRadius.circular(16),
                 child: Container(
                   height: 48,
@@ -959,7 +838,7 @@ class OwnerDashboardTab extends ConsumerWidget {
             // Attendance Button (Secondary Outlined/Pill)
             Expanded(
               child: InkWell(
-                onTap: () => onTabSelected(4),
+                onTap: onOpenAttendance,
                 borderRadius: BorderRadius.circular(16),
                 child: Container(
                   height: 48,

@@ -8,7 +8,10 @@ import 'widgets/owner_dashboard_tab.dart';
 import 'widgets/owner_customers_employees_tab.dart';
 import 'widgets/owner_billing_inventory_expenses_tab.dart';
 import 'widgets/owner_management_tabs.dart';
+import '../../widgets/app_drawer.dart';
 import '../../widgets/app_page_switcher.dart';
+import '../../widgets/app_settings_page.dart';
+import '../../widgets/app_sub_page.dart';
 import '../../widgets/async_state_views.dart';
 import '../../widgets/liquid_nav_bar.dart';
 
@@ -23,6 +26,17 @@ String _ownerInitials(String? name) {
   return initials.isEmpty ? 'OW' : initials;
 }
 
+/// The four places the owner actually works out of.
+///
+/// This used to be a flat list of twelve equally-ranked pages, four of which
+/// were on the bottom bar and the rest behind a "More" grid - so a salon
+/// owner had to remember which of twelve screens owned a given task, and
+/// the bar gave no hint which four mattered. Everything that isn't one of
+/// these four is either a section of one of their settings screens (tax and
+/// pricing under Billing, attendance under Team) or a destination in the
+/// drawer, which is where the once-a-month work lives.
+enum OwnerTab { dashboard, billing, clients, team }
+
 class OwnerDashboard extends ConsumerStatefulWidget {
   const OwnerDashboard({super.key});
 
@@ -31,44 +45,17 @@ class OwnerDashboard extends ConsumerStatefulWidget {
 }
 
 class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
-  int _activeTabIndex = 0;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  OwnerTab _activeTab = OwnerTab.dashboard;
   String? _preselectedCustomerId;
   // null = the whole salon; set from _showBranchSelector.
   String? _selectedBranchId;
   late final PageController _pageController;
 
-  final List<String> _tabNames = [
-    'Dashboard',          // 0
-    'Billing Checkout',   // 1
-    'Customers',          // 2
-    'Employees',          // 3
-    'Attendance',         // 4
-    'Inventory Catalog',  // 5
-    'Expenses Log',       // 6
-    'Analytical Reports', // 7
-    'Branch Management',  // 8
-    'Discount Requests',  // 9
-    'System Settings',    // 10
-  ];
-
-  final List<IconData> _tabIcons = [
-    PhosphorIconsRegular.squaresFour,
-    PhosphorIconsRegular.receipt,
-    PhosphorIconsRegular.usersThree,
-    PhosphorIconsRegular.identificationBadge,
-    PhosphorIconsRegular.calendarBlank,
-    PhosphorIconsRegular.package,
-    PhosphorIconsRegular.wallet,
-    PhosphorIconsRegular.chartLineUp,
-    PhosphorIconsRegular.storefront,
-    PhosphorIconsRegular.percent,
-    PhosphorIconsRegular.gearSix,
-  ];
-
   @override
   void initState() {
     super.initState();
-    _pageController = PageController(initialPage: _activeTabIndex);
+    _pageController = PageController(initialPage: _activeTab.index);
   }
 
   @override
@@ -77,18 +64,16 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
     super.dispose();
   }
 
-  void _switchToTab(int index) {
-    if (_activeTabIndex == index) return;
-    setState(() {
-      _activeTabIndex = index;
-    });
+  void _switchToTab(OwnerTab tab) {
+    if (_activeTab == tab) return;
+    setState(() => _activeTab = tab);
     if (_pageController.hasClients) {
-      final current = _pageController.page?.round() ?? _activeTabIndex;
-      if ((index - current).abs() > 1) {
-        _pageController.jumpToPage(index);
+      final current = _pageController.page?.round() ?? _activeTab.index;
+      if ((tab.index - current).abs() > 1) {
+        _pageController.jumpToPage(tab.index);
       } else {
         _pageController.animateToPage(
-          index,
+          tab.index,
           duration: const Duration(milliseconds: 280),
           curve: Curves.easeInOutCubic,
         );
@@ -96,685 +81,200 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
     }
   }
 
-  Widget _buildSidebar(BuildContext context, {required bool isMobile}) {
-    final pendingDiscountCount = ref.watch(appDataProvider).valueOrNull?.discountRequests.where((r) => r.status == 'PENDING').length ?? 0;
+  int get _pendingDiscountCount =>
+      ref.watch(appDataProvider).valueOrNull?.discountRequests.where((r) => r.status == 'PENDING').length ?? 0;
+
+  // ─── Drawer ───────────────────────────────────────────────────────────
+
+  /// The work that isn't daily.
+  ///
+  /// These are real destinations rather than settings, so they push as
+  /// full pages with a back arrow. Anything that *configures* a section
+  /// (the GST rate, the price list, salary rules) belongs inside that
+  /// section's own settings screen instead - which is why Inventory is
+  /// here as a place to manage stock, while the same catalog appears as a
+  /// pricing section under Billing.
+  Widget _buildDrawer(BuildContext context, {required bool isModal}) {
     final appData = ref.watch(appDataProvider).valueOrNull;
     final salonName = appData?.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Salon';
-    return Container(
-      width: 260,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: isMobile
-            ? null
-            : const Border(
-                right: BorderSide(color: AppTheme.borderSubtle, width: 1),
-              ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 24.0),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primaryLight,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    PhosphorIconsRegular.storefront,
-                    color: AppTheme.primaryBlue,
-                    size: 22,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Flexible(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        salonName,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 16,
-                          color: AppTheme.primaryBlue,
-                          letterSpacing: -0.5,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const Text(
-                        'Owner Portal',
-                        style: TextStyle(
-                          color: AppTheme.slateLight,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1, color: AppTheme.borderSubtle),
-          const SizedBox(height: 12),
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 12.0),
-              itemCount: _tabNames.length,
-              itemBuilder: (context, index) {
-                final isSelected = _activeTabIndex == index;
-                final icon = _tabIcons[index];
-                final name = _tabNames[index];
+    final ownerName = ref.watch(authControllerProvider).name;
+    final lowStockCount = appData?.inventory.where((p) => p.isLowStock).length ?? 0;
 
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 4.0),
-                  child: InkWell(
-                    onTap: () {
-                      _switchToTab(index);
-                      if (isMobile) {
-                        Navigator.pop(context);
-                      }
-                    },
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-                      decoration: BoxDecoration(
-                        color: isSelected ? AppTheme.primaryLight : Colors.transparent,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            icon,
-                            color: isSelected ? AppTheme.primaryBlue : AppTheme.slateLight,
-                            size: 18,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              name,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                                color: isSelected ? AppTheme.primaryBlue : AppTheme.slateMedium,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (index == 9 && pendingDiscountCount > 0) // Discount badge
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: AppTheme.accentRed,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                '$pendingDiscountCount',
-                                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
+    void go(String title, String subtitle, Widget page) {
+      if (isModal) Navigator.pop(context);
+      openAppSubPage(context, title: title, subtitle: subtitle, child: page);
+    }
+
+    return AppDrawer(
+      isModal: isModal,
+      title: salonName,
+      subtitle: 'Owner · ${ownerName ?? 'Account'}',
+      avatarInitials: _ownerInitials(ownerName),
+      onProfileTap: () {
+        if (isModal) Navigator.pop(context);
+        _showProfileMenu(context, salonName);
+      },
+      onLogout: () {
+        if (isModal) Navigator.pop(context);
+        ref.read(authControllerProvider.notifier).logout();
+      },
+      sections: [
+        AppDrawerSection(
+          title: 'Go to',
+          items: [
+            AppDrawerItem(
+              icon: PhosphorIconsRegular.squaresFour,
+              label: 'Dashboard',
+              selected: _activeTab == OwnerTab.dashboard,
+              onTap: () {
+                if (isModal) Navigator.pop(context);
+                _switchToTab(OwnerTab.dashboard);
               },
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: OutlinedButton.icon(
-              onPressed: () {
-                ref.read(authControllerProvider.notifier).logout();
+            AppDrawerItem(
+              icon: PhosphorIconsRegular.receipt,
+              label: 'Billing',
+              selected: _activeTab == OwnerTab.billing,
+              onTap: () {
+                if (isModal) Navigator.pop(context);
+                _switchToTab(OwnerTab.billing);
               },
-              icon: const Icon(PhosphorIconsRegular.signOut, size: 16, color: AppTheme.slateLight),
-              label: const Text('Log Out', style: TextStyle(fontSize: 12, color: AppTheme.slateDark)),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(40),
-                side: const BorderSide(color: AppTheme.borderSubtle),
-              ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-
-  // The bar itself (glass, the flowing selection capsule, the press
-  // springs) lives in widgets/liquid_nav_bar.dart - it's shared verbatim
-  // with the employee dashboard, which used to carry its own copy of this
-  // whole method.
-  Widget _buildModernFloatingNavBar(BuildContext context, int navIndex, int pendingDiscountCount) {
-    return LiquidNavBar(
-      selectedIndex: navIndex,
-      onCenterTap: () => _showQuickCreateSheet(context),
-      centerIcon: PhosphorIconsBold.plus,
-      items: [
-        LiquidNavItem(
-          icon: PhosphorIconsRegular.squaresFour,
-          activeIcon: PhosphorIconsFill.squaresFour,
-          label: 'Dashboard',
-          onTap: () => _switchToTab(0),
+            AppDrawerItem(
+              icon: PhosphorIconsRegular.usersThree,
+              label: 'Clients',
+              selected: _activeTab == OwnerTab.clients,
+              onTap: () {
+                if (isModal) Navigator.pop(context);
+                _switchToTab(OwnerTab.clients);
+              },
+            ),
+            AppDrawerItem(
+              icon: PhosphorIconsRegular.identificationBadge,
+              label: 'Team',
+              selected: _activeTab == OwnerTab.team,
+              onTap: () {
+                if (isModal) Navigator.pop(context);
+                _switchToTab(OwnerTab.team);
+              },
+            ),
+          ],
         ),
-        LiquidNavItem(
-          icon: PhosphorIconsRegular.receipt,
-          activeIcon: PhosphorIconsFill.receipt,
-          label: 'Billing',
-          onTap: () => _switchToTab(1),
+        AppDrawerSection(
+          title: 'Operations',
+          items: [
+            AppDrawerItem(
+              icon: PhosphorIconsRegular.package,
+              label: 'Inventory',
+              badgeCount: lowStockCount,
+              onTap: () => go('Inventory', 'Stock, services and prices', const OwnerInventoryTab()),
+            ),
+            AppDrawerItem(
+              icon: PhosphorIconsRegular.wallet,
+              label: 'Expenses',
+              onTap: () => go('Expenses', 'Petty cash and operational spend', const OwnerExpensesTab()),
+            ),
+            AppDrawerItem(
+              icon: PhosphorIconsRegular.chartLineUp,
+              label: 'Reports',
+              onTap: () => go('Reports', 'Revenue, retention and staff performance', const OwnerReportsTab()),
+            ),
+          ],
         ),
-        null, // the protruding "+" button is drawn over this slot
-        LiquidNavItem(
-          icon: PhosphorIconsRegular.users,
-          activeIcon: PhosphorIconsFill.users,
-          label: 'Customers',
-          onTap: () => _switchToTab(2),
-        ),
-        LiquidNavItem(
-          icon: PhosphorIconsRegular.dotsThree,
-          activeIcon: PhosphorIconsFill.dotsThree,
-          label: 'More',
-          badgeCount: pendingDiscountCount,
-          onTap: () => _showMoreMenu(context),
+        AppDrawerSection(
+          title: 'Salon',
+          items: [
+            AppDrawerItem(
+              icon: PhosphorIconsRegular.gearSix,
+              label: 'Salon Settings',
+              onTap: () {
+                if (isModal) Navigator.pop(context);
+                _openSalonSettings(context);
+              },
+            ),
+          ],
         ),
       ],
     );
   }
 
-  void _showQuickCreateSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      // Without this the sheet is capped at 9/16 of the screen and the four
-      // tiles overflow it; the ConstrainedBox then stops it growing past the
-      // screen on short viewports, and the tiles scroll inside instead.
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(ctx).size.height * 0.88,
-            ),
-            child: Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE2E8F0),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Quick Actions',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF0F172A),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Flexible(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                      _buildQuickActionTile(
-                        icon: PhosphorIconsBold.shoppingCart,
-                        iconColor: const Color(0xFF4F46E5),
-                        bgColor: const Color(0xFFEEF2FF),
-                        title: 'Start New Bill',
-                        subtitle: 'Create a new invoice and checkout services',
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _switchToTab(1);
-                        },
-                      ),
-                      const SizedBox(height: 10),
-                      _buildQuickActionTile(
-                        icon: PhosphorIconsBold.userPlus,
-                        iconColor: const Color(0xFF0D9488),
-                        bgColor: const Color(0xFFE6FFFA),
-                        title: 'Add Customer',
-                        subtitle: 'Register new client profile',
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _switchToTab(2);
-                        },
-                      ),
-                      const SizedBox(height: 10),
-                      _buildQuickActionTile(
-                        icon: PhosphorIconsBold.money,
-                        iconColor: const Color(0xFFD97706),
-                        bgColor: const Color(0xFFFFFBEB),
-                        title: 'Record Expense',
-                        subtitle: 'Log operational salon spending',
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _switchToTab(6);
-                        },
-                      ),
-                      const SizedBox(height: 10),
-                      _buildQuickActionTile(
-                        icon: PhosphorIconsBold.calendarCheck,
-                        iconColor: const Color(0xFF7C3AED),
-                        bgColor: const Color(0xFFF5F3FF),
-                        title: 'Attendance Log',
-                        subtitle: 'Clock in or manage staff check-ins',
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _switchToTab(4);
-                        },
-                      ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            ),
-          ),
-        );
-      },
+  /// Salon-level configuration, opened from Home's gear and from the
+  /// drawer - one definition, so the two entry points can't drift into
+  /// showing different things.
+  void _openSalonSettings(BuildContext context) {
+    final branches = ref.read(appDataProvider).valueOrNull?.branches ?? [];
+
+    openAppSettings(
+      context,
+      title: 'Salon Settings',
+      subtitle: 'How this salon is set up',
+      sections: [
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.storefront,
+          label: 'Business',
+          description: 'Name, phone and address. These appear on bills and receipts.',
+          builder: (_) => const OwnerSettingsTab(),
+        ),
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.buildings,
+          label: 'Branches',
+          description: branches.length > 1
+              ? '${branches.length} branches. Staff and bills are each tied to one.'
+              : 'One location. Add a branch to track takings separately.',
+          builder: (_) => const OwnerBranchTab(),
+        ),
+      ],
     );
   }
 
-  Widget _buildQuickActionTile({
-    required IconData icon,
-    required Color iconColor,
-    required Color bgColor,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
+  // ─── Bottom bar ───────────────────────────────────────────────────────
+
+  /// Five slots, five real destinations.
+  ///
+  /// The protruding "+" used to occupy the middle slot and opened a "Quick
+  /// Actions" sheet whose four tiles only jumped to pages the bar already
+  /// reached - a second navigation system layered over the first. Dropping
+  /// it frees the slot for Team and makes the bar mean one thing.
+  Widget _buildNavBar(BuildContext context) {
+    return LiquidNavBar(
+      selectedIndex: _activeTab.index,
+      items: [
+        LiquidNavItem(
+          icon: PhosphorIconsRegular.squaresFour,
+          activeIcon: PhosphorIconsFill.squaresFour,
+          label: 'Home',
+          onTap: () => _switchToTab(OwnerTab.dashboard),
         ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: bgColor,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: iconColor, size: 20),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF0F172A),
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF64748B),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(PhosphorIconsBold.caretRight, size: 16, color: Color(0xFF94A3B8)),
-          ],
+        LiquidNavItem(
+          icon: PhosphorIconsRegular.receipt,
+          activeIcon: PhosphorIconsFill.receipt,
+          label: 'Billing',
+          onTap: () => _switchToTab(OwnerTab.billing),
         ),
-      ),
+        LiquidNavItem(
+          icon: PhosphorIconsRegular.usersThree,
+          activeIcon: PhosphorIconsFill.usersThree,
+          label: 'Clients',
+          onTap: () => _switchToTab(OwnerTab.clients),
+        ),
+        LiquidNavItem(
+          icon: PhosphorIconsRegular.identificationBadge,
+          activeIcon: PhosphorIconsFill.identificationBadge,
+          label: 'Team',
+          onTap: () => _switchToTab(OwnerTab.team),
+        ),
+        LiquidNavItem(
+          icon: PhosphorIconsRegular.list,
+          activeIcon: PhosphorIconsFill.list,
+          label: 'Menu',
+          badgeCount: _pendingDiscountCount,
+          onTap: () => _scaffoldKey.currentState?.openDrawer(),
+        ),
+      ],
     );
   }
 
-  void _showMoreMenu(BuildContext context) {
-    final pendingCount = ref.read(appDataProvider).valueOrNull?.discountRequests.where((r) => r.status == 'PENDING').length ?? 0;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          // The 2x4 grid plus header and Log Out button is taller than a
-          // short viewport, and this Column can't scroll - that is what
-          // produced the "BOTTOM OVERFLOWED BY 29 PIXELS" stripe. Bound the
-          // sheet to the screen and scroll the grid inside it, so the handle,
-          // title and Log Out button stay anchored.
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(ctx).size.height * 0.88,
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE2E8F0),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: const [
-                            Text(
-                              'More Management Options',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                                color: Color(0xFF0F172A),
-                                letterSpacing: -0.3,
-                              ),
-                            ),
-                            SizedBox(height: 3),
-                            Text(
-                              'Quick access to administrative tools & salon operations',
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w500,
-                                color: Color(0xFF64748B),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      InkWell(
-                        onTap: () => Navigator.pop(ctx),
-                        borderRadius: BorderRadius.circular(16),
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: const BoxDecoration(
-                            color: Color(0xFFF1F5F9),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(PhosphorIconsRegular.x, size: 16, color: Color(0xFF475467)),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Flexible(
-                    child: SingleChildScrollView(
-                      child: GridView.count(
-                        crossAxisCount: 2,
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
-                        // 1.5 was tuned against whatever fallback font rendered
-                        // before Plus Jakarta Sans was bundled locally - its real
-                        // line-height metrics run taller, overflowing each card
-                        // by ~2px.
-                        childAspectRatio: 1.4,
-                        children: [
-                          _buildMoreOptionCard(
-                            icon: PhosphorIconsRegular.identificationCard,
-                            iconColor: const Color(0xFF3B82F6),
-                            iconBg: const Color(0xFFEFF6FF),
-                            title: 'Employees',
-                            subtitle: 'Rosters & Stylists',
-                            onTap: () {
-                              Navigator.pop(ctx);
-                              _switchToTab(3);
-                            },
-                          ),
-                          _buildMoreOptionCard(
-                            icon: PhosphorIconsRegular.calendarCheck,
-                            iconColor: const Color(0xFF10B981),
-                            iconBg: const Color(0xFFECFDF5),
-                            title: 'Attendance',
-                            subtitle: 'Clock-in & Shifts',
-                            onTap: () {
-                              Navigator.pop(ctx);
-                              _switchToTab(4);
-                            },
-                          ),
-                          _buildMoreOptionCard(
-                            icon: PhosphorIconsRegular.wallet,
-                            iconColor: const Color(0xFFF59E0B),
-                            iconBg: const Color(0xFFFFFBEB),
-                            title: 'Expenses Log',
-                            subtitle: 'Petty cash & bills',
-                            onTap: () {
-                              Navigator.pop(ctx);
-                              _switchToTab(6);
-                            },
-                          ),
-                          _buildMoreOptionCard(
-                            icon: PhosphorIconsRegular.chartLineUp,
-                            iconColor: const Color(0xFF8B5CF6),
-                            iconBg: const Color(0xFFF5F3FF),
-                            title: 'Analytical Reports',
-                            subtitle: 'Sales & client flow',
-                            onTap: () {
-                              Navigator.pop(ctx);
-                              _switchToTab(7);
-                            },
-                          ),
-                          _buildMoreOptionCard(
-                            icon: PhosphorIconsRegular.storefront,
-                            iconColor: const Color(0xFF06B6D4),
-                            iconBg: const Color(0xFFECFEFF),
-                            title: 'Branch Management',
-                            subtitle: 'Floors & chairs',
-                            onTap: () {
-                              Navigator.pop(ctx);
-                              _switchToTab(8);
-                            },
-                          ),
-                          _buildMoreOptionCard(
-                            icon: PhosphorIconsRegular.percent,
-                            iconColor: const Color(0xFFF43F5E),
-                            iconBg: const Color(0xFFFFF1F2),
-                            title: 'Discount Requests',
-                            subtitle: '$pendingCount pending approval',
-                            subtitleColor: const Color(0xFFE11D48),
-                            badgeCount: pendingCount,
-                            onTap: () {
-                              Navigator.pop(ctx);
-                              _switchToTab(9);
-                            },
-                          ),
-                          _buildMoreOptionCard(
-                            icon: PhosphorIconsRegular.package,
-                            iconColor: const Color(0xFF0D9488),
-                            iconBg: const Color(0xFFF0FDFA),
-                            title: 'Catalog & Services',
-                            subtitle: 'Prices & packages',
-                            onTap: () {
-                              Navigator.pop(ctx);
-                              _switchToTab(5);
-                            },
-                          ),
-                          _buildMoreOptionCard(
-                            icon: PhosphorIconsRegular.gearSix,
-                            iconColor: const Color(0xFF64748B),
-                            iconBg: const Color(0xFFF8FAFC),
-                            title: 'System Settings',
-                            subtitle: 'Permissions & sync',
-                            onTap: () {
-                              Navigator.pop(ctx);
-                              _switchToTab(10);
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        ref.read(authControllerProvider.notifier).logout();
-                      },
-                      icon: const Icon(PhosphorIconsRegular.signOut, color: Color(0xFFEF4444), size: 18),
-                      label: const Text(
-                        'Log Out',
-                        style: TextStyle(
-                          color: Color(0xFFEF4444),
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
-                        ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Color(0xFFFECDD3)),
-                        backgroundColor: const Color(0xFFFFF1F2),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildMoreOptionCard({
-    required IconData icon,
-    required Color iconColor,
-    required Color iconBg,
-    required String title,
-    required String subtitle,
-    Color? subtitleColor,
-    int badgeCount = 0,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.02),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Stack(
-          children: [
-            if (badgeCount > 0)
-              Positioned(
-                top: 0,
-                right: 0,
-                child: Container(
-                  width: 18,
-                  height: 18,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFDC2626),
-                    shape: BoxShape.circle,
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    '$badgeCount',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(7),
-                  decoration: BoxDecoration(
-                    color: iconBg,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(icon, color: iconColor, size: 18),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF0F172A),
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 1),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w500,
-                        color: subtitleColor ?? const Color(0xFF64748B),
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  // ─── Sheets ───────────────────────────────────────────────────────────
 
   // Which branch the dashboard header is pointed at; null means the whole
   // salon. This sheet used to draw a checkmark on *every* row and discard
@@ -785,7 +285,7 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
         return SafeArea(
@@ -800,25 +300,25 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                   style: TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFF0F172A),
+                    color: AppTheme.slateDark,
                   ),
                 ),
                 const SizedBox(height: 12),
                 if (branches.isEmpty)
                   ListTile(
-                    leading: const Icon(PhosphorIconsFill.mapPin, color: Color(0xFF4F46E5)),
+                    leading: const Icon(PhosphorIconsFill.mapPin, color: AppTheme.primaryBlue),
                     title: const Text('Main Branch', style: TextStyle(fontWeight: FontWeight.w700)),
-                    subtitle: const Text('No branches set up yet - add one in Branch Management'),
-                    trailing: const Icon(PhosphorIconsBold.check, color: Color(0xFF4F46E5)),
+                    subtitle: const Text('No branches set up yet - add one from the menu'),
+                    trailing: const Icon(PhosphorIconsBold.check, color: AppTheme.primaryBlue),
                     onTap: () => Navigator.pop(ctx),
                   )
                 else ...[
                   ListTile(
-                    leading: const Icon(PhosphorIconsFill.buildings, color: Color(0xFF4F46E5)),
+                    leading: const Icon(PhosphorIconsFill.buildings, color: AppTheme.primaryBlue),
                     title: const Text('All Branches', style: TextStyle(fontWeight: FontWeight.w700)),
                     subtitle: const Text('Salon-wide totals'),
                     trailing: _selectedBranchId == null
-                        ? const Icon(PhosphorIconsBold.check, color: Color(0xFF4F46E5))
+                        ? const Icon(PhosphorIconsBold.check, color: AppTheme.primaryBlue)
                         : null,
                     onTap: () {
                       setState(() => _selectedBranchId = null);
@@ -827,13 +327,13 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                   ),
                   for (final b in branches)
                     ListTile(
-                      leading: const Icon(PhosphorIconsFill.mapPin, color: Color(0xFF4F46E5)),
+                      leading: const Icon(PhosphorIconsFill.mapPin, color: AppTheme.primaryBlue),
                       title: Text(b.name, style: const TextStyle(fontWeight: FontWeight.w700)),
                       subtitle: Text(b.address?.isNotEmpty == true
                           ? b.address
                           : (b.active ? 'Active branch' : 'Deactivated')),
                       trailing: _selectedBranchId == b.id
-                          ? const Icon(PhosphorIconsBold.check, color: Color(0xFF4F46E5))
+                          ? const Icon(PhosphorIconsBold.check, color: AppTheme.primaryBlue)
                           : null,
                       onTap: () {
                         setState(() => _selectedBranchId = b.id);
@@ -888,14 +388,14 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFF0F172A),
+                    color: AppTheme.slateDark,
                   ),
                 ),
                 const Text(
                   'Owner Account',
                   style: TextStyle(
                     fontSize: 13,
-                    color: Color(0xFF64748B),
+                    color: AppTheme.slateLight,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -908,11 +408,11 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                       Navigator.pop(ctx);
                       ref.read(authControllerProvider.notifier).logout();
                     },
-                    icon: const Icon(PhosphorIconsRegular.signOut, color: Color(0xFFF04438)),
-                    label: const Text('Log Out', style: TextStyle(color: Color(0xFFF04438), fontWeight: FontWeight.w700)),
+                    icon: const Icon(PhosphorIconsRegular.signOut, color: AppTheme.accentRed),
+                    label: const Text('Log Out', style: TextStyle(color: AppTheme.accentRed, fontWeight: FontWeight.w700)),
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: Color(0xFFFECDCA)),
-                      backgroundColor: const Color(0xFFFEF3F2),
+                      backgroundColor: AppTheme.accentRedBg,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                   ),
@@ -925,40 +425,42 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
     );
   }
 
+  /// The bell, wired the same way from every page.
+  void _openNotifications(BuildContext context) {
+    if (_pendingDiscountCount > 0) {
+      openAppSubPage(
+        context,
+        title: 'Discount Requests',
+        subtitle: 'Staff requests waiting on you',
+        child: const OwnerDiscountsTab(),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No new notifications'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  // ─── Shell ────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.of(context).size.width < kOwnerMobileBreakpoint;
-    final pendingDiscountCount = ref.watch(appDataProvider).valueOrNull?.discountRequests.where((r) => r.status == 'PENDING').length ?? 0;
-
-    // Map 5 Bottom Nav Bar Items
-    // 0: Dashboard (tab 0), 1: Billing (tab 1), 2: Center (+ New), 3: Customers (tab 2), 4: More (tabs 3-10)
-    int navIndex = 0;
-    if (_activeTabIndex == 1) {
-      navIndex = 1;
-    } else if (_activeTabIndex == 2) {
-      navIndex = 3;
-    } else if (_activeTabIndex >= 3) {
-      navIndex = 4;
-    }
 
     final appData = ref.watch(appDataProvider).valueOrNull;
     final salonName = appData?.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Salon';
     final branches = appData?.branches ?? [];
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FC),
+      key: _scaffoldKey,
+      backgroundColor: AppTheme.bgSurface,
       extendBody: isMobile,
-      appBar: null,
-      drawer: isMobile
-          ? Drawer(
-              child: SafeArea(
-                child: _buildSidebar(context, isMobile: true),
-              ),
-            )
-          : null,
-      bottomNavigationBar: isMobile
-          ? _buildModernFloatingNavBar(context, navIndex, pendingDiscountCount)
-          : null,
+      drawer: isMobile ? _buildDrawer(context, isModal: true) : null,
+      bottomNavigationBar: isMobile ? _buildNavBar(context) : null,
       body: SafeArea(
         bottom: !isMobile,
         child: isMobile
@@ -966,18 +468,16 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                 controller: _pageController,
                 physics: const ClampingScrollPhysics(),
                 onPageChanged: (index) {
-                  setState(() {
-                    _activeTabIndex = index;
-                  });
+                  setState(() => _activeTab = OwnerTab.values[index]);
                 },
-                children: _buildPagesList(context, salonName, branches, pendingDiscountCount),
+                children: _buildPages(context, salonName, branches),
               )
             : Row(
                 children: [
-                  _buildSidebar(context, isMobile: false),
+                  _buildDrawer(context, isModal: false),
                   Expanded(
                     child: AppPageSwitcher(
-                      child: _buildActiveTabContentRaw(context, salonName, branches, pendingDiscountCount),
+                      child: _buildPages(context, salonName, branches)[_activeTab.index],
                     ),
                   ),
                 ],
@@ -986,25 +486,23 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
     );
   }
 
-  List<Widget> _buildPagesList(BuildContext context, String salonName, List<dynamic> branches, int pendingDiscountCount) {
+  List<Widget> _buildPages(BuildContext context, String salonName, List<dynamic> branches) {
     return [
       OwnerDashboardTab(
         key: const ValueKey('dashboard'),
-        onTabSelected: _switchToTab,
-        onOpenNotifications: () {
-          if (pendingDiscountCount > 0) {
-            _switchToTab(9);
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('No new notifications'),
-                duration: Duration(seconds: 2),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-          }
-        },
+        onOpenBilling: () => _switchToTab(OwnerTab.billing),
+        // Attendance is a section of Team's settings, but it's also a daily
+        // job, so Home keeps a one-tap route straight into it rather than
+        // making the owner go Team -> gear -> Attendance every morning.
+        onOpenAttendance: () => openAppSubPage(
+          context,
+          title: 'Attendance',
+          subtitle: 'Today\'s clock-ins and shifts',
+          child: const OwnerAttendanceTab(),
+        ),
+        onOpenNotifications: () => _openNotifications(context),
         onOpenProfile: () => _showProfileMenu(context, salonName),
+        onOpenSettings: () => _openSalonSettings(context),
         onSelectBranch: () => _showBranchSelector(context, branches),
         // Drop the selection if that branch has since disappeared, so the
         // header can't keep pointing at a branch that no longer loads.
@@ -1014,69 +512,23 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
       OwnerBillingTab(
         key: const ValueKey('billing'),
         preselectedCustomerId: _preselectedCustomerId,
-        onBack: () {
-          _switchToTab(0);
-          setState(() {
-            _preselectedCustomerId = null;
-          });
-        },
       ),
       OwnerCustomersTab(
-        key: const ValueKey('customers'),
+        key: const ValueKey('clients'),
         onStartBill: (customer) {
-          setState(() {
-            _preselectedCustomerId = customer.id;
-          });
-          _switchToTab(1);
+          setState(() => _preselectedCustomerId = customer.id);
+          _switchToTab(OwnerTab.billing);
         },
-        onOpenNotifications: () {
-          if (pendingDiscountCount > 0) {
-            _switchToTab(9);
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('No new notifications'),
-                duration: Duration(seconds: 2),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-          }
-        },
+        onOpenNotifications: () => _openNotifications(context),
       ),
       OwnerEmployeesTab(
-        key: const ValueKey('employees'),
-        onOpenNotifications: () {
-          if (pendingDiscountCount > 0) {
-            _switchToTab(9);
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('No new notifications'),
-                duration: Duration(seconds: 2),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-          }
-        },
+        key: const ValueKey('team'),
+        onOpenNotifications: () => _openNotifications(context),
       ),
-      const OwnerAttendanceTab(key: ValueKey('attendance')),
-      const OwnerInventoryTab(key: ValueKey('inventory')),
-      const OwnerExpensesTab(key: ValueKey('expenses')),
-      const OwnerReportsTab(key: ValueKey('reports')),
-      const OwnerBranchTab(key: ValueKey('branch')),
-      const OwnerDiscountsTab(key: ValueKey('discounts')),
-      const OwnerSettingsTab(key: ValueKey('settings')),
     ];
   }
-
-  Widget _buildActiveTabContentRaw(BuildContext context, String salonName, List<dynamic> branches, int pendingDiscountCount) {
-    final pages = _buildPagesList(context, salonName, branches, pendingDiscountCount);
-    if (_activeTabIndex >= 0 && _activeTabIndex < pages.length) {
-      return pages[_activeTabIndex];
-    }
-    return const Center(key: ValueKey('fallback'), child: Text('Coming Soon Screen'));
-  }
 }
+
 
 // --- REPORTS TAB ---
 
@@ -1332,7 +784,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
               // 7. Export Detailed Audit Bar
               _buildExportAuditBar(context),
 
-              const SizedBox(height: 110), // floating navbar clearance
+              const SizedBox(height: 88), // floating navbar clearance
             ],
           ),
         );

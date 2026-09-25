@@ -4,12 +4,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../theme.dart';
 import '../../../data/app_data_provider.dart';
 import '../../../data/models.dart';
+import '../../../widgets/app_page_header.dart';
+import '../../../widgets/app_page_route.dart';
 import '../../../widgets/app_page_switcher.dart';
+import '../../../widgets/app_settings_page.dart';
 import '../../../widgets/async_state_views.dart';
 import '../../../widgets/app_dialog.dart';
 import '../../auth/auth_provider.dart';
+import 'owner_archived_clients.dart';
+import 'owner_management_tabs.dart';
+import 'owner_payroll_view.dart';
+import 'owner_dues_tab.dart';
 
 String _initials(String name) => name.split(' ').where((n) => n.isNotEmpty).map((n) => n[0]).take(2).join();
+
+const _kMonthNamesLong = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
 
 String _formatDate(DateTime? d) {
   if (d == null) return '-';
@@ -207,6 +219,37 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
     );
   }
 
+  /// Everything client-related, on one screen - the same shape as Billing's
+  /// settings, so the gear means the same thing on every page.
+  void _openClientSettings(BuildContext context, AppData state) {
+    final archived = state.archivedCustomers.length;
+    final owing = state.bills.where((b) => !b.isFullyPaid).map((b) => b.customerId).toSet().length;
+
+    openAppSettings(
+      context,
+      title: 'Client Settings',
+      subtitle: 'Client records and their money',
+      sections: [
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.archive,
+          label: 'Archived',
+          description: archived > 0
+              ? '$archived archived client${archived == 1 ? '' : 's'}. They are hidden from the directory and from billing until restored.'
+              : 'No archived clients. Archiving hides a client everywhere without deleting their history.',
+          builder: (_) => const OwnerArchivedClientsView(),
+        ),
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.handCoins,
+          label: 'Outstanding',
+          description: owing > 0
+              ? '$owing client${owing == 1 ? '' : 's'} with an unpaid balance.'
+              : 'No client owes anything right now.',
+          builder: (_) => const OwnerDuesTab(),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer(
@@ -215,7 +258,31 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
         return asyncData.when(
           loading: () => const AppLoadingView(),
           error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
-          data: (state) => _buildBody(context, ref, state),
+          data: (state) => Container(
+            color: AppTheme.bgSurface,
+            child: Column(
+              children: [
+                AppPageHeader(
+                  title: 'Clients',
+                  subtitle: '${state.customers.length} on the books',
+                  actions: [
+                    AppPageAction(
+                      icon: PhosphorIconsRegular.bell,
+                      tooltip: 'Notifications',
+                      badgeCount:
+                          state.discountRequests.where((r) => r.status == 'PENDING').length,
+                      onTap: () => widget.onOpenNotifications?.call(),
+                    ),
+                    appSettingsAction(
+                      tooltip: 'Client settings',
+                      onTap: () => _openClientSettings(context, state),
+                    ),
+                  ],
+                ),
+                Expanded(child: _buildBody(context, ref, state)),
+              ],
+            ),
+          ),
         );
       },
     );
@@ -324,8 +391,8 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
     // the list still has this client's bills loaded behind it.
     _selectCustomer(ref, cust);
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => OwnerCustomerDetailPage(
+      AppSlidePageRoute(
+        page: OwnerCustomerDetailPage(
           customerId: cust.id,
           onStartBill: widget.onStartBill,
         ),
@@ -334,8 +401,6 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
   }
 
   Widget _buildBody(BuildContext context, WidgetRef ref, AppData state) {
-    final salonName = state.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Cuts Salon';
-    final pendingDiscountCount = state.discountRequests.where((r) => r.status == 'PENDING').length;
 
     final query = _searchController.text.toLowerCase().trim();
     final showingArchived = _activeFilter == 'Archived';
@@ -371,104 +436,15 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
           constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 680),
           child: SingleChildScrollView(
             // Bottom padding ensures list is not cut off by floating bottom navbar
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 88),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 1. Top Salon Header
-                SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 16.0),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(7),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFEEF2FF),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(
-                            PhosphorIconsBold.storefront,
-                            color: Color(0xFF4F46E5),
-                            size: 18,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          salonName,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A),
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                        const Spacer(),
-                        // Notification bell
-                        IconButton(
-                          icon: Badge(
-                            isLabelVisible: pendingDiscountCount > 0,
-                            label: Text('$pendingDiscountCount'),
-                            backgroundColor: const Color(0xFFF04438),
-                            child: const Icon(
-                              PhosphorIconsRegular.bell,
-                              color: Color(0xFF334155),
-                              size: 22,
-                            ),
-                          ),
-                          onPressed: () {
-                            if (widget.onOpenNotifications != null) {
-                              widget.onOpenNotifications!();
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('No new notifications'),
-                                  duration: Duration(seconds: 2),
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            }
-                          },
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // 2. Customers Title Row
+                // Add Customer. The page title and salon name used to be drawn here;
+                // AppPageHeader carries them now, so this row is just the action.
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    Flexible(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Customers',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.w900,
-                              color: Color(0xFF0F172A),
-                              letterSpacing: -0.5,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '$allCount total',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF64748B),
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
                     DecoratedBox(
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
@@ -1049,6 +1025,9 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
     final bills = customerBills;
 
     // Calculate dynamic stats
+    final unpaid = (bills ?? const <Bill>[]).where((b) => !b.isFullyPaid).toList();
+    final outstanding = unpaid.fold<double>(0.0, (acc, b) => acc + b.amountDue);
+    final unpaidCount = unpaid.length;
     double totalSpent = cust.totalSpent;
     if (totalSpent <= 0 && bills != null && bills.isNotEmpty) {
       totalSpent = bills.fold<double>(0.0, (acc, b) => acc + b.finalAmount);
@@ -1223,6 +1202,48 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
             ],
           ),
           const SizedBox(height: 16),
+
+          // Outstanding balance, when there is one. Derived from this
+          // client's own unpaid bills rather than the denormalized
+          // customers.outstandingBalance, so the strip agrees with the bill
+          // list right below it even if the two ever drift apart.
+          if (outstanding > 0) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFFBEB),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFFDE68A)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(PhosphorIconsFill.handCoins, size: 17, color: Color(0xFFB45309)),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Outstanding balance',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF92400E)),
+                        ),
+                        Text(
+                          '$unpaidCount unpaid bill${unpaidCount == 1 ? '' : 's'}',
+                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: Color(0xFFB45309)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    '₹${outstanding.toStringAsFixed(0)}',
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Color(0xFF78350F)),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
 
           // Row 3: 3 Stat KPI Boxes: Total Spent, Visits, Last Visit
           Row(
@@ -1654,7 +1675,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
     // pushed page (or switching to a wider window) lands on the same person.
     setState(() => _selectedEmployee = emp);
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => OwnerEmployeeDetailPage(employeeId: emp.id)),
+      AppSlidePageRoute(page: OwnerEmployeeDetailPage(employeeId: emp.id)),
     );
   }
 
@@ -1679,11 +1700,82 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
             return asyncData.when(
               loading: () => const AppLoadingView(),
               error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
-              data: (state) => _buildBody(context, ref, state, isMobile),
+              data: (state) {
+                final present =
+                    state.employees.where((e) => _todayStatus(state, e.id) == 'PRESENT').length;
+                return Container(
+                  color: AppTheme.bgSurface,
+                  child: Column(
+                    children: [
+                      AppPageHeader(
+                        title: 'Team',
+                        subtitle:
+                            '${state.employees.length} staff · $present in today',
+                        actions: [
+                          AppPageAction(
+                            icon: PhosphorIconsRegular.bell,
+                            tooltip: 'Notifications',
+                            badgeCount: state.discountRequests
+                                .where((r) => r.status == 'PENDING')
+                                .length,
+                            onTap: () => widget.onOpenNotifications?.call(),
+                          ),
+                          appSettingsAction(
+                            tooltip: 'Team settings',
+                            onTap: () => _openTeamSettings(context, state),
+                          ),
+                        ],
+                      ),
+                      Expanded(child: _buildBody(context, ref, state, isMobile)),
+                    ],
+                  ),
+                );
+              },
             );
           },
         );
       },
+    );
+  }
+
+  /// Everything staff-related, on one screen.
+  ///
+  /// Attendance was its own top-level page and payroll was buried inside an
+  /// individual employee's profile, so "who worked this month" and "what do
+  /// I owe them" lived nowhere near the roster they both describe.
+  void _openTeamSettings(BuildContext context, AppData state) {
+    final now = DateTime.now();
+    final presentToday =
+        state.employees.where((e) => _todayStatus(state, e.id) == 'PRESENT').length;
+
+    openAppSettings(
+      context,
+      title: 'Team Settings',
+      subtitle: 'Attendance, pay and targets',
+      sections: [
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.calendarCheck,
+          label: 'Attendance',
+          description:
+              '$presentToday of ${state.employees.length} marked present today. Late arrivals are penalised at the rate set in Salon Settings.',
+          builder: (_) => const OwnerAttendanceTab(),
+        ),
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.percent,
+          label: 'Discounts',
+          description:
+              'Discount requests your staff have raised against a bill.',
+          badgeCount: state.discountRequests.where((r) => r.status == 'PENDING').length,
+          builder: (_) => const OwnerDiscountsTab(),
+        ),
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.wallet,
+          label: 'Payroll',
+          description:
+              'Salary slips generated for ${_kMonthNamesLong[now.month - 1]}. A slip pays out the commissions earned since the last one.',
+          builder: (_) => const OwnerPayrollView(),
+        ),
+      ],
     );
   }
 
@@ -1752,103 +1844,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
     );
   }
 
-  Widget _buildMobileSalonHeader(BuildContext context, String salonName, String? ownerName, int unreadCount) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(7),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF1F5F9),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-          ),
-          child: const Icon(
-            PhosphorIconsRegular.storefront,
-            size: 18,
-            color: Color(0xFF1E293B),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            salonName,
-            style: const TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 16,
-              color: Color(0xFF0F172A),
-              letterSpacing: -0.3,
-            ),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-        InkWell(
-          onTap: () {
-            if (widget.onOpenNotifications != null) {
-              widget.onOpenNotifications!();
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('No new notifications'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            }
-          },
-          borderRadius: BorderRadius.circular(20),
-          child: Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                const Icon(PhosphorIconsRegular.bell, size: 18, color: Color(0xFF475467)),
-                Positioned(
-                  top: 7,
-                  right: 7,
-                  child: Container(
-                    width: 7,
-                    height: 7,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF6366F1),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Container(
-          width: 36,
-          height: 36,
-          decoration: const BoxDecoration(
-            color: Color(0xFFEDE9FE),
-            shape: BoxShape.circle,
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            _initials(ownerName ?? '').isEmpty ? 'OW' : _initials(ownerName ?? ''),
-            style: const TextStyle(
-              color: Color(0xFF6366F1),
-              fontWeight: FontWeight.w800,
-              fontSize: 12.5,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildMobileStaffView(BuildContext context, WidgetRef ref, AppData state) {
-    final salonName = state.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Cuts Salon';
-    final ownerName = ref.watch(authControllerProvider).name;
-    final pendingDiscountCount = state.discountRequests.where((r) => r.status == 'PENDING').length;
     final presentCount = state.employees.where((e) => _todayStatus(state, e.id) == 'PRESENT').length;
 
     final q = _searchController.text.toLowerCase().trim();
@@ -1873,37 +1869,10 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. Pinned Salon Header
-          _buildMobileSalonHeader(context, salonName, ownerName, pendingDiscountCount),
-          const SizedBox(height: 16),
-
           // 2. Title & + Add Staff
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Staff & Stylists',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${state.employees.length} Active Team Members',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF64748B),
-                    ),
-                  ),
-                ],
-              ),
               InkWell(
                 onTap: () => _showAddEmployeeDialog(context, ref, state.branches),
                 borderRadius: BorderRadius.circular(22),
@@ -2070,7 +2039,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
               ),
             ),
 
-          const SizedBox(height: 110), // clearance for floating navbar
+          const SizedBox(height: 88), // clearance for floating navbar
 
         ],
       ),
@@ -4256,9 +4225,6 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
   }
 
   Widget _buildContent(BuildContext context, WidgetRef ref, AppData state) {
-    final salonName = state.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Cuts Salon';
-    final ownerName = ref.watch(authControllerProvider).name;
-    final pendingDiscountCount = state.discountRequests.where((r) => r.status == 'PENDING').length;
     final isMobile = MediaQuery.of(context).size.width < 768;
 
     int presentCount = 0;
@@ -4279,115 +4245,15 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 680),
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 110),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 1. Pinned Top Salon Header
-                SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 16.0),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(7),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFEEF2FF),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(
-                            PhosphorIconsBold.storefront,
-                            color: Color(0xFF4F46E5),
-                            size: 18,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            salonName,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF0F172A),
-                              letterSpacing: -0.3,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          icon: Badge(
-                            isLabelVisible: pendingDiscountCount > 0,
-                            label: Text('$pendingDiscountCount'),
-                            backgroundColor: const Color(0xFFF04438),
-                            child: const Icon(
-                              PhosphorIconsRegular.bell,
-                              color: Color(0xFF334155),
-                              size: 22,
-                            ),
-                          ),
-                          onPressed: () {
-                            if (widget.onOpenNotifications != null) {
-                              widget.onOpenNotifications!();
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('No new notifications'), duration: Duration(seconds: 2), behavior: SnackBarBehavior.floating),
-                              );
-                            }
-                          },
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                        ),
-                        const SizedBox(width: 6),
-                        Container(
-                          width: 34,
-                          height: 34,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF1E1B4B),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Center(
-                            child: Text(
-                              _initials(ownerName ?? '').isEmpty ? 'OW' : _initials(ownerName ?? ''),
-                              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // 2. Title & Calendar Section
+                // The page title and the salon name/bell/avatar row that
+                // used to sit above it are now the shared page header.
                 Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: const [
-                          Text(
-                            'Attendance',
-                            style: TextStyle(
-                              fontSize: 26,
-                              fontWeight: FontWeight.w900,
-                              color: Color(0xFF0F172A),
-                              letterSpacing: -0.6,
-                            ),
-                          ),
-                          SizedBox(height: 3),
-                          Text(
-                            'Daily roster & staff check-in',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF64748B),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
                     InkWell(
                       onTap: () {
                         ScaffoldMessenger.of(context).showSnackBar(

@@ -7,17 +7,22 @@ import '../../../data/models.dart';
 import '../../../widgets/async_state_views.dart';
 import '../../../widgets/searchable_picker.dart';
 import '../../../widgets/app_dialog.dart';
-import '../../auth/auth_provider.dart';
+import '../../../widgets/app_page_header.dart';
+import '../../../widgets/app_settings_page.dart';
+import 'owner_bill_history.dart';
+import 'owner_dues_tab.dart';
+import 'owner_management_tabs.dart';
+import 'owner_tax_settings.dart';
 
 T? _firstOrNull<T>(Iterable<T> items) => items.isEmpty ? null : items.first;
 
-// The signed-in owner's own initials for their avatar badge - this used to
-// be hardcoded to 'TO' (right only for the "Test Owner" demo account), so
-// every other real owner would see someone else's initials on their own
-// account.
-String _ownerInitials(String? name) {
-  final initials = (name ?? '').split(' ').where((n) => n.isNotEmpty).map((n) => n[0].toUpperCase()).take(2).join();
-  return initials.isEmpty ? 'OW' : initials;
+String _formatRupees(double amount) {
+  final whole = amount.round().toString();
+  if (whole.length <= 3) return '₹$whole';
+  final last3 = whole.substring(whole.length - 3);
+  final rest = whole.substring(0, whole.length - 3);
+  final grouped = rest.replaceAllMapped(RegExp(r'\B(?=(\d{2})+(?!\d))'), (m) => ',');
+  return '₹$grouped,$last3';
 }
 
 String _formatDateTime(DateTime? d) {
@@ -31,14 +36,14 @@ String _formatDateTime(DateTime? d) {
 
 // --- BILLING TAB ---
 
+enum _BillingSection { newBill, history }
+
 class OwnerBillingTab extends StatefulWidget {
   final String? preselectedCustomerId;
-  final VoidCallback? onBack;
 
   const OwnerBillingTab({
     super.key,
     this.preselectedCustomerId,
-    this.onBack,
   });
 
   @override
@@ -46,6 +51,7 @@ class OwnerBillingTab extends StatefulWidget {
 }
 
 class _OwnerBillingTabState extends State<OwnerBillingTab> {
+  _BillingSection _section = _BillingSection.newBill;
   String? _selectedCustomerId;
   String? _selectedEmployeeId;
   String? _selectedBranchId;
@@ -55,6 +61,12 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
   final _productSearchController = TextEditingController();
   double _discountPercent = 0.0;
   String _paymentMethod = 'UPI';
+  // Set only when _paymentMethod == 'PENDING': how much the client is
+  // handing over right now, with the rest becoming a due against them.
+  // Empty/0 means they're paying the whole bill later.
+  final _partPaymentController = TextEditingController();
+  // Method used for the portion collected up front on a PENDING bill.
+  String _partPaymentMethod = 'CASH';
   bool _submitting = false;
 
   @override
@@ -75,6 +87,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
   void dispose() {
     _serviceSearchController.dispose();
     _productSearchController.dispose();
+    _partPaymentController.dispose();
     super.dispose();
   }
 
@@ -152,9 +165,170 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
         return asyncData.when(
           loading: () => const AppLoadingView(),
           error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
-          data: (state) => _buildBody(context, ref, state),
+          data: (state) => _buildShell(context, ref, state),
         );
       },
+    );
+  }
+
+  /// Everything billing-related, on one screen.
+  ///
+  /// Pending Payments, Discount Requests, the GST rate and the price list
+  /// were four separate top-level pages, so "why is this total wrong" or
+  /// "who still owes us" meant already knowing which of twelve nav entries
+  /// held the answer. They are all consequences of billing, so they are
+  /// sections of Billing's own settings - switched with the strip at the
+  /// top of that screen, not four more places to navigate to.
+  void _openBillingSettings(BuildContext context, AppData state) {
+    final pendingDiscounts = state.discountRequests.where((r) => r.status == 'PENDING').length;
+    final outstanding = state.bills.fold<double>(0, (s, b) => s + b.amountDue);
+    final unpaidClients =
+        state.bills.where((b) => !b.isFullyPaid).map((b) => b.customerId).toSet().length;
+
+    openAppSettings(
+      context,
+      title: 'Billing Settings',
+      subtitle: 'Everything that feeds into a bill',
+      sections: [
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.percent,
+          label: 'Tax',
+          description: 'GST is added to every new bill once it is switched on.',
+          builder: (_) => const OwnerTaxSettingsPage(),
+        ),
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.tag,
+          label: 'Services & Pricing',
+          description:
+              '${state.services.length} services and ${state.inventory.length} products. These are the prices a bill resolves against.',
+          builder: (_) => const OwnerInventoryTab(),
+        ),
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.handCoins,
+          label: 'Dues',
+          description: outstanding > 0
+              ? '${_formatRupees(outstanding)} billed but not collected, across $unpaidClients client${unpaidClients == 1 ? '' : 's'}.'
+              : 'Every bill has been collected in full.',
+          builder: (_) => const OwnerDuesTab(),
+        ),
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.sealPercent,
+          label: 'Discounts',
+          description: pendingDiscounts > 0
+              ? '$pendingDiscounts staff discount request${pendingDiscounts == 1 ? '' : 's'} waiting on you.'
+              : 'No staff discount requests waiting.',
+          badgeCount: pendingDiscounts,
+          builder: (_) => const OwnerDiscountsTab(),
+        ),
+      ],
+    );
+  }
+
+  /// Billing is a section with two views, not a single form.
+  ///
+  /// It used to be the create-bill form and nothing else, which is why
+  /// there was nowhere to look a bill up: a bill left the screen the moment
+  /// it was saved and only reappeared, partially, on three other pages. The
+  /// segmented control keeps both jobs in the one place people look.
+  Widget _buildShell(BuildContext context, WidgetRef ref, AppData state) {
+    final now = DateTime.now();
+    final billedToday = state.bills.where((b) {
+      final d = b.createdAt;
+      return d != null && d.year == now.year && d.month == now.month && d.day == now.day;
+    }).length;
+
+    return Container(
+      color: AppTheme.bgSurface,
+      child: Column(
+        children: [
+          AppPageHeader(
+            title: 'Billing',
+            subtitle: billedToday > 0
+                ? '$billedToday bill${billedToday == 1 ? '' : 's'} today'
+                : 'No bills yet today',
+            showDivider: false,
+            actions: [
+              appSettingsAction(
+                tooltip: 'Billing settings',
+                badgeCount: state.discountRequests.where((r) => r.status == 'PENDING').length,
+                onTap: () => _openBillingSettings(context, state),
+              ),
+            ],
+          ),
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: _buildSegmentedControl(),
+          ),
+          const Divider(height: 1, color: AppTheme.borderSubtle),
+          Expanded(
+            child: _section == _BillingSection.history
+                ? OwnerBillHistoryView(state: state)
+                : _buildBody(context, ref, state),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSegmentedControl() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          for (final section in _BillingSection.values)
+            Expanded(
+              child: InkWell(
+                onTap: () => setState(() => _section = section),
+                borderRadius: BorderRadius.circular(11),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOut,
+                  padding: const EdgeInsets.symmetric(vertical: 9),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: _section == section ? Colors.white : Colors.transparent,
+                    borderRadius: BorderRadius.circular(11),
+                    boxShadow: _section == section
+                        ? [
+                            BoxShadow(
+                              color: const Color(0xFF0F172A).withValues(alpha: 0.06),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        section == _BillingSection.newBill
+                            ? PhosphorIconsBold.plusCircle
+                            : PhosphorIconsBold.clockCounterClockwise,
+                        size: 15,
+                        color: _section == section ? AppTheme.primaryBlue : AppTheme.slateLight,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        section == _BillingSection.newBill ? 'New Bill' : 'History',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: _section == section ? AppTheme.primaryBlue : AppTheme.slateLight,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -183,7 +357,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
     }
     final discountAmount = subtotal * (_discountPercent / 100);
     final taxable = subtotal - discountAmount;
-    final gstRate = state.settings?.gstRate ?? 0;
+    final gstRate = state.settings?.effectiveGstRate ?? 0;
     final taxAmount = taxable * (gstRate / 100);
     final totalAmount = taxable + taxAmount;
 
@@ -193,50 +367,6 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
       color: const Color(0xFFF8F9FC),
       child: Column(
         children: [
-          // 1. Top Header Bar
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1)),
-            ),
-            child: SafeArea(
-              bottom: false,
-              child: Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(PhosphorIconsBold.arrowLeft, size: 20, color: Color(0xFF0F172A)),
-                    onPressed: () {
-                      if (widget.onBack != null) {
-                        widget.onBack!();
-                      } else {
-                        Navigator.of(context).maybePop();
-                      }
-                    },
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'Generate Client Bill',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
-                      letterSpacing: -0.3,
-                    ),
-                  ),
-                  const Spacer(),
-                  // No invoice chip here: the real number (INV-xxxxxxxx) is
-                  // minted by the createBill transaction, so anything shown
-                  // before the bill exists is invented. This used to read
-                  // '#${bills.length + 1042}'.
-                ],
-              ),
-            ),
-          ),
-
           // 2. Scrollable Content Area
           Expanded(
             child: Center(
@@ -871,7 +1001,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                       ),
                       const SizedBox(height: 8),
                       Row(
-                        children: ['UPI', 'CASH', 'CARD'].map((method) {
+                        children: ['UPI', 'CASH', 'CARD', 'PENDING'].map((method) {
                           final isSel = _paymentMethod == method;
                           return Expanded(
                             child: Padding(
@@ -882,20 +1012,26 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(vertical: 10),
                                   decoration: BoxDecoration(
-                                    color: isSel ? const Color(0xFFEEF2FF) : Colors.white,
+                                    color: isSel
+                                        ? (method == 'PENDING' ? const Color(0xFFFFFBEB) : const Color(0xFFEEF2FF))
+                                        : Colors.white,
                                     border: Border.all(
-                                      color: isSel ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0),
+                                      color: isSel
+                                          ? (method == 'PENDING' ? const Color(0xFFD97706) : const Color(0xFF4F46E5))
+                                          : const Color(0xFFE2E8F0),
                                       width: isSel ? 1.6 : 1,
                                     ),
                                     borderRadius: BorderRadius.circular(10),
                                   ),
                                   child: Center(
                                     child: Text(
-                                      method,
+                                      method == 'PENDING' ? 'LATER' : method,
                                       style: TextStyle(
                                         fontWeight: FontWeight.w800,
-                                        color: isSel ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
-                                        fontSize: 12,
+                                        color: isSel
+                                            ? (method == 'PENDING' ? const Color(0xFFB45309) : const Color(0xFF4F46E5))
+                                            : const Color(0xFF64748B),
+                                        fontSize: 11.5,
                                       ),
                                     ),
                                   ),
@@ -905,6 +1041,13 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                           );
                         }).toList(),
                       ),
+
+                      // Part-payment box. Only meaningful for PENDING: the
+                      // three real methods always collect the full amount.
+                      if (_paymentMethod == 'PENDING') ...[
+                        const SizedBox(height: 12),
+                        _buildPartPaymentBox(totalAmount),
+                      ],
                       const SizedBox(height: 24),
 
                       // Bill Summary Breakdown Card
@@ -993,8 +1136,8 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: const [
-                                      Text(
+                                    children: [
+                                      const Text(
                                         'Total Amount',
                                         style: TextStyle(
                                           fontSize: 15,
@@ -1003,10 +1146,16 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                           letterSpacing: -0.2,
                                         ),
                                       ),
-                                      SizedBox(height: 2),
+                                      const SizedBox(height: 2),
+                                      // Calling a total "inclusive of taxes"
+                                      // when GST is switched off (or was
+                                      // never configured) is simply untrue on
+                                      // the invoice - the employee-side
+                                      // summary already worded this the
+                                      // honest way.
                                       Text(
-                                        'Inclusive of all salon taxes',
-                                        style: TextStyle(
+                                        gstRate > 0 ? 'Inclusive of all salon taxes' : 'No GST applied',
+                                        style: const TextStyle(
                                           fontSize: 11,
                                           color: Color(0xFF94A3B8),
                                         ),
@@ -1099,7 +1248,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                       ),
 
                       // Bottom clearance so floating navbar never overlaps
-                      const SizedBox(height: 110),
+                      const SizedBox(height: 88), // clearance for the floating nav bar
                     ],
                   ),
                 ),
@@ -1118,12 +1267,18 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
         ..._selectedServiceIds.map((id) => BillItemInput(type: 'SERVICE', serviceId: id, employeeId: _selectedEmployeeId!, quantity: 1)),
         ..._selectedProductQuantities.entries.map((e) => BillItemInput(type: 'PRODUCT', inventoryItemId: e.key, employeeId: _selectedEmployeeId!, quantity: e.value)),
       ];
+      final isPending = _paymentMethod == 'PENDING';
+      final typedNow = double.tryParse(_partPaymentController.text.trim()) ?? 0;
       final bill = await ref.read(appDataProvider.notifier).createBill(
             customerId: _selectedCustomerId!,
             branchId: _selectedBranchId!,
-            paymentMethod: _paymentMethod,
+            // A part-paid bill records the method the collected portion came
+            // in on; only a wholly unpaid one is stored as PENDING.
+            paymentMethod: isPending && typedNow > 0 ? _partPaymentMethod : _paymentMethod,
             discountAmount: discountAmount,
             items: items,
+            // null keeps the ordinary "paid in full" path untouched.
+            amountPaidNow: isPending ? typedNow : null,
           );
 
       if (!context.mounted) return;
@@ -1136,7 +1291,11 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
           title: 'Bill Generated',
           subtitle: bill.invoiceNumber,
           child: Text(
-            'Total: ₹${bill.finalAmount.toStringAsFixed(0)} via $_paymentMethod.',
+            bill.amountDue > 0
+                ? 'Total: ₹${bill.finalAmount.toStringAsFixed(0)}. '
+                    '${bill.amountPaid > 0 ? 'Collected ₹${bill.amountPaid.toStringAsFixed(0)} via $_partPaymentMethod. ' : ''}'
+                    '₹${bill.amountDue.toStringAsFixed(0)} outstanding - track it under Pending Payments.'
+                : 'Total: ₹${bill.finalAmount.toStringAsFixed(0)} via ${bill.paymentMethod}.',
             style: const TextStyle(fontSize: 14, color: AppTheme.slateMedium),
           ),
           actions: SizedBox(
@@ -1148,10 +1307,12 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                   _selectedServiceIds.clear();
                   _selectedProductQuantities.clear();
                   _discountPercent = 0.0;
+                  // Land on History rather than bouncing to the dashboard:
+                  // the bill that was just written is the top row there, so
+                  // the save visibly produced something instead of clearing
+                  // the form and leaving the page.
+                  _section = _BillingSection.history;
                 });
-                if (widget.onBack != null) {
-                  widget.onBack!();
-                }
               },
               child: const Text('Done'),
             ),
@@ -1165,6 +1326,112 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+  }
+
+  /// Shown under the method chips once "LATER" is picked: how much (if
+  /// anything) is being collected now, and what that leaves outstanding.
+  /// Leaving it blank means the whole bill is owed, which is the common case
+  /// - so nothing has to be typed for a straightforward "pay next time".
+  Widget _buildPartPaymentBox(double totalAmount) {
+    final entered = double.tryParse(_partPaymentController.text.trim()) ?? 0;
+    final paidNow = entered.clamp(0, totalAmount).toDouble();
+    final due = totalAmount - paidNow;
+    final overTyped = entered > totalAmount;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(PhosphorIconsRegular.clockCountdown, size: 15, color: Color(0xFFB45309)),
+              const SizedBox(width: 6),
+              const Text(
+                'Paying later',
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: Color(0xFF92400E)),
+              ),
+              const Spacer(),
+              Text(
+                '₹${due.toStringAsFixed(0)} will be owed',
+                style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFFB45309)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _partPaymentController,
+            keyboardType: TextInputType.number,
+            onChanged: (_) => setState(() {}),
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+            decoration: InputDecoration(
+              isDense: true,
+              filled: true,
+              fillColor: Colors.white,
+              prefixText: '₹ ',
+              prefixStyle: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF92400E), fontSize: 13),
+              hintText: 'Paying now (leave blank for nothing)',
+              hintStyle: const TextStyle(fontSize: 11.5, color: Color(0xFF94A3B8)),
+              errorText: overTyped ? 'More than the bill total (₹${totalAmount.toStringAsFixed(0)})' : null,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Color(0xFFFDE68A)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Color(0xFFFDE68A)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Color(0xFFD97706), width: 1.5),
+              ),
+            ),
+          ),
+          if (paidNow > 0) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Text(
+                  'Collected via',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF92400E)),
+                ),
+                const SizedBox(width: 8),
+                for (final m in ['CASH', 'UPI', 'CARD'])
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: InkWell(
+                      onTap: () => setState(() => _partPaymentMethod = m),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: _partPaymentMethod == m ? const Color(0xFFD97706) : Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFFDE68A)),
+                        ),
+                        child: Text(
+                          m,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: _partPaymentMethod == m ? Colors.white : const Color(0xFF92400E),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
   }
 }
 
@@ -1465,10 +1732,11 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
     );
   }
 
+  // No salon name / bell / avatar row here any more: this page is always
+  // embedded under a header that already carries them, either as a drawer
+  // destination or as the "Services & Pricing" section of Billing's
+  // settings. Drawing its own would show the salon name twice.
   Widget _buildContent(BuildContext context, WidgetRef ref, AppData state) {
-    final salonName = state.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Cuts Salon';
-    final ownerName = ref.watch(authControllerProvider).name;
-    final pendingDiscountCount = state.discountRequests.where((r) => r.status == 'PENDING').length;
     final isMobile = MediaQuery.of(context).size.width < 768;
 
     final q = _searchController.text.toLowerCase().trim();
@@ -1493,106 +1761,10 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 680),
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 110),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 1. Pinned Top Salon Header
-                SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 16.0),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(7),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFEEF2FF),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(
-                            PhosphorIconsBold.storefront,
-                            color: Color(0xFF4F46E5),
-                            size: 18,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            salonName,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF0F172A),
-                              letterSpacing: -0.3,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          icon: Badge(
-                            isLabelVisible: pendingDiscountCount > 0,
-                            label: Text('$pendingDiscountCount'),
-                            backgroundColor: const Color(0xFFF04438),
-                            child: const Icon(
-                              PhosphorIconsRegular.bell,
-                              color: Color(0xFF334155),
-                              size: 22,
-                            ),
-                          ),
-                          onPressed: () {
-                            if (widget.onOpenNotifications != null) {
-                              widget.onOpenNotifications!();
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('No new notifications'), duration: Duration(seconds: 2), behavior: SnackBarBehavior.floating),
-                              );
-                            }
-                          },
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                        ),
-                        const SizedBox(width: 6),
-                        Container(
-                          width: 34,
-                          height: 34,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF1E1B4B),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Center(
-                            child: Text(
-                              _ownerInitials(ownerName),
-                              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // 2. Title Section
-                const Text(
-                  'Catalog',
-                  style: TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFF0F172A),
-                    letterSpacing: -0.6,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                const Text(
-                  'Manage services & retail inventory',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFF64748B),
-                  ),
-                ),
-                const SizedBox(height: 16),
 
                 // 3. Two Primary Action Buttons (+ Add Service & + Add Product)
                 Row(
@@ -2192,7 +2364,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 680),
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 110),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -2201,22 +2373,8 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Expenses',
-                              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF0F172A), letterSpacing: -0.5),
-                            ),
-                            SizedBox(height: 2),
-                            Text(
-                              'Track salon spending by category',
-                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
-                            ),
-                          ],
-                        ),
-                      ),
+                      // Title removed: the shared page header names this page.
+                      const Spacer(),
                       InkWell(
                         onTap: () => _showAddExpenseDialog(context, ref),
                         borderRadius: BorderRadius.circular(22),
