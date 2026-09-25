@@ -110,6 +110,19 @@ service cloud.firestore {
       }
     }
 
+    // Collection-group read for the same bill items. A collectionGroup()
+    // query is evaluated against this wildcard path, NOT the nested
+    // bills/{billId}/items rule above, so without this the batched fetch in
+    // SalonFirestore.listBillItemsForBills is denied and silently falls back
+    // to one read per bill. Scope is unchanged in practice: `items` exists
+    // only under bills, and the same isActiveEmployee() gate applies. Reads
+    // only - creates still have to go through the nested rule, inside
+    // createBill's transaction.
+    match /{path=**}/items/{itemId} {
+      allow read: if isActiveEmployee();
+      allow write: if false;
+    }
+
     // Doc id is "{employeeId}_{yyyy-MM-dd}" (employeeId == uid). An active
     // employee clocks only themselves in/out; the owner can also write any
     // record (manual corrections - matches REST's owner-only
