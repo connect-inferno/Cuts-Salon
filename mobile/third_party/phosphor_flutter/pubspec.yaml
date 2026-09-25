@@ -1,0 +1,43 @@
+name: phosphor_flutter
+description: >
+  Local, font-trimmed copy of phosphor_flutter 2.1.0. The Dart API is
+  byte-identical to upstream - only the bundled font assets differ.
+version: 2.1.0
+homepage: https://phosphoricons.com/
+repository: https://github.com/phosphor-icons/phosphor-flutter
+publish_to: none
+
+environment:
+  sdk: ">=2.17.0 <4.0.0"
+  flutter: ">=1.17.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  # Upstream ships six weights (~2.5 MB) and Flutter cannot tree-shake any of
+  # them: PhosphorIconData builds its fontFamily by string interpolation
+  # ('Phosphor$style') inside the constructor, so the icon tree-shaker's
+  # const_finder can't attribute codepoints to a family and conservatively
+  # keeps every glyph - which is why the build log shows only ~12% shaved off
+  # Phosphor fonts while MaterialIcons gets 99.5%.
+  #
+  # This app uses Regular, Bold and Fill only (verified: zero references to
+  # PhosphorIconsThin / Light / Duotone anywhere in lib/), so those three
+  # weights are the only ones bundled here. The Dart constants for the
+  # unbundled weights still compile; they would simply render as missing
+  # glyphs if ever used, so add the font back below before using one.
+  fonts:
+    - family: PhosphorRegular
+      fonts:
+        - asset: lib/fonts/Phosphor.ttf
+          weight: 400
+    - family: PhosphorBold
+      fonts:
+        - asset: lib/fonts/Phosphor-Bold.ttf
+          weight: 400
+    - family: PhosphorFill
+      fonts:
+        - asset: lib/fonts/Phosphor-Fill.ttf
+          weight: 400

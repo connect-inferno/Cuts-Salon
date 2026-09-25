@@ -42,6 +42,17 @@ dependencies:
   cloud_firestore: ^5.5.0
   phosphor_flutter: ^2.1.0
 
+# Redirects phosphor_flutter to a local copy that bundles only the three icon
+# weights this app actually uses (Regular, Bold, Fill) instead of all six.
+# Flutter's icon tree-shaker cannot strip Phosphor fonts - see the comment in
+# third_party/phosphor_flutter/pubspec.yaml for why - so the six weights were
+# shipping ~2.5 MB of icon font, most of it for styles nothing references.
+# The Dart sources are an unmodified copy of 2.1.0, so the API is identical
+# and no call sites change.
+dependency_overrides:
+  phosphor_flutter:
+    path: third_party/phosphor_flutter
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -65,8 +76,16 @@ flutter:
   uses-material-design: true
 
   # Assets
+  # Listed file-by-file rather than as the whole assets/images/ directory.
+  # Flutter's generated service worker precaches every entry in the asset
+  # manifest, so declaring the directory meant a Home Screen install pulled
+  # down ~3 MB of images that no code references - the old `trimly_*` brand
+  # art plus four superseded stylux logos. Only these two are actually used
+  # (stylux_logo.dart and login_screen.dart); add a line here if you ship a
+  # new one.
   assets:
-    - assets/images/
+    - assets/images/stylux_icon.png
+    - assets/images/stylux_mark.png
 
   # Plus Jakarta Sans bundled locally (static instances cut from the
   # variable font) instead of fetched at runtime via google_fonts - a CDN
