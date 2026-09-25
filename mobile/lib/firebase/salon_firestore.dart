@@ -37,11 +37,11 @@ class SalonFirestore {
     try {
       final doc = await db.collection('settings').doc('main').get();
       if (!doc.exists) {
-        return FSSettings(salonName: 'Stylux Salon', gstRate: 0, lateAttendancePenalty: 0);
+        return FSSettings(salonName: 'Stylux Salon', gstEnabled: false, gstRate: 0, lateAttendancePenalty: 0);
       }
       return FSSettings.fromFirestore(doc);
     } catch (_) {
-      return FSSettings(salonName: 'Stylux Salon', gstRate: 0, lateAttendancePenalty: 0);
+      return FSSettings(salonName: 'Stylux Salon', gstEnabled: false, gstRate: 0, lateAttendancePenalty: 0);
     }
   }
 
@@ -195,6 +195,11 @@ class SalonFirestore {
     required double gstRate,
     required List<BillItemDraft> items,
     double billDiscountAmount = 0,
+    /// What the client actually handed over now. null means "the whole
+    /// bill", which is the ordinary paid-in-full case; 0 means they're
+    /// paying entirely later. Clamped to the computed total below, since the
+    /// caller can't know finalAmount until the tax maths runs in here.
+    double? amountPaidNow,
   }) async {
     if (items.isEmpty) throw Exception('A bill must have at least one item');
     final billRef = db.collection('bills').doc();
@@ -240,6 +245,10 @@ class SalonFirestore {
       final taxAmount = _round2(taxable * (gstRate / 100));
       final finalAmount = _round2(taxable + taxAmount);
       final invoiceNumber = 'INV-${billRef.id.substring(0, 8).toUpperCase()}';
+      final amountPaid = _round2(
+        amountPaidNow == null ? finalAmount : amountPaidNow.clamp(0, finalAmount),
+      );
+      final amountDue = _round2(finalAmount - amountPaid);
 
       // ---- WRITES ----
       final bill = FSBill(
@@ -253,6 +262,7 @@ class SalonFirestore {
         taxAmount: taxAmount,
         finalAmount: finalAmount,
         paymentMethod: paymentMethod,
+        amountPaid: amountPaid,
         createdBy: createdBy,
       );
       tx.set(billRef, bill.toFirestore(isCreate: true));
@@ -262,7 +272,11 @@ class SalonFirestore {
       // whole bill history - see listBills()'s comment for why that matters.
       tx.update(db.collection('customers').doc(customerId), {
         'visitCount': FieldValue.increment(1),
+        // totalSpent tracks what they were billed, not what they've handed
+        // over - an unpaid bill still counts as business done, and the money
+        // still owed is tracked separately below.
         'totalSpent': FieldValue.increment(finalAmount),
+        if (amountDue > 0) 'outstandingBalance': FieldValue.increment(amountDue),
         'lastVisitAt': FieldValue.serverTimestamp(),
       });
 
@@ -425,6 +439,118 @@ class SalonFirestore {
       final fetched = await Future.wait(missing.map((b) => listBillItems(b.id)));
       for (var i = 0; i < missing.length; i++) {
         byBill[missing[i].id] = fetched[i];
+      }
+    }
+
+    return byBill;
+  }
+
+  // --- Payments (settling a "pay later" balance) ---
+
+  /// Records money collected against an already-raised bill and draws the
+  /// client's outstanding balance down by the same amount, in one
+  /// transaction so the ledger and the denormalized balance can't diverge.
+  ///
+  /// The bill is immutable, so this never touches it - the balance is
+  /// [FSBill.finalAmount] minus [FSBill.amountPaid] minus everything in this
+  /// subcollection.
+  Future<FSPayment> recordPayment({
+    required String billId,
+    required double amount,
+    required String method,
+    required String receivedBy,
+    String? note,
+  }) async {
+    if (amount <= 0) throw Exception('Payment amount must be greater than zero');
+
+    final billRef = db.collection('bills').doc(billId);
+    final paymentRef = billRef.collection('payments').doc();
+
+    await db.runTransaction((tx) async {
+      final billDoc = await tx.get(billRef);
+      if (!billDoc.exists) throw Exception('Bill not found');
+      final bill = FSBill.fromFirestore(billDoc);
+
+      // Sum what's already been settled so an over-payment is rejected here
+      // rather than quietly pushing the customer's balance negative.
+      final settled = await billRef.collection('payments').get();
+      final alreadyPaid = _round2(
+        bill.amountPaid +
+            settled.docs.fold(0.0, (acc, d) => acc + ((d.data()['amount'] as num?)?.toDouble() ?? 0)),
+      );
+      final due = _round2(bill.finalAmount - alreadyPaid);
+      if (due <= 0) throw Exception('This bill is already fully paid');
+      if (amount - due > 0.009) {
+        throw Exception('Only ₹${due.toStringAsFixed(0)} is outstanding on this bill');
+      }
+
+      final applied = _round2(amount);
+      tx.set(
+        paymentRef,
+        FSPayment(
+          id: paymentRef.id,
+          billId: billId,
+          amount: applied,
+          method: method,
+          receivedBy: receivedBy,
+          note: note,
+        ).toFirestore(isCreate: true),
+      );
+      tx.update(db.collection('customers').doc(bill.customerId), {
+        'outstandingBalance': FieldValue.increment(-applied),
+      });
+    });
+
+    return FSPayment.fromFirestore(await paymentRef.get());
+  }
+
+  Future<List<FSPayment>> listPaymentsForBill(String billId) async {
+    final snap = await db.collection('bills').doc(billId).collection('payments').get();
+    return snap.docs.map(FSPayment.fromFirestore).toList();
+  }
+
+  /// Batched equivalent of [listPaymentsForBill] for a whole page of bills -
+  /// same collection-group trick (and the same rule carve-out) that
+  /// [listBillItemsForBills] uses, for the same N+1 reason.
+  ///
+  /// Unlike items, most bills have no payments at all, so the per-bill
+  /// fallback is deliberately limited to bills that actually still owe
+  /// something - otherwise a failed group query would fan out into one read
+  /// per bill on every single load.
+  Future<Map<String, List<FSPayment>>> listPaymentsForBills(List<FSBill> bills) async {
+    if (bills.isEmpty) return {};
+
+    final wanted = {for (final b in bills) b.id};
+    final byBill = <String, List<FSPayment>>{};
+    var groupQueryWorked = false;
+
+    final timestamps = bills.map((b) => b.createdAt).whereType<DateTime>().toList();
+    if (timestamps.isNotEmpty) {
+      final oldest = timestamps.reduce((a, b) => a.isBefore(b) ? a : b);
+      try {
+        final snap = await db
+            .collectionGroup('payments')
+            .where('receivedAt', isGreaterThanOrEqualTo: Timestamp.fromDate(oldest.subtract(const Duration(days: 1))))
+            .get();
+        for (final doc in snap.docs) {
+          final billId = doc.reference.parent.parent?.id;
+          if (billId == null || !wanted.contains(billId)) continue;
+          (byBill[billId] ??= []).add(FSPayment.fromFirestore(doc));
+        }
+        groupQueryWorked = true;
+      } catch (e) {
+        debugPrint('[Stylux] payments collectionGroup query unavailable, falling back per bill: $e');
+        byBill.clear();
+      }
+    }
+
+    if (!groupQueryWorked) {
+      final owing = bills.where((b) => b.finalAmount - b.amountPaid > 0.009).toList();
+      if (owing.isNotEmpty) {
+        final fetched = await Future.wait(owing.map((b) => listPaymentsForBill(b.id)));
+        for (var i = 0; i < owing.length; i++) {
+          byBill[owing[i].id] = fetched[i];
+        }
       }
     }
 
@@ -630,8 +756,15 @@ class SalonFirestore {
     final weekBills = windowBills.where((b) => b.createdAt != null && !b.createdAt!.isBefore(weekStart)).toList();
 
     double sumFinal(List<FSBill> bills) => _round2(bills.fold(0.0, (s, b) => s + b.finalAmount));
-    double sumByMethod(String method) =>
-        _round2(todayBills.where((b) => b.paymentMethod == method).fold(0.0, (s, b) => s + b.finalAmount));
+    // The payment breakdown is money actually in the till, so it sums what
+    // was collected, not what was billed - a "pay later" bill contributes
+    // only the part handed over at the counter (and a wholly unpaid one
+    // contributes nothing, since its method is PENDING). todaySales above
+    // stays on finalAmount: that's revenue booked, which is a different
+    // question from cash received.
+    double sumByMethod(String method) => _round2(
+          todayBills.where((b) => b.paymentMethod == method).fold(0.0, (s, b) => s + b.amountPaid),
+        );
 
     final todayAttendanceCount = results[1].docs.where((d) {
       final status = d.data()['status'];
@@ -649,6 +782,11 @@ class SalonFirestore {
         'CARD': sumByMethod('CARD'),
         'UPI': sumByMethod('UPI'),
       },
+      // Billed today but not collected today - the counterpart to the
+      // breakdown above, so the dashboard can show both sides.
+      'todayOutstanding': _round2(
+        todayBills.fold(0.0, (s, b) => s + (b.finalAmount - b.amountPaid).clamp(0, double.infinity)),
+      ),
       'todayCustomersCount': todayBills.map((b) => b.customerId).toSet().length,
       'todayBillCount': todayBills.length,
       'todayAttendanceCount': todayAttendanceCount,

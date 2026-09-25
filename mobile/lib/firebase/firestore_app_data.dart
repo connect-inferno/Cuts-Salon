@@ -58,6 +58,7 @@ Customer customerFromFS(FSCustomer c) => Customer(
       createdAt: c.createdAt,
       visitCount: c.visitCount,
       totalSpent: c.totalSpent,
+      outstandingBalance: c.outstandingBalance,
       lastVisitAt: c.lastVisitAt,
       archived: c.archived,
     );
@@ -101,7 +102,7 @@ BillItem billItemFromFS(FSBillItem i) => BillItem(
 // status defaults to COMPLETED - FS bills have no status field since no
 // refund flow exists in either UI yet, matching Bill.fromJson's own
 // fallback for a missing status.
-Bill billFromFS(FSBill b, {required List<FSBillItem> items}) => Bill(
+Bill billFromFS(FSBill b, {required List<FSBillItem> items, List<FSPayment> payments = const []}) => Bill(
       id: b.id,
       invoiceNumber: b.invoiceNumber,
       customerId: b.customerId,
@@ -112,6 +113,9 @@ Bill billFromFS(FSBill b, {required List<FSBillItem> items}) => Bill(
       taxAmount: b.taxAmount,
       finalAmount: b.finalAmount,
       paymentMethod: b.paymentMethod,
+      // What was taken at the counter plus every later settlement, folded
+      // into one number so the UI never has to know the ledger exists.
+      amountPaid: _round2(b.amountPaid + payments.fold(0.0, (sum, p) => sum + p.amount)),
       status: 'COMPLETED',
       createdAt: b.createdAt,
       items: items.map(billItemFromFS).toList(),
@@ -183,6 +187,7 @@ SalonSettings settingsFromFS(FSSettings s) => SalonSettings(
       salonName: s.salonName,
       phone: s.phone,
       address: s.address,
+      gstEnabled: s.gstEnabled,
       gstRate: s.gstRate,
       lateAttendancePenalty: s.lateAttendancePenalty,
     );
@@ -236,9 +241,17 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth) async {
   // every list load otherwise); fetch each bill's items in parallel here,
   // reproducing the REST backend's `include: { items: true }` shape.
   final billItemsByBill = await fs.listBillItemsForBills(billsFS);
+  // Settlements recorded after a bill was raised - see recordPayment. Folded
+  // into each Bill's amountPaid below so amountDue/paymentStatus are correct
+  // everywhere without any caller re-deriving them.
+  final paymentsByBill = await fs.listPaymentsForBills(billsFS);
   final bills = <Bill>[
     for (var i = 0; i < billsFS.length; i++)
-      billFromFS(billsFS[i], items: billItemsByBill[billsFS[i].id] ?? const []),
+      billFromFS(
+        billsFS[i],
+        items: billItemsByBill[billsFS[i].id] ?? const [],
+        payments: paymentsByBill[billsFS[i].id] ?? const [],
+      ),
   ];
 
   final employees = employeesFS.map((e) => employeeFromFS(e, canSeePay: auth.isOwner || e.userId == auth.userId)).toList();

@@ -108,6 +108,19 @@ service cloud.firestore {
         allow read, create: if isActiveEmployee();
         allow update, delete: if false;
       }
+
+      // Settlements of a partly-paid ("pay later") bill. The bill itself is
+      // immutable, so a balance cleared afterwards cannot be recorded by
+      // editing finalAmount/amountPaid - it lands here instead, one doc per
+      // instalment. Append-only for the same reason bills are: a payment
+      // that was taken should never be quietly rewritten or removed, and a
+      // mistake is corrected by recording a compensating entry. The amount
+      // collected *at billing time* stays denormalized on the bill, so this
+      // subcollection is empty for the common fully-paid case.
+      match /payments/{paymentId} {
+        allow read, create: if isActiveEmployee();
+        allow update, delete: if false;
+      }
     }
 
     // Collection-group read for the same bill items. A collectionGroup()
@@ -119,6 +132,16 @@ service cloud.firestore {
     // only - creates still have to go through the nested rule, inside
     // createBill's transaction.
     match /{path=**}/items/{itemId} {
+      allow read: if isActiveEmployee();
+      allow write: if false;
+    }
+
+    // Same collection-group carve-out for the payments ledger above, for the
+    // batched fetch in SalonFirestore.listPaymentsForBills - without it that
+    // query is denied and silently degrades to one read per bill. Reads
+    // only; creates still go through the nested rule inside recordPayment's
+    // transaction.
+    match /{path=**}/payments/{paymentId} {
       allow read: if isActiveEmployee();
       allow write: if false;
     }
