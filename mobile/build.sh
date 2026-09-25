@@ -17,4 +17,9 @@ if [ ! -d "flutter" ]; then
   git clone https://github.com/flutter/flutter.git -b "$FLUTTER_VERSION" --depth 1
 fi
 export PATH="$PATH:`pwd`/flutter/bin"
-flutter build web --release
+# --no-web-resources-cdn bundles CanvasKit (and the ICU data) into the build
+# instead of fetching them from gstatic.com at runtime. On an iOS Home Screen
+# app that cross-origin fetch is the slowest part of a cold start, it cannot
+# be served by our own service worker, and it fails outright offline - so
+# self-hosting makes startup both faster and actually offline-capable.
+flutter build web --release --no-web-resources-cdn
