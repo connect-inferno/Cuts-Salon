@@ -47,7 +47,14 @@ class OwnerCustomersTab extends StatefulWidget {
   State<OwnerCustomersTab> createState() => _OwnerCustomersTabState();
 }
 
-class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
+class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDetailSections {
+  @override
+  List<Bill>? get customerBills => _customerBills;
+  @override
+  bool get loadingBills => _loadingBills;
+  @override
+  ValueChanged<Customer>? get startBill => widget.onStartBill;
+
   final _searchController = TextEditingController();
   Customer? _selectedCustomer;
   String _activeFilter = 'All'; // 'All', 'VIP', 'Recent'
@@ -84,12 +91,16 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
     }
   }
 
+  // No branch picker here on purpose: the client directory is salon-wide, so
+  // a customer added at one branch is immediately visible and billable at
+  // every other one. (This dialog used to ask for a branch, which implied a
+  // per-branch client list the app never actually enforced.) The branch they
+  // happened to be registered at is still recorded for reference.
   void _showAddCustomerDialog(BuildContext context, WidgetRef ref, List<Branch> branches) {
     final nameController = TextEditingController();
     final phoneController = TextEditingController();
     final emailController = TextEditingController();
     bool isVip = false;
-    String? branchId = branches.isNotEmpty ? branches.first.id : null;
     bool submitting = false;
 
     showDialog(
@@ -120,14 +131,25 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
               ),
               const SizedBox(height: 12),
               if (branches.length > 1)
-                DropdownButtonFormField<String>(
-                  value: branchId,
-                  decoration: appDialogFieldDecoration(label: 'Branch', icon: PhosphorIconsRegular.storefront),
-                  borderRadius: BorderRadius.circular(14),
-                  dropdownColor: Colors.white,
-                  elevation: 3,
-                  items: branches.map((b) => DropdownMenuItem(value: b.id, child: Text(b.name))).toList(),
-                  onChanged: (val) => setDialogState(() => branchId = val),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(PhosphorIconsRegular.storefront, size: 15, color: Color(0xFF64748B)),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Clients are shared across all branches.',
+                          style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, color: Color(0xFF64748B)),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               Container(
                 margin: const EdgeInsets.only(top: 8),
@@ -149,9 +171,9 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
             onSubmit: () async {
               final name = nameController.text.trim();
               final phone = phoneController.text.trim();
-              if (name.isEmpty || phone.isEmpty || branchId == null) {
+              if (name.isEmpty || phone.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Name, phone, and branch are required.'), backgroundColor: AppTheme.accentRed),
+                  const SnackBar(content: Text('Name and phone are required.'), backgroundColor: AppTheme.accentRed),
                 );
                 return;
               }
@@ -162,7 +184,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
                       phone: phone,
                       email: emailController.text.trim(),
                       isVip: isVip,
-                      branchId: branchId!,
+                      registeredAtBranchId: branches.isNotEmpty ? branches.first.id : null,
                     );
                 if (ctx.mounted) Navigator.pop(ctx);
                 if (context.mounted) {
@@ -185,154 +207,6 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
     );
   }
 
-  void _showCustomerOptions(BuildContext context, WidgetRef ref, Customer cust) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    CircleAvatar(
-                      backgroundColor: const Color(0xFFEEF2FF),
-                      child: Text(_initials(cust.name), style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF4F46E5))),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(cust.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
-                          Text(cust.phone, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                ListTile(
-                  leading: const Icon(PhosphorIconsRegular.receipt, color: Color(0xFF4F46E5)),
-                  title: const Text('Start New Bill', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    widget.onStartBill?.call(cust);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(PhosphorIconsRegular.phone, color: Color(0xFF0D9488)),
-                  title: const Text('Call Client', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Calling ${cust.name} (${cust.phone})...'), behavior: SnackBarBehavior.floating),
-                    );
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(PhosphorIconsRegular.chatCircle, color: Color(0xFFD97706)),
-                  title: const Text('Send Message', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Opening messaging for ${cust.name}...'), behavior: SnackBarBehavior.floating),
-                    );
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(PhosphorIconsRegular.clockCounterClockwise, color: Color(0xFF4F46E5)),
-                  title: const Text('View All Visits', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _showAllBillsDialog(context, cust, _customerBills ?? []);
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  void _showAllBillsDialog(BuildContext context, Customer cust, List<Bill> bills) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.6,
-          maxChildSize: 0.9,
-          minChildSize: 0.4,
-          builder: (context, scrollCtrl) {
-            return Padding(
-              padding: const EdgeInsets.all(20.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('${cust.name} — Visit History', overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: Color(0xFF0F172A))),
-                            Text('${bills.length} total visits', style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-                          ],
-                        ),
-                      ),
-                      IconButton(icon: const Icon(PhosphorIconsBold.x), onPressed: () => Navigator.pop(ctx)),
-                    ],
-                  ),
-                  const Divider(height: 24),
-                  Expanded(
-                    child: bills.isEmpty
-                        ? const Center(child: Text('No visits recorded yet.', style: TextStyle(color: Color(0xFF64748B))))
-                        : ListView.separated(
-                            controller: scrollCtrl,
-                            itemCount: bills.length,
-                            separatorBuilder: (context, index) => const Divider(color: Color(0xFFE2E8F0)),
-                            itemBuilder: (context, idx) {
-                              final bill = bills[idx];
-                              final itemNames = bill.items.map((i) => i.serviceName ?? i.productName ?? 'Service').where((s) => s.isNotEmpty).join(' + ');
-                              return ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: Container(
-                                  width: 38,
-                                  height: 38,
-                                  decoration: BoxDecoration(color: const Color(0xFFEEF2FF), borderRadius: BorderRadius.circular(10)),
-                                  child: const Icon(PhosphorIconsBold.receipt, color: Color(0xFF4F46E5), size: 18),
-                                ),
-                                title: Text('#${bill.invoiceNumber} • ${_formatShortDate(bill.createdAt)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF0F172A))),
-                                subtitle: Text(itemNames.isNotEmpty ? itemNames : 'Standard Visit', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
-                                trailing: Text('₹${bill.finalAmount.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Color(0xFF0F172A))),
-                              );
-                            },
-                          ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Consumer(
@@ -347,43 +221,152 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
     );
   }
 
+  // Directory rows carry only the name (plus the VIP star, which is the one
+  // thing staff scan the list for) - everything else lives on the detail page.
+  Widget _buildCustomerNameRow(BuildContext context, WidgetRef ref, Customer cust, bool archived) {
+    return InkWell(
+      onTap: archived ? null : () => _openCustomerDetail(context, ref, cust),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 17,
+              backgroundColor: const Color(0xFFEEF2FF),
+              child: Text(
+                _initials(cust.name),
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Color(0xFF4F46E5)),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                cust.name,
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (cust.isVip) ...[
+              const Icon(PhosphorIconsFill.star, size: 13, color: Color(0xFFD97706)),
+              const SizedBox(width: 10),
+            ],
+            if (archived)
+              TextButton.icon(
+                onPressed: () => _confirmUnarchiveCustomer(context, ref, cust),
+                icon: const Icon(PhosphorIconsRegular.arrowCounterClockwise, size: 15),
+                label: const Text('Restore', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppTheme.primaryBlue,
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+              )
+            else ...[
+              IconButton(
+                icon: const Icon(PhosphorIconsBold.dotsThree, size: 18, color: Color(0xFF94A3B8)),
+                tooltip: 'Options',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => _showCustomerOptions(context, ref, cust),
+              ),
+              const Icon(PhosphorIconsBold.caretRight, size: 14, color: Color(0xFFCBD5E1)),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _confirmUnarchiveCustomer(BuildContext context, WidgetRef ref, Customer cust) {
+    bool submitting = false;
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AppDialog(
+          icon: PhosphorIconsRegular.arrowCounterClockwise,
+          title: 'Restore ${cust.name}?',
+          subtitle: 'They will appear in the directory and billing again.',
+          child: const Text(
+            'Their visit history and totals are unchanged - nothing was lost while they were archived.',
+            style: TextStyle(fontSize: 12.5, color: AppTheme.slateMedium, height: 1.4),
+          ),
+          actions: AppDialogActions(
+            submitLabel: 'Restore',
+            submitting: submitting,
+            onCancel: () => Navigator.pop(ctx),
+            onSubmit: () async {
+              setDialogState(() => submitting = true);
+              try {
+                await ref.read(appDataProvider.notifier).unarchiveCustomer(cust.id);
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('${cust.name} restored.'), backgroundColor: AppTheme.accentGreen),
+                  );
+                }
+              } catch (e) {
+                setDialogState(() => submitting = false);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed),
+                  );
+                }
+              }
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openCustomerDetail(BuildContext context, WidgetRef ref, Customer cust) {
+    // Keep the tab's own selection in step so the options sheet opened from
+    // the list still has this client's bills loaded behind it.
+    _selectCustomer(ref, cust);
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => OwnerCustomerDetailPage(
+          customerId: cust.id,
+          onStartBill: widget.onStartBill,
+        ),
+      ),
+    );
+  }
+
   Widget _buildBody(BuildContext context, WidgetRef ref, AppData state) {
     final salonName = state.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Cuts Salon';
     final pendingDiscountCount = state.discountRequests.where((r) => r.status == 'PENDING').length;
 
     final query = _searchController.text.toLowerCase().trim();
-    final filteredCustomers = state.customers.where((cust) {
+    final showingArchived = _activeFilter == 'Archived';
+    // Archived clients live in their own list precisely so they can't show up
+    // anywhere else, so this is the one screen that reads it - and only when
+    // the Archived chip is active.
+    final source = showingArchived ? state.archivedCustomers : state.customers;
+    final filteredCustomers = source.where((cust) {
       final matchesSearch = query.isEmpty ||
           cust.name.toLowerCase().contains(query) ||
           cust.phone.contains(query) ||
           (cust.email?.toLowerCase().contains(query) ?? false);
 
       if (!matchesSearch) return false;
-      if (_activeFilter == 'VIP') return cust.isVip;
       if (_activeFilter == 'Recent') return cust.visitCount > 0;
       return true;
     }).toList();
 
-    // Auto-select first customer if none selected yet
-    if (_selectedCustomer == null && filteredCustomers.isNotEmpty) {
-      final firstCust = filteredCustomers.first;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _selectedCustomer == null) {
-          _selectCustomer(ref, firstCust);
-        }
-      });
-    }
-
-    final vipCount = state.customers.where((c) => c.isVip).length;
     final allCount = state.customers.length;
-
-    final activeCustomer = _selectedCustomer ?? (filteredCustomers.isNotEmpty ? filteredCustomers.first : null);
+    final recentCount = state.customers.where((c) => c.visitCount > 0).length;
+    final archivedCount = state.archivedCustomers.length;
 
     final isMobile = MediaQuery.of(context).size.width < 768;
 
     return Container(
       color: const Color(0xFFF8F9FC),
-      child: Center(
+      // topCenter, not Center: this only exists to cap the content width on
+      // desktop. A plain Center also centres vertically, which left a big gap
+      // above the header whenever the page was shorter than the viewport.
+      child: Align(
+        alignment: Alignment.topCenter,
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 680),
           child: SingleChildScrollView(
@@ -564,46 +547,28 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
                     ),
                     const SizedBox(width: 8),
                     _buildFilterChip(
-                      label: '★ VIP Only ($vipCount)',
-                      isSelected: _activeFilter == 'VIP',
-                      onTap: () => setState(() => _activeFilter = 'VIP'),
-                    ),
-                    const SizedBox(width: 8),
-                    _buildFilterChip(
-                      label: 'Recent',
+                      label: 'Recent ($recentCount)',
                       icon: PhosphorIconsRegular.clock,
                       isSelected: _activeFilter == 'Recent',
                       onTap: () => setState(() => _activeFilter = 'Recent'),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildFilterChip(
+                      label: 'Archived ($archivedCount)',
+                      icon: PhosphorIconsRegular.archive,
+                      isSelected: showingArchived,
+                      onTap: () => setState(() => _activeFilter = 'Archived'),
                     ),
                   ],
                 ),
                 const SizedBox(height: 18),
 
-                // 5. Selected Customer Hero Profile Card
-                if (activeCustomer != null)
-                  _buildCustomerHeroCard(context, ref, activeCustomer, state)
-                else
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                    ),
-                    child: const Center(
-                      child: Text(
-                        'No customer selected or found.',
-                        style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 24),
-
-                // 6. Customer Directory Header
+                // 5. Customer Directory - names only; tapping opens the
+                // full detail page.
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: const [
-                    Text(
+                  children: [
+                    const Text(
                       'Customer Directory',
                       style: TextStyle(
                         fontSize: 15,
@@ -613,8 +578,10 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
                       ),
                     ),
                     Text(
-                      'Sorted by Activity',
-                      style: TextStyle(
+                      showingArchived
+                          ? '${filteredCustomers.length} archived'
+                          : '${filteredCustomers.length} shown',
+                      style: const TextStyle(
                         fontSize: 11,
                         color: Color(0xFF94A3B8),
                         fontWeight: FontWeight.w500,
@@ -624,7 +591,6 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
                 ),
                 const SizedBox(height: 10),
 
-                // 7. Customer Directory List
                 if (filteredCustomers.isEmpty)
                   Container(
                     padding: const EdgeInsets.all(24),
@@ -633,115 +599,39 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: const Color(0xFFE2E8F0)),
                     ),
-                    child: const Center(
+                    child: Center(
                       child: Text(
-                        'No customers match your search.',
-                        style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
+                        showingArchived
+                            ? 'No archived customers.'
+                            : 'No customers match your search.',
+                        style: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
                       ),
                     ),
                   )
                 else
-                  ...filteredCustomers.map((cust) {
-                    final isSel = activeCustomer?.id == cust.id;
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: InkWell(
-                        onTap: () => _selectCustomer(ref, cust),
-                        borderRadius: BorderRadius.circular(16),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: isSel ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0),
-                              width: isSel ? 1.6 : 1,
-                            ),
-                            boxShadow: isSel
-                                ? [
-                                    BoxShadow(
-                                      color: const Color(0xFF4F46E5).withValues(alpha: 0.08),
-                                      blurRadius: 10,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ]
-                                : null,
-                          ),
-                          child: Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 18,
-                                backgroundColor: isSel ? const Color(0xFF4F46E5) : const Color(0xFFEEF2FF),
-                                child: Text(
-                                  _initials(cust.name),
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 12,
-                                    color: isSel ? Colors.white : const Color(0xFF4F46E5),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Flexible(
-                                          child: Text(
-                                            cust.name,
-                                            style: const TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w700,
-                                              color: Color(0xFF0F172A),
-                                            ),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        if (cust.isVip) ...[
-                                          const SizedBox(width: 6),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFFFEF3C7),
-                                              borderRadius: BorderRadius.circular(6),
-                                            ),
-                                            child: const Text(
-                                              '★ VIP Gold',
-                                              style: TextStyle(
-                                                fontSize: 9,
-                                                fontWeight: FontWeight.w800,
-                                                color: Color(0xFFD97706),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      '${cust.phone} • ${cust.visitCount} visits',
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        color: Color(0xFF64748B),
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const Icon(
-                                PhosphorIconsBold.caretRight,
-                                size: 14,
-                                color: Color(0xFFCBD5E1),
-                              ),
-                            ],
-                          ),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.03),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
                         ),
-                      ),
-                    );
-                  }),
+                      ],
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      children: [
+                        for (int i = 0; i < filteredCustomers.length; i++) ...[
+                          if (i > 0) const Divider(height: 1, thickness: 1, color: Color(0xFFF1F5F9)),
+                          _buildCustomerNameRow(context, ref, filteredCustomers[i], showingArchived),
+                        ],
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),
@@ -789,9 +679,374 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
       ),
     );
   }
+}
+
+// Full-screen detail view for one client, pushed from the directory list.
+// Keyed by id so an edit (or an archive) re-resolves against live AppData.
+// It loads that client's full bill history itself - AppData's `bills` list is
+// capped, so older visits would be missing if we read from there.
+class OwnerCustomerDetailPage extends ConsumerStatefulWidget {
+  final String customerId;
+  final ValueChanged<Customer>? onStartBill;
+
+  const OwnerCustomerDetailPage({super.key, required this.customerId, this.onStartBill});
+
+  @override
+  ConsumerState<OwnerCustomerDetailPage> createState() => _OwnerCustomerDetailPageState();
+}
+
+class _OwnerCustomerDetailPageState extends ConsumerState<OwnerCustomerDetailPage>
+    with _CustomerDetailSections {
+  List<Bill>? _bills;
+  bool _loading = true;
+
+  @override
+  List<Bill>? get customerBills => _bills;
+  @override
+  bool get loadingBills => _loading;
+  @override
+  ValueChanged<Customer>? get startBill => widget.onStartBill;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBills();
+  }
+
+  Future<void> _loadBills() async {
+    try {
+      final bills = await ref.read(appDataProvider.notifier).loadBillsForCustomer(widget.customerId);
+      if (mounted) setState(() { _bills = bills; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() { _bills = []; _loading = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final asyncData = ref.watch(appDataProvider);
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FC),
+      body: asyncData.when(
+        loading: () => const AppLoadingView(),
+        error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
+        data: (state) {
+          final matches = state.customers.where((c) => c.id == widget.customerId);
+          if (matches.isEmpty) {
+            // Archiving from this page removes the client from the snapshot,
+            // so this is also the frame right before the pop lands.
+            return _buildShell(context, null, const Center(
+              child: Text(
+                'This client is no longer in the directory.',
+                style: TextStyle(color: Color(0xFF64748B), fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ));
+          }
+          final cust = matches.first;
+          return _buildShell(
+            context,
+            cust,
+            SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+              child: _buildCustomerHeroCard(context, ref, cust, state),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildShell(BuildContext context, Customer? cust, Widget body) {
+    return SafeArea(
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(6, 6, 12, 12),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+            ),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(PhosphorIconsRegular.arrowLeft, size: 20, color: Color(0xFF0F172A)),
+                  tooltip: 'Back to directory',
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+                if (cust != null) ...[
+                  CircleAvatar(
+                    radius: 19,
+                    backgroundColor: const Color(0xFFEEF2FF),
+                    child: Text(
+                      _initials(cust.name),
+                      style: const TextStyle(color: Color(0xFF4F46E5), fontWeight: FontWeight.w800, fontSize: 13),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          cust.name,
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF0F172A), letterSpacing: -0.3),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          cust.phone,
+                          style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, color: Color(0xFF64748B)),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (cust.isVip)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF3C7),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Text(
+                        '★ VIP',
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFFD97706)),
+                      ),
+                    ),
+                ] else
+                  const Spacer(),
+              ],
+            ),
+          ),
+          Expanded(child: body),
+        ],
+      ),
+    );
+  }
+}
+
+// One customer's detail UI - the hero card, its metric tiles, the options
+// sheet and the full visit-history sheet. Shared by OwnerCustomersTab (which
+// still uses the options sheet from its list) and by the pushed
+// OwnerCustomerDetailPage, so both render identical cards.
+mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
+  List<Bill>? get customerBills;
+  bool get loadingBills;
+  ValueChanged<Customer>? get startBill;
+
+  void _showCustomerOptions(BuildContext context, WidgetRef ref, Customer cust) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: const Color(0xFFEEF2FF),
+                      child: Text(_initials(cust.name), style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF4F46E5))),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(cust.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                          Text(cust.phone, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                ListTile(
+                  leading: const Icon(PhosphorIconsRegular.receipt, color: Color(0xFF4F46E5)),
+                  title: const Text('Start New Bill', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    startBill?.call(cust);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(PhosphorIconsRegular.phone, color: Color(0xFF0D9488)),
+                  title: const Text('Call Client', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Calling ${cust.name} (${cust.phone})...'), behavior: SnackBarBehavior.floating),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(PhosphorIconsRegular.chatCircle, color: Color(0xFFD97706)),
+                  title: const Text('Send Message', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Opening messaging for ${cust.name}...'), behavior: SnackBarBehavior.floating),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(PhosphorIconsRegular.clockCounterClockwise, color: Color(0xFF4F46E5)),
+                  title: const Text('View All Visits', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showAllBillsDialog(context, cust, customerBills ?? []);
+                  },
+                ),
+                const Divider(height: 18, color: Color(0xFFF1F5F9)),
+                ListTile(
+                  leading: const Icon(PhosphorIconsRegular.archive, color: AppTheme.accentRed),
+                  title: const Text('Remove Customer', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.accentRed)),
+                  subtitle: const Text('Hides them from the app - billing history is kept', style: TextStyle(fontSize: 11)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _confirmArchiveCustomer(context, ref, cust);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // Firestore blocks real customer deletes (see archiveCustomer) - this hides
+  // the client everywhere without touching a single bill.
+  void _confirmArchiveCustomer(BuildContext context, WidgetRef ref, Customer cust) {
+    bool submitting = false;
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AppDialog(
+          icon: PhosphorIconsRegular.archive,
+          iconColor: AppTheme.accentRed,
+          iconBackground: AppTheme.accentRedBg,
+          title: 'Remove ${cust.name}?',
+          subtitle: 'They will no longer appear in the directory, search, or billing.',
+          child: const Text(
+            'Their past bills and visit history stay exactly as they are - nothing is deleted. '
+            'To bring them back, set archived to false on their record in the Firebase Console.',
+            style: TextStyle(fontSize: 12.5, color: AppTheme.slateMedium, height: 1.4),
+          ),
+          actions: AppDialogActions(
+            submitLabel: 'Remove',
+            submitting: submitting,
+            onCancel: () => Navigator.pop(ctx),
+            onSubmit: () async {
+              setDialogState(() => submitting = true);
+              try {
+                await ref.read(appDataProvider.notifier).archiveCustomer(cust.id);
+                if (ctx.mounted) Navigator.pop(ctx);
+                // Close the detail page too when the removal happened there.
+                if (context.mounted && Navigator.of(context).canPop()) {
+                  Navigator.of(context).pop();
+                }
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('${cust.name} removed from the directory.'), backgroundColor: AppTheme.accentGreen),
+                  );
+                }
+              } catch (e) {
+                setDialogState(() => submitting = false);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed),
+                  );
+                }
+              }
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showAllBillsDialog(BuildContext context, Customer cust, List<Bill> bills) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.6,
+          maxChildSize: 0.9,
+          minChildSize: 0.4,
+          builder: (context, scrollCtrl) {
+            return Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('${cust.name} — Visit History', overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: Color(0xFF0F172A))),
+                            Text('${bills.length} total visits', style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                          ],
+                        ),
+                      ),
+                      IconButton(icon: const Icon(PhosphorIconsBold.x), onPressed: () => Navigator.pop(ctx)),
+                    ],
+                  ),
+                  const Divider(height: 24),
+                  Expanded(
+                    child: bills.isEmpty
+                        ? const Center(child: Text('No visits recorded yet.', style: TextStyle(color: Color(0xFF64748B))))
+                        : ListView.separated(
+                            controller: scrollCtrl,
+                            itemCount: bills.length,
+                            separatorBuilder: (context, index) => const Divider(color: Color(0xFFE2E8F0)),
+                            itemBuilder: (context, idx) {
+                              final bill = bills[idx];
+                              final itemNames = bill.items.map((i) => i.serviceName ?? i.productName ?? 'Service').where((s) => s.isNotEmpty).join(' + ');
+                              return ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Container(
+                                  width: 38,
+                                  height: 38,
+                                  decoration: BoxDecoration(color: const Color(0xFFEEF2FF), borderRadius: BorderRadius.circular(10)),
+                                  child: const Icon(PhosphorIconsBold.receipt, color: Color(0xFF4F46E5), size: 18),
+                                ),
+                                title: Text('#${bill.invoiceNumber} • ${_formatShortDate(bill.createdAt)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF0F172A))),
+                                subtitle: Text(itemNames.isNotEmpty ? itemNames : 'Standard Visit', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                                trailing: Text('₹${bill.finalAmount.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Color(0xFF0F172A))),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 
   Widget _buildCustomerHeroCard(BuildContext context, WidgetRef ref, Customer cust, AppData state) {
-    final bills = _customerBills;
+    final bills = customerBills;
 
     // Calculate dynamic stats
     double totalSpent = cust.totalSpent;
@@ -952,7 +1207,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
               const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: () => widget.onStartBill?.call(cust),
+                  onPressed: () => startBill?.call(cust),
                   icon: const Icon(PhosphorIconsBold.receipt, size: 14, color: Colors.white),
                   label: const Text('New Bill', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white)),
                   style: ElevatedButton.styleFrom(
@@ -1037,7 +1292,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> {
           const SizedBox(height: 10),
 
           // Visit History Items
-          if (_loadingBills)
+          if (loadingBills)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
               child: Center(
@@ -1182,10 +1437,14 @@ class OwnerEmployeesTab extends StatefulWidget {
   State<OwnerEmployeesTab> createState() => _OwnerEmployeesTabState();
 }
 
-class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
+class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDetailSections {
   EmployeeProfile? _selectedEmployee;
   final TextEditingController _searchController = TextEditingController();
   String _activeFilter = 'All';
+  // null = every branch. Staff are branch-scoped, so the roster needs a way
+  // to answer "who works at this branch" - the branch name on each row was
+  // the only hint before, with no way to narrow the list down to one.
+  String? _branchFilterId;
 
   @override
   void dispose() {
@@ -1193,13 +1452,24 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
     super.dispose();
   }
 
-  String _todayStatus(AppData state, String employeeId) {
-    final today = DateTime.now();
-    final match = state.attendance.where((a) => a.employeeId == employeeId && a.date != null && _isSameDay(a.date!, today));
-    return match.isEmpty ? 'Absent' : match.first.status;
-  }
-
+  // Staff *are* branch-scoped (unlike customers), so this always asks which
+  // branch the new hire works at - it used to hide the picker whenever the
+  // salon had a single branch, and with *zero* branches it hid the picker
+  // and then rejected the form for having no branch, with no way out of the
+  // dialog. Only open branches are assignable.
   void _showAddEmployeeDialog(BuildContext context, WidgetRef ref, List<Branch> branches) {
+    final assignable = branches.where((b) => b.active).toList();
+    if (assignable.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(branches.isEmpty
+              ? 'Add a branch first - every staff member works at one. See More > Branch Management.'
+              : 'Every branch is deactivated. Reactivate one in More > Branch Management before adding staff.'),
+          backgroundColor: AppTheme.accentRed,
+        ),
+      );
+      return;
+    }
     final nameController = TextEditingController();
     final emailController = TextEditingController();
     final passwordController = TextEditingController();
@@ -1210,7 +1480,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
     final productCommController = TextEditingController(text: '5');
     bool obscurePassword = true;
     bool submitting = false;
-    String? branchId = branches.isNotEmpty ? branches.first.id : null;
+    String branchId = assignable.first.id;
 
     showDialog(
       context: context,
@@ -1241,19 +1511,18 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
               const SizedBox(height: 12),
               TextField(controller: roleController, decoration: appDialogFieldDecoration(label: 'Stylist Role', hint: 'Senior Stylist / Colorist', icon: PhosphorIconsRegular.scissors)),
               const SizedBox(height: 12),
-              if (branches.length > 1)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: DropdownButtonFormField<String>(
-                    value: branchId,
-                    decoration: appDialogFieldDecoration(label: 'Branch', icon: PhosphorIconsRegular.storefront),
-                    borderRadius: BorderRadius.circular(14),
-                    dropdownColor: Colors.white,
-                    elevation: 3,
-                    items: branches.map((b) => DropdownMenuItem(value: b.id, child: Text(b.name))).toList(),
-                    onChanged: (val) => setDialogState(() => branchId = val),
-                  ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: DropdownButtonFormField<String>(
+                  value: branchId,
+                  decoration: appDialogFieldDecoration(label: 'Branch *', icon: PhosphorIconsRegular.storefront),
+                  borderRadius: BorderRadius.circular(14),
+                  dropdownColor: Colors.white,
+                  elevation: 3,
+                  items: assignable.map((b) => DropdownMenuItem(value: b.id, child: Text(b.name))).toList(),
+                  onChanged: (val) => setDialogState(() => branchId = val ?? branchId),
                 ),
+              ),
               TextField(controller: salaryController, keyboardType: TextInputType.number, decoration: appDialogFieldDecoration(label: 'Base Retainer (Rs.)', icon: PhosphorIconsRegular.wallet)),
               const SizedBox(height: 12),
               Row(
@@ -1274,9 +1543,9 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
               final email = emailController.text.trim();
               final phone = phoneController.text.trim();
               final password = passwordController.text;
-              if (name.isEmpty || email.isEmpty || phone.isEmpty || branchId == null) {
+              if (name.isEmpty || email.isEmpty || phone.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Name, email, phone, and branch are required.'), backgroundColor: AppTheme.accentRed),
+                  const SnackBar(content: Text('Name, email, and phone are required.'), backgroundColor: AppTheme.accentRed),
                 );
                 return;
               }
@@ -1301,7 +1570,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
                       productCommissionPct: productComm,
                       email: email,
                       password: password,
-                      branchId: branchId!,
+                      branchId: branchId,
                     );
                 if (ctx.mounted) Navigator.pop(ctx);
                 if (context.mounted) {
@@ -1321,6 +1590,958 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
       ),
     );
   }
+
+  // Roster rows deliberately carry only the name (plus a presence dot) -
+  // everything else about the employee lives on the detail page this pushes.
+  Widget _buildRosterNameRow(BuildContext context, AppData state, EmployeeProfile emp, int idx) {
+    final status = _todayStatus(state, emp.id);
+    final isPresent = status == 'PRESENT';
+    final isLate = status == 'LATE';
+    final bg = _kRosterAvatarBgs[idx % _kRosterAvatarBgs.length];
+    final fg = _kRosterAvatarFgs[idx % _kRosterAvatarFgs.length];
+
+    return InkWell(
+      onTap: () => _openEmployeeDetail(context, emp),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        child: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+              alignment: Alignment.center,
+              child: Text(
+                _initials(emp.name),
+                style: TextStyle(color: fg, fontWeight: FontWeight.w800, fontSize: 12),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                emp.name,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF0F172A),
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: isPresent
+                    ? const Color(0xFF10B981)
+                    : isLate
+                        ? const Color(0xFFF59E0B)
+                        : const Color(0xFFCBD5E1),
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Icon(PhosphorIconsRegular.caretRight, size: 15, color: Color(0xFF94A3B8)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openEmployeeDetail(BuildContext context, EmployeeProfile emp) {
+    // Keep the desktop master-detail pane in sync, so returning from the
+    // pushed page (or switching to a wider window) lands on the same person.
+    setState(() => _selectedEmployee = emp);
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => OwnerEmployeeDetailPage(employeeId: emp.id)),
+    );
+  }
+
+  Widget _buildBody(BuildContext context, WidgetRef ref, AppData state, bool isMobile) {
+    if (isMobile) {
+      return _buildMobileStaffView(context, ref, state);
+    }
+    return _buildDesktopStaffView(context, ref, state);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // LayoutBuilder, not MediaQuery - see the comment in OwnerCustomersTab's
+    // build() for why (the sidebar means MediaQuery's width overstates the
+    // space this tab actually has).
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 768;
+        return Consumer(
+          builder: (context, ref, child) {
+            final asyncData = ref.watch(appDataProvider);
+            return asyncData.when(
+              loading: () => const AppLoadingView(),
+              error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
+              data: (state) => _buildBody(context, ref, state, isMobile),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildFilterChip(String label, String filterKey) {
+    final isSelected = _activeFilter == filterKey;
+    return InkWell(
+      onTap: () => setState(() => _activeFilter = filterKey),
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6.5),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF6366F1) : const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF6366F1) : const Color(0xFFE2E8F0),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+            color: isSelected ? Colors.white : const Color(0xFF475467),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Same pill styling as _buildFilterChip, but keyed on the branch id (and on
+  // null for "every branch") instead of the role/presence filter.
+  Widget _buildBranchChip(String label, String? branchId) {
+    final isSelected = _branchFilterId == branchId;
+    return InkWell(
+      onTap: () => setState(() => _branchFilterId = branchId),
+      borderRadius: BorderRadius.circular(20),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6.5),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFEEF2FF) : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: isSelected ? const Color(0xFF6366F1) : const Color(0xFFE2E8F0)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              branchId == null ? PhosphorIconsRegular.buildings : PhosphorIconsRegular.storefront,
+              size: 12,
+              color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
+            ),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMobileSalonHeader(BuildContext context, String salonName, String? ownerName, int unreadCount) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(7),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+          ),
+          child: const Icon(
+            PhosphorIconsRegular.storefront,
+            size: 18,
+            color: Color(0xFF1E293B),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            salonName,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+              color: Color(0xFF0F172A),
+              letterSpacing: -0.3,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        InkWell(
+          onTap: () {
+            if (widget.onOpenNotifications != null) {
+              widget.onOpenNotifications!();
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('No new notifications'),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
+          },
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              shape: BoxShape.circle,
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                const Icon(PhosphorIconsRegular.bell, size: 18, color: Color(0xFF475467)),
+                Positioned(
+                  top: 7,
+                  right: 7,
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF6366F1),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Container(
+          width: 36,
+          height: 36,
+          decoration: const BoxDecoration(
+            color: Color(0xFFEDE9FE),
+            shape: BoxShape.circle,
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            _initials(ownerName ?? '').isEmpty ? 'OW' : _initials(ownerName ?? ''),
+            style: const TextStyle(
+              color: Color(0xFF6366F1),
+              fontWeight: FontWeight.w800,
+              fontSize: 12.5,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMobileStaffView(BuildContext context, WidgetRef ref, AppData state) {
+    final salonName = state.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Cuts Salon';
+    final ownerName = ref.watch(authControllerProvider).name;
+    final pendingDiscountCount = state.discountRequests.where((r) => r.status == 'PENDING').length;
+    final presentCount = state.employees.where((e) => _todayStatus(state, e.id) == 'PRESENT').length;
+
+    final q = _searchController.text.toLowerCase().trim();
+    final filteredEmployees = state.employees.where((emp) {
+      if (_branchFilterId != null && emp.branchId != _branchFilterId) {
+        return false;
+      }
+      if (q.isNotEmpty && !emp.name.toLowerCase().contains(q) && !emp.roleTitle.toLowerCase().contains(q)) {
+        return false;
+      }
+      if (_activeFilter == 'Present') {
+        return _todayStatus(state, emp.id) == 'PRESENT';
+      }
+      if (_activeFilter != 'All' && !emp.roleTitle.toLowerCase().contains(_activeFilter.toLowerCase())) {
+        return false;
+      }
+      return true;
+    }).toList();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 1. Pinned Salon Header
+          _buildMobileSalonHeader(context, salonName, ownerName, pendingDiscountCount),
+          const SizedBox(height: 16),
+
+          // 2. Title & + Add Staff
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Staff & Stylists',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0F172A),
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${state.employees.length} Active Team Members',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                ],
+              ),
+              InkWell(
+                onTap: () => _showAddEmployeeDialog(context, ref, state.branches),
+                borderRadius: BorderRadius.circular(22),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8.5),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(22),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF4F46E5).withValues(alpha: 0.35),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(PhosphorIconsBold.plus, color: Colors.white, size: 13),
+                      SizedBox(width: 5),
+                      Text(
+                        'Add Staff',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // 3. Search Bar
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (_) => setState(() {}),
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+              decoration: InputDecoration(
+                hintText: 'Search staff or role...',
+                hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+                prefixIcon: const Icon(PhosphorIconsRegular.magnifyingGlass, size: 18, color: Color(0xFF94A3B8)),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(PhosphorIconsRegular.xCircle, size: 18, color: Color(0xFF94A3B8)),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() {});
+                        },
+                      )
+                    : null,
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                isDense: true,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // 4. Filter Chips
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildFilterChip('All (${state.employees.length})', 'All'),
+                const SizedBox(width: 8),
+                _buildFilterChip('Present ($presentCount)', 'Present'),
+                const SizedBox(width: 8),
+                _buildFilterChip('Stylists', 'Stylist'),
+                const SizedBox(width: 8),
+                _buildFilterChip('Reception', 'Reception'),
+              ],
+            ),
+          ),
+
+          // 4b. Branch chips - only worth the row once there's more than one
+          // branch to choose between.
+          if (state.branches.length > 1) ...[
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _buildBranchChip('All Branches (${state.employees.length})', null),
+                  for (final b in state.branches) ...[
+                    const SizedBox(width: 8),
+                    _buildBranchChip(
+                      '${b.name} (${state.employees.where((e) => e.branchId == b.id).length})',
+                      b.id,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 18),
+
+          // 5. Team Roster - names only; tapping opens the full detail page.
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Team Roster',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+              Text(
+                '${filteredEmployees.length} shown',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF94A3B8),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          if (filteredEmployees.isEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              alignment: Alignment.center,
+              child: const Text('No staff members found matching filter.', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13)),
+            )
+          else
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.03),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: [
+                  for (int idx = 0; idx < filteredEmployees.length; idx++) ...[
+                    if (idx > 0) const Divider(height: 1, thickness: 1, color: Color(0xFFF1F5F9)),
+                    _buildRosterNameRow(context, state, filteredEmployees[idx], idx),
+                  ],
+                ],
+              ),
+            ),
+
+          const SizedBox(height: 110), // clearance for floating navbar
+
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDesktopStaffView(BuildContext context, WidgetRef ref, AppData state) {
+    final presentCount = state.employees.where((e) => _todayStatus(state, e.id) == 'PRESENT').length;
+
+    final Widget listColumn = Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: const BorderRadius.horizontal(left: Radius.circular(16)),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
+      padding: const EdgeInsets.all(20.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Expanded(
+                child: Text(
+                  'Staff & Stylists',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.slateDark),
+                ),
+              ),
+              IconButton(
+                onPressed: () => _showGenerateSalaryDialog(context, ref),
+                icon: const Icon(PhosphorIconsRegular.moneyWavy, color: AppTheme.primaryBlue),
+                tooltip: 'Run Payroll for All Staff',
+              ),
+              ElevatedButton.icon(
+                onPressed: () => _showAddEmployeeDialog(context, ref, state.branches),
+                icon: const Icon(PhosphorIconsRegular.plus, size: 16),
+                label: const Text('Add Staff', style: TextStyle(fontSize: 12)),
+                style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), minimumSize: const Size(0, 34)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Active on Shift: $presentCount / ${state.employees.length}',
+            style: const TextStyle(color: AppTheme.slateLight, fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: state.employees.isEmpty
+                ? const Center(child: Text('No employees yet.', style: TextStyle(color: AppTheme.slateLight)))
+                : ListView.builder(
+                    itemCount: state.employees.length,
+                    itemBuilder: (context, idx) {
+                      final emp = state.employees[idx];
+                      final isSel = _selectedEmployee?.id == emp.id;
+                      final status = _todayStatus(state, emp.id);
+                      Color statusColor = AppTheme.accentGreen;
+                      if (status == 'LATE') statusColor = AppTheme.accentAmber;
+                      if (status == 'ABSENT') statusColor = AppTheme.slateLight;
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        decoration: BoxDecoration(
+                          color: isSel ? AppTheme.primaryLight : Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: isSel ? AppTheme.primaryBlue : AppTheme.borderSubtle, width: 1),
+                        ),
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: AppTheme.primaryLight,
+                            child: Text(_initials(emp.name), style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue, fontSize: 12)),
+                          ),
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  emp.name,
+                                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.slateDark),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(6)),
+                                child: Text(status, style: TextStyle(color: statusColor, fontSize: 9, fontWeight: FontWeight.w800)),
+                              ),
+                            ],
+                          ),
+                          subtitle: Text('${emp.roleTitle} • ${emp.email}', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
+                          onTap: () => setState(() => _selectedEmployee = emp),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+
+    return Row(
+      children: [
+        Expanded(flex: 1, child: listColumn),
+        Expanded(
+          flex: 1,
+          child: AppPageSwitcher(
+            child: _selectedEmployee == null
+                ? const Center(
+                    key: ValueKey('empty'),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(PhosphorIconsRegular.identificationBadge, size: 56, color: AppTheme.slateLight),
+                        SizedBox(height: 12),
+                        Text('Select an employee to view details & metrics', style: TextStyle(color: AppTheme.slateMedium)),
+                      ],
+                    ),
+                  )
+                : Container(key: ValueKey('employee-${_selectedEmployee!.id}'), child: _buildEmployeeProfile(context, ref, state)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmployeeProfile(BuildContext context, WidgetRef ref, AppData state) {
+    final emp = state.employees.firstWhere((e) => e.id == _selectedEmployee!.id, orElse: () => _selectedEmployee!);
+
+    final now = DateTime.now();
+    final monthAttendance = state.attendance.where((a) => a.employeeId == emp.id && a.date != null && a.date!.month == now.month && a.date!.year == now.year).toList();
+    final presentDays = monthAttendance.where((a) => a.status == 'PRESENT' || a.status == 'LATE').length;
+    final attendancePct = monthAttendance.isEmpty ? 0.0 : (presentDays / monthAttendance.length) * 100;
+
+    final activeTargets = state.salesTargets.where((t) => t.employeeId == emp.id && t.status == 'ACTIVE').toList();
+    final target = activeTargets.isNotEmpty ? activeTargets.first : null;
+
+    final pendingCommission = state.commissions
+        .where((c) => c.employeeId == emp.id && c.status == 'PENDING')
+        .fold<double>(0, (sum, c) => sum + c.amount);
+    final projectedPayout = emp.baseSalary + pendingCommission;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
+            padding: const EdgeInsets.all(20.0),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 32,
+                  backgroundColor: AppTheme.primaryBlue,
+                  child: Text(_initials(emp.name), style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900)),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(emp.name, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.slateDark)),
+                      Text(emp.roleTitle, style: const TextStyle(color: AppTheme.primaryBlue, fontWeight: FontWeight.w700, fontSize: 12)),
+                      const SizedBox(height: 4),
+                      Text('Phone: ${emp.phone}', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
+                      Text('Email: ${emp.email}', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
+                      if (emp.branchName != null) Text('Branch: ${emp.branchName}', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => _showEditEmployeeDialog(context, ref, emp, state.branches),
+                  icon: const Icon(PhosphorIconsRegular.pencilSimple, color: AppTheme.slateLight),
+                  tooltip: 'Edit Employee',
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
+            padding: const EdgeInsets.all(18.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Sales Target', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.slateDark)),
+                    TextButton.icon(
+                      onPressed: () => _showSetSalesTargetDialog(context, ref, emp),
+                      icon: const Icon(PhosphorIconsRegular.target, size: 15),
+                      label: Text(target == null ? 'Set Target' : 'New Target', style: const TextStyle(fontSize: 12)),
+                      style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8), minimumSize: const Size(0, 30)),
+                    ),
+                  ],
+                ),
+                if (target == null)
+                  const Text('No active sales target set.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
+                else ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('${target.type == 'SERVICE_VOLUME' ? 'Service Revenue' : 'Product Units'} target', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
+                      Text('${(target.progressFraction * 100).toStringAsFixed(0)}% Achieved', style: const TextStyle(color: AppTheme.primaryBlue, fontWeight: FontWeight.w800, fontSize: 12)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(value: target.progressFraction, backgroundColor: const Color(0xFFE2E8F0), valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primaryBlue), minHeight: 7),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Achieved: ${target.progressValue.toStringAsFixed(0)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppTheme.slateDark)),
+                      Text('Target: ${target.targetValue.toStringAsFixed(0)}', style: const TextStyle(fontSize: 12, color: AppTheme.slateLight, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(child: _buildMetricCard('Attendance (Month)', '${attendancePct.toStringAsFixed(0)}%', PhosphorIconsRegular.calendarBlank, AppTheme.accentGreen)),
+              const SizedBox(width: 10),
+              Expanded(child: _buildMetricCard('Base Salary', 'Rs. ${emp.baseSalary.toStringAsFixed(0)}', PhosphorIconsRegular.money, AppTheme.slateDark)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(child: _buildMetricCard('Service Commission', '${emp.serviceCommissionPct.toStringAsFixed(0)}%', PhosphorIconsRegular.percent, AppTheme.primaryBlue)),
+              const SizedBox(width: 10),
+              Expanded(child: _buildMetricCard('Product Commission', '${emp.productCommissionPct.toStringAsFixed(0)}%', PhosphorIconsRegular.percent, AppTheme.primaryBlue)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Container(
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Projected Payout', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.slateDark)),
+                    Text('Base salary + pending commission', style: TextStyle(color: AppTheme.slateLight, fontSize: 11)),
+                  ],
+                ),
+                Text('Rs. ${projectedPayout.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: AppTheme.accentGreen)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          _buildPendingCommissionsCard(context, ref, state, emp),
+          const SizedBox(height: 16),
+          _buildSalaryHistoryCard(context, ref, state, emp),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: OutlinedButton.icon(
+              onPressed: () => _showResetPasswordDialog(context, ref, emp),
+              icon: const Icon(PhosphorIconsRegular.lockKey, size: 18, color: AppTheme.primaryBlue),
+              label: const Text('Reset Employee Password', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.primaryBlue)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+}
+
+const _monthNames = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+// Full-screen detail view for one staff member, pushed from the roster list.
+// Keyed by id rather than by the EmployeeProfile object so an edit made from
+// this page (or by anyone else) re-resolves against the live AppData snapshot
+// instead of rendering a stale copy.
+class OwnerEmployeeDetailPage extends StatefulWidget {
+  final String employeeId;
+
+  const OwnerEmployeeDetailPage({super.key, required this.employeeId});
+
+  @override
+  State<OwnerEmployeeDetailPage> createState() => _OwnerEmployeeDetailPageState();
+}
+
+class _OwnerEmployeeDetailPageState extends State<OwnerEmployeeDetailPage> with _EmployeeDetailSections {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.bgSurface,
+      body: Consumer(
+        builder: (context, ref, child) {
+          final asyncData = ref.watch(appDataProvider);
+          return asyncData.when(
+            loading: () => const AppLoadingView(),
+            error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
+            data: (state) {
+              final matches = state.employees.where((e) => e.id == widget.employeeId);
+              if (matches.isEmpty) {
+                return _buildMissing(context);
+              }
+              final emp = matches.first;
+              final monthName = _monthNames[DateTime.now().month - 1];
+
+              return SafeArea(
+                child: Column(
+                  children: [
+                    _buildHeader(context, ref, state, emp),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildSelectedStaffCard(context, ref, state, emp),
+                            const SizedBox(height: 14),
+                            _buildSalesTargetCard(context, ref, state, emp, monthName),
+                            const SizedBox(height: 14),
+                            _buildMetricsGrid(context, ref, state, emp),
+                            const SizedBox(height: 14),
+                            _buildPayrollEstimateCard(context, ref, state, emp, monthName),
+                            const SizedBox(height: 14),
+                            _buildPendingCommissionsCard(context, ref, state, emp),
+                            const SizedBox(height: 14),
+                            _buildSalaryHistoryCard(context, ref, state, emp),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  // The employee can disappear while this page is open (another owner
+  // deletes them, or the snapshot reloads without them) - show that plainly
+  // rather than popping the user out from under their own scroll position.
+  Widget _buildMissing(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: IconButton(
+                icon: const Icon(PhosphorIconsRegular.arrowLeft, size: 20, color: Color(0xFF0F172A)),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
+          ),
+          const Expanded(
+            child: Center(
+              child: Text(
+                'This staff member is no longer on the roster.',
+                style: TextStyle(color: Color(0xFF64748B), fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context, WidgetRef ref, AppData state, EmployeeProfile emp) {
+    final status = _todayStatus(state, emp.id);
+    final isPresent = status == 'PRESENT';
+    final isLate = status == 'LATE';
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(6, 6, 12, 12),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(PhosphorIconsRegular.arrowLeft, size: 20, color: Color(0xFF0F172A)),
+            tooltip: 'Back to roster',
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          Container(
+            width: 38,
+            height: 38,
+            decoration: const BoxDecoration(color: Color(0xFFEEF2FF), shape: BoxShape.circle),
+            alignment: Alignment.center,
+            child: Text(
+              _initials(emp.name),
+              style: const TextStyle(color: Color(0xFF4F46E5), fontWeight: FontWeight.w800, fontSize: 13),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  emp.name,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF0F172A), letterSpacing: -0.3),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  emp.roleTitle.isEmpty ? 'Staff' : emp.roleTitle,
+                  style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, color: Color(0xFF64748B)),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: isPresent
+                  ? const Color(0xFFECFDF5)
+                  : isLate
+                      ? const Color(0xFFFEF3C7)
+                      : const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              isPresent ? 'Present' : isLate ? 'Late' : 'Absent',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: isPresent
+                    ? const Color(0xFF059669)
+                    : isLate
+                        ? const Color(0xFFD97706)
+                        : const Color(0xFF64748B),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Every section of an employee's detail view. Shared by the desktop
+// master-detail layout in OwnerEmployeesTab and by the pushed
+// OwnerEmployeeDetailPage the mobile roster navigates to, so both render
+// the same cards from the same code.
+mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
+  String _todayStatus(AppData state, String employeeId) {
+    final today = DateTime.now();
+    final match = state.attendance.where((a) => a.employeeId == employeeId && a.date != null && _isSameDay(a.date!, today));
+    return match.isEmpty ? 'Absent' : match.first.status;
+  }
+
 
   void _showResetPasswordDialog(BuildContext context, WidgetRef ref, EmployeeProfile emp) {
     // Firebase's client SDK can't set another user's password directly (no
@@ -1375,7 +2596,14 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
     // Email isn't editable here - it's also the Firebase Auth login
     // identity, and there's no Admin SDK to rename that account to match
     // (same no-server constraint as resetEmployeePassword above).
-    String? branchId = emp.branchId;
+    String? branchId = emp.branchId.isEmpty ? null : emp.branchId;
+    // Only open branches are assignable, but the branch they're already on
+    // stays listed even if it was deactivated - otherwise the dropdown would
+    // show a blank value and any save would silently move them elsewhere.
+    final assignable = [
+      ...branches.where((b) => b.active),
+      ...branches.where((b) => !b.active && b.id == emp.branchId),
+    ];
     bool active = emp.active;
     // Firestore rules gate almost every write/read on isActiveEmployee()
     // (via myProfile().active) - if the owner flipped this off on their own
@@ -1400,16 +2628,21 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
               const SizedBox(height: 12),
               TextField(controller: roleController, decoration: appDialogFieldDecoration(label: 'Stylist Role', icon: PhosphorIconsRegular.scissors)),
               const SizedBox(height: 12),
-              if (branches.length > 1)
+              if (assignable.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: DropdownButtonFormField<String>(
                     value: branchId,
-                    decoration: appDialogFieldDecoration(label: 'Branch', icon: PhosphorIconsRegular.storefront),
+                    decoration: appDialogFieldDecoration(label: 'Branch *', icon: PhosphorIconsRegular.storefront),
                     borderRadius: BorderRadius.circular(14),
                     dropdownColor: Colors.white,
                     elevation: 3,
-                    items: branches.map((b) => DropdownMenuItem(value: b.id, child: Text(b.name))).toList(),
+                    items: assignable
+                        .map((b) => DropdownMenuItem(
+                              value: b.id,
+                              child: Text(b.active ? b.name : '${b.name} (deactivated)'),
+                            ))
+                        .toList(),
                     onChanged: (val) => setDialogState(() => branchId = val),
                   ),
                 ),
@@ -1586,10 +2819,6 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
     );
   }
 
-  static const _monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
-  ];
 
   // forEmployee == null runs payroll for every active employee at once
   // (AppDataNotifier.generateSalary / SalonFirestore.generateSalary already
@@ -1663,524 +2892,6 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
             },
           ),
         ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // LayoutBuilder, not MediaQuery - see the comment in OwnerCustomersTab's
-    // build() for why (the sidebar means MediaQuery's width overstates the
-    // space this tab actually has).
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isMobile = constraints.maxWidth < 768;
-        return Consumer(
-          builder: (context, ref, child) {
-            final asyncData = ref.watch(appDataProvider);
-            return asyncData.when(
-              loading: () => const AppLoadingView(),
-              error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
-              data: (state) => _buildBody(context, ref, state, isMobile),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildBody(BuildContext context, WidgetRef ref, AppData state, bool isMobile) {
-    if (isMobile) {
-      return _buildMobileStaffView(context, ref, state);
-    }
-    return _buildDesktopStaffView(context, ref, state);
-  }
-
-  Widget _buildFilterChip(String label, String filterKey) {
-    final isSelected = _activeFilter == filterKey;
-    return InkWell(
-      onTap: () => setState(() => _activeFilter = filterKey),
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6.5),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF6366F1) : const Color(0xFFF1F5F9),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isSelected ? const Color(0xFF6366F1) : const Color(0xFFE2E8F0),
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-            color: isSelected ? Colors.white : const Color(0xFF475467),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMobileSalonHeader(BuildContext context, String salonName, String? ownerName, int unreadCount) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(7),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF1F5F9),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-          ),
-          child: const Icon(
-            PhosphorIconsRegular.storefront,
-            size: 18,
-            color: Color(0xFF1E293B),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            salonName,
-            style: const TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 16,
-              color: Color(0xFF0F172A),
-              letterSpacing: -0.3,
-            ),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-        InkWell(
-          onTap: () {
-            if (widget.onOpenNotifications != null) {
-              widget.onOpenNotifications!();
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('No new notifications'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            }
-          },
-          borderRadius: BorderRadius.circular(20),
-          child: Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                const Icon(PhosphorIconsRegular.bell, size: 18, color: Color(0xFF475467)),
-                Positioned(
-                  top: 7,
-                  right: 7,
-                  child: Container(
-                    width: 7,
-                    height: 7,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF6366F1),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Container(
-          width: 36,
-          height: 36,
-          decoration: const BoxDecoration(
-            color: Color(0xFFEDE9FE),
-            shape: BoxShape.circle,
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            _initials(ownerName ?? '').isEmpty ? 'OW' : _initials(ownerName ?? ''),
-            style: const TextStyle(
-              color: Color(0xFF6366F1),
-              fontWeight: FontWeight.w800,
-              fontSize: 12.5,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMobileStaffView(BuildContext context, WidgetRef ref, AppData state) {
-    final salonName = state.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Cuts Salon';
-    final ownerName = ref.watch(authControllerProvider).name;
-    final pendingDiscountCount = state.discountRequests.where((r) => r.status == 'PENDING').length;
-    final presentCount = state.employees.where((e) => _todayStatus(state, e.id) == 'PRESENT').length;
-
-    final q = _searchController.text.toLowerCase().trim();
-    final filteredEmployees = state.employees.where((emp) {
-      if (q.isNotEmpty && !emp.name.toLowerCase().contains(q) && !emp.roleTitle.toLowerCase().contains(q)) {
-        return false;
-      }
-      if (_activeFilter == 'Present') {
-        return _todayStatus(state, emp.id) == 'PRESENT';
-      }
-      if (_activeFilter != 'All' && !emp.roleTitle.toLowerCase().contains(_activeFilter.toLowerCase())) {
-        return false;
-      }
-      return true;
-    }).toList();
-
-    EmployeeProfile? selectedEmp;
-    if (_selectedEmployee != null && state.employees.any((e) => e.id == _selectedEmployee!.id)) {
-      selectedEmp = state.employees.firstWhere((e) => e.id == _selectedEmployee!.id);
-    } else if (filteredEmployees.isNotEmpty) {
-      selectedEmp = filteredEmployees.first;
-    } else if (state.employees.isNotEmpty) {
-      selectedEmp = state.employees.first;
-    }
-
-    final now = DateTime.now();
-    final monthName = _monthNames[now.month - 1];
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 1. Pinned Salon Header
-          _buildMobileSalonHeader(context, salonName, ownerName, pendingDiscountCount),
-          const SizedBox(height: 16),
-
-          // 2. Title & + Add Staff
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Staff & Stylists',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${state.employees.length} Active Team Members',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF64748B),
-                    ),
-                  ),
-                ],
-              ),
-              InkWell(
-                onTap: () => _showAddEmployeeDialog(context, ref, state.branches),
-                borderRadius: BorderRadius.circular(22),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8.5),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(22),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF4F46E5).withValues(alpha: 0.35),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(PhosphorIconsBold.plus, color: Colors.white, size: 13),
-                      SizedBox(width: 5),
-                      Text(
-                        'Add Staff',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-
-          // 3. Search Bar
-          Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: TextField(
-              controller: _searchController,
-              onChanged: (_) => setState(() {}),
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-              decoration: InputDecoration(
-                hintText: 'Search staff or role...',
-                hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
-                prefixIcon: const Icon(PhosphorIconsRegular.magnifyingGlass, size: 18, color: Color(0xFF94A3B8)),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(PhosphorIconsRegular.xCircle, size: 18, color: Color(0xFF94A3B8)),
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() {});
-                        },
-                      )
-                    : null,
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                isDense: true,
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          // 4. Filter Chips
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _buildFilterChip('All (${state.employees.length})', 'All'),
-                const SizedBox(width: 8),
-                _buildFilterChip('Present ($presentCount)', 'Present'),
-                const SizedBox(width: 8),
-                _buildFilterChip('Stylists', 'Stylist'),
-                const SizedBox(width: 8),
-                _buildFilterChip('Reception', 'Reception'),
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
-
-          // 5. Team Roster Header & Carousel
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Team Roster',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
-                ),
-              ),
-              InkWell(
-                onTap: () => _showAllStaffSheet(context, ref, state),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                  child: Text(
-                    'VIEW ALL',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF4F46E5),
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-
-          if (filteredEmployees.isEmpty)
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 24),
-              alignment: Alignment.center,
-              child: const Text('No staff members found matching filter.', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13)),
-            )
-          else
-            SizedBox(
-              height: 126,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: filteredEmployees.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 10),
-                itemBuilder: (context, idx) {
-                  final emp = filteredEmployees[idx];
-                  final isSelected = selectedEmp?.id == emp.id;
-                  final status = _todayStatus(state, emp.id);
-                  final isPresent = status == 'PRESENT';
-                  final isLate = status == 'LATE';
-
-                  final bg = _kRosterAvatarBgs[idx % _kRosterAvatarBgs.length];
-                  final fg = _kRosterAvatarFgs[idx % _kRosterAvatarFgs.length];
-
-                  return InkWell(
-                    onTap: () => setState(() => _selectedEmployee = emp),
-                    borderRadius: BorderRadius.circular(16),
-                    child: Container(
-                      width: 112,
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: isSelected ? const Color(0xFFFAF5FF) : Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: isSelected ? const Color(0xFF6366F1) : const Color(0xFFE2E8F0),
-                          width: isSelected ? 1.6 : 1,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.03),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Stack(
-                        children: [
-                          if (isPresent)
-                            Positioned(
-                              top: 2,
-                              right: 2,
-                              child: Container(
-                                width: 7,
-                                height: 7,
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFF10B981),
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                            ),
-                          Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Container(
-                                  width: 36,
-                                  height: 36,
-                                  decoration: BoxDecoration(
-                                    color: bg,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  alignment: Alignment.center,
-                                  child: Text(
-                                    _initials(emp.name),
-                                    style: TextStyle(
-                                      color: fg,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 12.5,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  emp.name,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w800,
-                                    color: Color(0xFF0F172A),
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  emp.roleTitle,
-                                  style: const TextStyle(
-                                    fontSize: 9.5,
-                                    fontWeight: FontWeight.w500,
-                                    color: Color(0xFF64748B),
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                ),
-                                const SizedBox(height: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: isPresent
-                                        ? const Color(0xFFECFDF5)
-                                        : isLate
-                                            ? const Color(0xFFFEF3C7)
-                                            : const Color(0xFFF1F5F9),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Container(
-                                        width: 5,
-                                        height: 5,
-                                        decoration: BoxDecoration(
-                                          color: isPresent
-                                              ? const Color(0xFF10B981)
-                                              : isLate
-                                                  ? const Color(0xFFF59E0B)
-                                                  : const Color(0xFF94A3B8),
-                                          shape: BoxShape.circle,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        isPresent ? 'Present' : isLate ? 'Late' : 'Absent',
-                                        style: TextStyle(
-                                          fontSize: 9,
-                                          fontWeight: FontWeight.w700,
-                                          color: isPresent
-                                              ? const Color(0xFF059669)
-                                              : isLate
-                                                  ? const Color(0xFFD97706)
-                                                  : const Color(0xFF64748B),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          const SizedBox(height: 16),
-
-          // 6. Selected Staff Profile Details Card
-          if (selectedEmp != null) ...[
-            _buildSelectedStaffCard(context, ref, state, selectedEmp),
-            const SizedBox(height: 14),
-
-            // 7. Monthly Sales Target Card
-            _buildSalesTargetCard(context, ref, state, selectedEmp, monthName),
-            const SizedBox(height: 14),
-
-            // 8. 2x2 Metrics Grid
-            _buildMetricsGrid(context, ref, state, selectedEmp),
-            const SizedBox(height: 14),
-
-            // 9. Payroll Estimate Card
-            _buildPayrollEstimateCard(context, ref, state, selectedEmp, monthName),
-          ],
-
-          const SizedBox(height: 110), // clearance for floating navbar
-        ],
       ),
     );
   }
@@ -2751,17 +3462,18 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
   }
 
   Widget _buildPayrollEstimateCard(BuildContext context, WidgetRef ref, AppData state, EmployeeProfile emp, String monthName) {
-    final pendingCommissions = state.commissions.where((c) => c.employeeId == emp.id && c.status == 'PENDING').toList();
-    final pendingCommissionTotal = pendingCommissions.fold<double>(0, (sum, c) => sum + c.amount);
-
-    final serviceComm = pendingCommissionTotal > 0
-        ? pendingCommissionTotal * 0.85
-        : (emp.baseSalary * (emp.serviceCommissionPct / 100) * 2.5);
-    final productComm = pendingCommissionTotal > 0
-        ? pendingCommissionTotal * 0.15
-        : (emp.baseSalary * (emp.productCommissionPct / 100) * 1.2);
-
-    final projectedPayout = emp.baseSalary + (pendingCommissionTotal > 0 ? pendingCommissionTotal : (serviceComm + productComm));
+    // Shared with the employee's own Earnings screen (AppData.
+    // pendingCommissionFor) so both render the same figures. This used to be
+    // a fabricated 85/15 split of the pending total, falling back to
+    // baseSalary * pct * 2.5 (services) and * 1.2 (retail) when nothing was
+    // pending - magic multipliers with no data behind them, on the screen the
+    // owner uses to decide what to pay someone.
+    final split = state.pendingCommissionFor(emp.id);
+    final pendingCommissionTotal = split.total;
+    final serviceComm = split.service;
+    final productComm = split.product;
+    final unattributedComm = split.unattributed;
+    final projectedPayout = emp.baseSalary + pendingCommissionTotal;
 
     return Container(
       decoration: BoxDecoration(
@@ -2852,6 +3564,13 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
             'Product Commission (${emp.productCommissionPct.toInt()}%)',
             '+ ₹${productComm.toStringAsFixed(0)}',
           ),
+          if (unattributedComm.abs() >= 1) ...[
+            const SizedBox(height: 6),
+            _buildPayrollBreakdownRow(
+              'Other pending commission',
+              '+ ₹${unattributedComm.toStringAsFixed(0)}',
+            ),
+          ],
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
@@ -3083,399 +3802,6 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> {
           },
         );
       },
-    );
-  }
-
-  void _showAllStaffSheet(BuildContext context, WidgetRef ref, AppData state) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.7,
-          minChildSize: 0.4,
-          maxChildSize: 0.9,
-          expand: false,
-          builder: (context, scrollController) {
-            return Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE2E8F0),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'All Staff Members',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF0F172A),
-                        ),
-                      ),
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          _showAddEmployeeDialog(context, ref, state.branches);
-                        },
-                        icon: const Icon(PhosphorIconsBold.plus, size: 14),
-                        label: const Text('Add Staff', style: TextStyle(fontSize: 12)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF6366F1),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Expanded(
-                    child: ListView.separated(
-                      controller: scrollController,
-                      itemCount: state.employees.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                      itemBuilder: (context, idx) {
-                        final emp = state.employees[idx];
-                        final status = _todayStatus(state, emp.id);
-                        final isPresent = status == 'PRESENT';
-
-                        return ListTile(
-                          contentPadding: const EdgeInsets.symmetric(vertical: 4),
-                          leading: CircleAvatar(
-                            backgroundColor: const Color(0xFFEDE9FE),
-                            child: Text(
-                              _initials(emp.name),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF6366F1),
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                          title: Text(
-                            emp.name,
-                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: Color(0xFF0F172A)),
-                          ),
-                          subtitle: Text(
-                            '${emp.roleTitle} • ${emp.phone}',
-                            style: const TextStyle(color: Color(0xFF64748B), fontSize: 11.5),
-                          ),
-                          trailing: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: isPresent ? const Color(0xFFECFDF5) : const Color(0xFFF1F5F9),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              status,
-                              style: TextStyle(
-                                color: isPresent ? const Color(0xFF059669) : const Color(0xFF64748B),
-                                fontSize: 10,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                          onTap: () {
-                            setState(() => _selectedEmployee = emp);
-                            Navigator.pop(ctx);
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildDesktopStaffView(BuildContext context, WidgetRef ref, AppData state) {
-    final presentCount = state.employees.where((e) => _todayStatus(state, e.id) == 'PRESENT').length;
-
-    final Widget listColumn = Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: const BorderRadius.horizontal(left: Radius.circular(16)),
-        border: Border.all(color: AppTheme.borderSubtle),
-      ),
-      padding: const EdgeInsets.all(20.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Expanded(
-                child: Text(
-                  'Staff & Stylists',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.slateDark),
-                ),
-              ),
-              IconButton(
-                onPressed: () => _showGenerateSalaryDialog(context, ref),
-                icon: const Icon(PhosphorIconsRegular.moneyWavy, color: AppTheme.primaryBlue),
-                tooltip: 'Run Payroll for All Staff',
-              ),
-              ElevatedButton.icon(
-                onPressed: () => _showAddEmployeeDialog(context, ref, state.branches),
-                icon: const Icon(PhosphorIconsRegular.plus, size: 16),
-                label: const Text('Add Staff', style: TextStyle(fontSize: 12)),
-                style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), minimumSize: const Size(0, 34)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Active on Shift: $presentCount / ${state.employees.length}',
-            style: const TextStyle(color: AppTheme.slateLight, fontSize: 12, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: state.employees.isEmpty
-                ? const Center(child: Text('No employees yet.', style: TextStyle(color: AppTheme.slateLight)))
-                : ListView.builder(
-                    itemCount: state.employees.length,
-                    itemBuilder: (context, idx) {
-                      final emp = state.employees[idx];
-                      final isSel = _selectedEmployee?.id == emp.id;
-                      final status = _todayStatus(state, emp.id);
-                      Color statusColor = AppTheme.accentGreen;
-                      if (status == 'LATE') statusColor = AppTheme.accentAmber;
-                      if (status == 'ABSENT') statusColor = AppTheme.slateLight;
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        decoration: BoxDecoration(
-                          color: isSel ? AppTheme.primaryLight : Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: isSel ? AppTheme.primaryBlue : AppTheme.borderSubtle, width: 1),
-                        ),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: AppTheme.primaryLight,
-                            child: Text(_initials(emp.name), style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue, fontSize: 12)),
-                          ),
-                          title: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  emp.name,
-                                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.slateDark),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(6)),
-                                child: Text(status, style: TextStyle(color: statusColor, fontSize: 9, fontWeight: FontWeight.w800)),
-                              ),
-                            ],
-                          ),
-                          subtitle: Text('${emp.roleTitle} • ${emp.email}', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
-                          onTap: () => setState(() => _selectedEmployee = emp),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
-    );
-
-    return Row(
-      children: [
-        Expanded(flex: 1, child: listColumn),
-        Expanded(
-          flex: 1,
-          child: AppPageSwitcher(
-            child: _selectedEmployee == null
-                ? const Center(
-                    key: ValueKey('empty'),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(PhosphorIconsRegular.identificationBadge, size: 56, color: AppTheme.slateLight),
-                        SizedBox(height: 12),
-                        Text('Select an employee to view details & metrics', style: TextStyle(color: AppTheme.slateMedium)),
-                      ],
-                    ),
-                  )
-                : Container(key: ValueKey('employee-${_selectedEmployee!.id}'), child: _buildEmployeeProfile(context, ref, state)),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEmployeeProfile(BuildContext context, WidgetRef ref, AppData state) {
-    final emp = state.employees.firstWhere((e) => e.id == _selectedEmployee!.id, orElse: () => _selectedEmployee!);
-
-    final now = DateTime.now();
-    final monthAttendance = state.attendance.where((a) => a.employeeId == emp.id && a.date != null && a.date!.month == now.month && a.date!.year == now.year).toList();
-    final presentDays = monthAttendance.where((a) => a.status == 'PRESENT' || a.status == 'LATE').length;
-    final attendancePct = monthAttendance.isEmpty ? 0.0 : (presentDays / monthAttendance.length) * 100;
-
-    final activeTargets = state.salesTargets.where((t) => t.employeeId == emp.id && t.status == 'ACTIVE').toList();
-    final target = activeTargets.isNotEmpty ? activeTargets.first : null;
-
-    final pendingCommission = state.commissions
-        .where((c) => c.employeeId == emp.id && c.status == 'PENDING')
-        .fold<double>(0, (sum, c) => sum + c.amount);
-    final projectedPayout = emp.baseSalary + pendingCommission;
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
-            padding: const EdgeInsets.all(20.0),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 32,
-                  backgroundColor: AppTheme.primaryBlue,
-                  child: Text(_initials(emp.name), style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900)),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(emp.name, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.slateDark)),
-                      Text(emp.roleTitle, style: const TextStyle(color: AppTheme.primaryBlue, fontWeight: FontWeight.w700, fontSize: 12)),
-                      const SizedBox(height: 4),
-                      Text('Phone: ${emp.phone}', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
-                      Text('Email: ${emp.email}', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
-                      if (emp.branchName != null) Text('Branch: ${emp.branchName}', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => _showEditEmployeeDialog(context, ref, emp, state.branches),
-                  icon: const Icon(PhosphorIconsRegular.pencilSimple, color: AppTheme.slateLight),
-                  tooltip: 'Edit Employee',
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
-            padding: const EdgeInsets.all(18.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Sales Target', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.slateDark)),
-                    TextButton.icon(
-                      onPressed: () => _showSetSalesTargetDialog(context, ref, emp),
-                      icon: const Icon(PhosphorIconsRegular.target, size: 15),
-                      label: Text(target == null ? 'Set Target' : 'New Target', style: const TextStyle(fontSize: 12)),
-                      style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8), minimumSize: const Size(0, 30)),
-                    ),
-                  ],
-                ),
-                if (target == null)
-                  const Text('No active sales target set.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
-                else ...[
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('${target.type == 'SERVICE_VOLUME' ? 'Service Revenue' : 'Product Units'} target', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
-                      Text('${(target.progressFraction * 100).toStringAsFixed(0)}% Achieved', style: const TextStyle(color: AppTheme.primaryBlue, fontWeight: FontWeight.w800, fontSize: 12)),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(value: target.progressFraction, backgroundColor: const Color(0xFFE2E8F0), valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primaryBlue), minHeight: 7),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Achieved: ${target.progressValue.toStringAsFixed(0)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppTheme.slateDark)),
-                      Text('Target: ${target.targetValue.toStringAsFixed(0)}', style: const TextStyle(fontSize: 12, color: AppTheme.slateLight, fontWeight: FontWeight.w600)),
-                    ],
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(child: _buildMetricCard('Attendance (Month)', '${attendancePct.toStringAsFixed(0)}%', PhosphorIconsRegular.calendarBlank, AppTheme.accentGreen)),
-              const SizedBox(width: 10),
-              Expanded(child: _buildMetricCard('Base Salary', 'Rs. ${emp.baseSalary.toStringAsFixed(0)}', PhosphorIconsRegular.money, AppTheme.slateDark)),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(child: _buildMetricCard('Service Commission', '${emp.serviceCommissionPct.toStringAsFixed(0)}%', PhosphorIconsRegular.percent, AppTheme.primaryBlue)),
-              const SizedBox(width: 10),
-              Expanded(child: _buildMetricCard('Product Commission', '${emp.productCommissionPct.toStringAsFixed(0)}%', PhosphorIconsRegular.percent, AppTheme.primaryBlue)),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Container(
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Projected Payout', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.slateDark)),
-                    Text('Base salary + pending commission', style: TextStyle(color: AppTheme.slateLight, fontSize: 11)),
-                  ],
-                ),
-                Text('Rs. ${projectedPayout.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: AppTheme.accentGreen)),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          _buildPendingCommissionsCard(context, ref, state, emp),
-          const SizedBox(height: 16),
-          _buildSalaryHistoryCard(context, ref, state, emp),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            height: 44,
-            child: OutlinedButton.icon(
-              onPressed: () => _showResetPasswordDialog(context, ref, emp),
-              icon: const Icon(PhosphorIconsRegular.lockKey, size: 18, color: AppTheme.primaryBlue),
-              label: const Text('Reset Employee Password', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.primaryBlue)),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
