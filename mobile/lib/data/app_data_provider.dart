@@ -140,9 +140,13 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     if (await _fs.isPhoneTaken(phone)) {
       throw Exception('An employee with this phone number already exists');
     }
-    if (await _fs.getBranch(branchId) == null) {
-      throw Exception('Branch not found');
-    }
+    // Staff are branch-scoped (unlike customers, who are salon-wide), so the
+    // branch has to resolve *and* still be open - hiring into a deactivated
+    // branch used to be accepted silently and left the new employee on a
+    // branch that no longer appears anywhere in the app.
+    final branch = await _fs.getBranch(branchId);
+    if (branch == null) throw Exception('Branch not found');
+    if (!branch.active) throw Exception('"${branch.name}" is deactivated - reactivate it before assigning staff');
     final ownerApp = SalonAuth.currentApp(auth.salonId!);
     if (ownerApp == null) throw Exception('No initialized Firebase app for salon "${auth.salonId}"');
     // Creating the Auth account happens on a throwaway secondary app (see
@@ -180,8 +184,15 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
 
   Future<void> updateEmployee(String id, Map<String, dynamic> changes) async {
     final newBranchId = changes['branchId'] as String?;
-    if (newBranchId != null && await _fs.getBranch(newBranchId) == null) {
-      throw Exception('Branch not found');
+    if (newBranchId != null) {
+      final branch = await _fs.getBranch(newBranchId);
+      if (branch == null) throw Exception('Branch not found');
+      // Same rule as addEmployee - you can move staff *out* of a deactivated
+      // branch, never into one.
+      final existingBranchId = state.value?.employeeById(id)?.branchId;
+      if (!branch.active && newBranchId != existingBranchId) {
+        throw Exception('"${branch.name}" is deactivated - reactivate it before assigning staff');
+      }
     }
     await _fs.updateEmployee(id, changes);
     final current = state.value;
@@ -238,19 +249,22 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
 
   // --- Customers ---
 
+  // The client directory is deliberately salon-wide: one customer record is
+  // visible and billable at every branch, so this takes no branchId and
+  // never asks the caller for one. `branchId` stays on the document only as
+  // "where they were first registered" (empty when unknown) - nothing reads
+  // it to decide what a branch can see. A branch's client figure comes from
+  // its bills instead (see firestore_app_data.dart).
   Future<void> addCustomer({
     required String name,
     required String phone,
     String? email,
     String? gender,
     bool? isVip,
-    required String branchId,
+    String? registeredAtBranchId,
   }) async {
     if (await _fs.isCustomerPhoneTaken(phone)) {
       throw Exception('A customer with this phone number already exists');
-    }
-    if (await _fs.getBranch(branchId) == null) {
-      throw Exception('Branch not found');
     }
     final createdFS = await _fs.createCustomer(FSCustomer(
       id: '',
@@ -259,11 +273,45 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       email: email,
       gender: gender,
       isVip: isVip ?? false,
-      branchId: branchId,
+      branchId: registeredAtBranchId ?? '',
     ));
     final created = customerFromFS(createdFS);
     final current = state.value;
     if (current != null) state = AsyncData(current.copyWith(customers: [created, ...current.customers]));
+  }
+
+  // firestore.rules blocks customer deletes on purpose ("customer history
+  // should never disappear"), so removing a client is an archive flag, not a
+  // delete: the doc and every bill that references it stay put, the client
+  // just stops appearing anywhere in the app (see firestore_app_data.dart,
+  // which filters archived rows out of the snapshot). Reversible from the
+  // Firebase Console by setting archived back to false.
+  Future<void> archiveCustomer(String id) async {
+    final current = state.value;
+    if (current == null) throw Exception('Not ready yet - try again in a moment');
+    final match = current.customers.where((c) => c.id == id);
+    if (match.isEmpty) throw Exception('Customer not found');
+
+    await _fs.updateCustomer(id, {'archived': true});
+    state = AsyncData(current.copyWith(
+      customers: current.customers.where((c) => c.id != id).toList(),
+      archivedCustomers: [match.first, ...current.archivedCustomers],
+    ));
+  }
+
+  // The inverse - puts a client back in the directory (and back in every
+  // picker) without touching anything else on their record.
+  Future<void> unarchiveCustomer(String id) async {
+    final current = state.value;
+    if (current == null) throw Exception('Not ready yet - try again in a moment');
+    final match = current.archivedCustomers.where((c) => c.id == id);
+    if (match.isEmpty) throw Exception('Customer not found');
+
+    await _fs.updateCustomer(id, {'archived': false});
+    state = AsyncData(current.copyWith(
+      archivedCustomers: current.archivedCustomers.where((c) => c.id != id).toList(),
+      customers: [match.first, ...current.customers],
+    ));
   }
 
   // On-demand, not part of AppData - a customer's full visit history isn't
@@ -424,7 +472,9 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       branchId: branchId,
       paymentMethod: paymentMethod,
       createdBy: auth.userId!,
-      gstRate: current.settings?.gstRate ?? 18,
+      // GST is opt-in: a salon charges no tax until the owner sets a rate
+      // in Settings, so the fallback here is 0, not 18.
+      gstRate: current.settings?.gstRate ?? 0,
       billDiscountAmount: discountAmount ?? 0,
       items: drafts,
     );

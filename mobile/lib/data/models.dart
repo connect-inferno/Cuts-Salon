@@ -114,6 +114,10 @@ class Customer {
   final int visitCount;
   final double totalSpent;
   final DateTime? lastVisitAt;
+  // Archived clients are hidden from every list in the app but their
+  // documents (and all their past bills) stay exactly where they were -
+  // firestore.rules blocks customer deletes on purpose.
+  final bool archived;
 
   Customer({
     required this.id,
@@ -128,6 +132,7 @@ class Customer {
     this.visitCount = 0,
     this.totalSpent = 0,
     this.lastVisitAt,
+    this.archived = false,
   });
 
   factory Customer.fromJson(Map<String, dynamic> json) => Customer(
