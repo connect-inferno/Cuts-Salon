@@ -175,6 +175,22 @@ class SalonAuth {
   // Called on app startup, before showing the login screen - restores a
   // previous session the same way the old REST backend's "read stored JWT,
   // call /auth/me" flow did.
+  // The email of the last account signed in on this device, kept so the
+  // login screen can pre-fill it after a session ends. Cleared by signOut(),
+  // so it only survives a session that expired rather than one the user
+  // deliberately ended. Never a password - just the address.
+  static Future<String?> lastSignedInEmail() => _safeRead(_lastEmailKey);
+
+  // True when this device remembers who was signed in but Firebase no longer
+  // holds their credential. That is the signature of storage being evicted
+  // underneath us (Safari ITP caps script-writable storage at 7 days of not
+  // visiting the site) or of the refresh token being revoked - as opposed to
+  // a first-ever visit, where nothing is remembered either.
+  static Future<bool> hadSessionButLostIt() async {
+    final salonId = await _safeRead(_lastSalonIdKey);
+    return salonId != null;
+  }
+
   static Future<SalonLoginResult?> restoreSession() async {
     final salonId = await _safeRead(_lastSalonIdKey);
     final email = await _safeRead(_lastEmailKey);

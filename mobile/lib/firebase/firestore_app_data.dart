@@ -59,6 +59,7 @@ Customer customerFromFS(FSCustomer c) => Customer(
       visitCount: c.visitCount,
       totalSpent: c.totalSpent,
       lastVisitAt: c.lastVisitAt,
+      archived: c.archived,
     );
 
 ServiceCategory categoryFromFS(FSServiceCategory c) => ServiceCategory(id: c.id, name: c.name);
@@ -234,32 +235,47 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth) async {
   // listBills() doesn't fetch the items subcollection (would be N+1 for
   // every list load otherwise); fetch each bill's items in parallel here,
   // reproducing the REST backend's `include: { items: true }` shape.
-  final billItemsByBill = await Future.wait(billsFS.map((b) => fs.listBillItems(b.id)));
+  final billItemsByBill = await fs.listBillItemsForBills(billsFS);
   final bills = <Bill>[
-    for (var i = 0; i < billsFS.length; i++) billFromFS(billsFS[i], items: billItemsByBill[i]),
+    for (var i = 0; i < billsFS.length; i++)
+      billFromFS(billsFS[i], items: billItemsByBill[billsFS[i].id] ?? const []),
   ];
 
   final employees = employeesFS.map((e) => employeeFromFS(e, canSeePay: auth.isOwner || e.userId == auth.userId)).toList();
 
   final startOfMonth = DateTime(DateTime.now().year, DateTime.now().month, 1);
   final branches = branchesFS.map((b) {
-    final monthlyRevenue = _round2(billsFS
-        .where((bill) => bill.branchId == b.id && bill.createdAt != null && !bill.createdAt!.isBefore(startOfMonth))
+    final branchBills = billsFS.where((bill) => bill.branchId == b.id);
+    final monthlyRevenue = _round2(branchBills
+        .where((bill) => bill.createdAt != null && !bill.createdAt!.isBefore(startOfMonth))
         .fold(0.0, (sum, bill) => sum + bill.finalAmount));
     return branchFromFS(
       b,
       employeeCount: employeesFS.where((e) => e.branchId == b.id).length,
-      customerCount: customersFS.where((c) => c.branchId == b.id).length,
+      // The client directory is salon-wide - one customer can be served at
+      // any branch - so a branch's client number is "distinct clients billed
+      // here", not "clients that belong to this branch". (It used to count
+      // customers/{id}.branchId, which split one shared directory across
+      // branches and made the numbers never add up to the real client
+      // count.) Scoped to the loaded bills window - see listBills()'s
+      // billsPageSize cap.
+      customerCount: branchBills.map((bill) => bill.customerId).where((id) => id.isNotEmpty).toSet().length,
       monthlyRevenue: monthlyRevenue,
     );
   }).toList();
 
   final dashboard = auth.isOwner ? DashboardSummary.fromJson(await fs.getDashboardSummary()) : null;
 
+  final allCustomers = customersFS.map(customerFromFS).toList();
+
   return AppData(
     branches: branches,
     employees: employees,
-    customers: customersFS.map(customerFromFS).toList(),
+    // Split here rather than per-screen so an archived client can't leak back
+    // into a picker somewhere - only the Customers tab's Archived filter
+    // reads archivedCustomers.
+    customers: allCustomers.where((c) => !c.archived).toList(),
+    archivedCustomers: allCustomers.where((c) => c.archived).toList(),
     categories: categoriesFS.map(categoryFromFS).toList(),
     services: servicesFS.map(serviceFromFS).toList(),
     inventory: inventoryFS.map(inventoryFromFS).toList(),

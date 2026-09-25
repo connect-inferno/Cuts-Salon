@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firestore_models.dart';
 
@@ -36,11 +37,11 @@ class SalonFirestore {
     try {
       final doc = await db.collection('settings').doc('main').get();
       if (!doc.exists) {
-        return FSSettings(salonName: 'Stylux Salon', gstRate: 18, lateAttendancePenalty: 0);
+        return FSSettings(salonName: 'Stylux Salon', gstRate: 0, lateAttendancePenalty: 0);
       }
       return FSSettings.fromFirestore(doc);
     } catch (_) {
-      return FSSettings(salonName: 'Stylux Salon', gstRate: 18, lateAttendancePenalty: 0);
+      return FSSettings(salonName: 'Stylux Salon', gstRate: 0, lateAttendancePenalty: 0);
     }
   }
 
@@ -371,6 +372,66 @@ class SalonFirestore {
     return snap.docs.map(FSBillItem.fromFirestore).toList();
   }
 
+  // Fetches the items for a whole page of bills.
+  //
+  // The naive version was one subcollection read per bill, so a login with
+  // billsPageSize (300) bills fired 300 round trips before the dashboard
+  // could paint. This does it with a single collectionGroup range query over
+  // the denormalized items.billCreatedAt (see FSBillItem.toFirestore), which
+  // is why firestore.rules carries a `/{path=**}/items/{itemId}` read rule and
+  // firestore.indexes.json a COLLECTION_GROUP override for that field.
+  //
+  // Two deliberate fallbacks, because neither can be assumed on a project
+  // that hasn't had the new rules/index deployed yet, or whose older items
+  // predate billCreatedAt:
+  //   - the whole query failing (missing index, rule not deployed) drops back
+  //     to the per-bill reads wholesale;
+  //   - any individual bill the query returned nothing for is re-read on its
+  //     own. A bill always has at least one item (createBill rejects an empty
+  //     one), so "no items" reliably means "not covered by the query" rather
+  //     than "genuinely empty".
+  Future<Map<String, List<FSBillItem>>> listBillItemsForBills(List<FSBill> bills) async {
+    if (bills.isEmpty) return {};
+
+    final wanted = {for (final b in bills) b.id};
+    final byBill = <String, List<FSBillItem>>{};
+
+    // bills come back newest-first, so the oldest in the page bounds the
+    // range. The buffer absorbs any skew between the bill's serverTimestamp
+    // and its items' - they are written in one transaction, but a day of
+    // slack costs nothing and guarantees no item is missed at the boundary.
+    final timestamps = bills.map((b) => b.createdAt).whereType<DateTime>().toList();
+    if (timestamps.isNotEmpty) {
+      final oldest = timestamps.reduce((a, b) => a.isBefore(b) ? a : b);
+      try {
+        final snap = await db
+            .collectionGroup('items')
+            .where('billCreatedAt', isGreaterThanOrEqualTo: Timestamp.fromDate(oldest.subtract(const Duration(days: 1))))
+            .get();
+        for (final doc in snap.docs) {
+          final billId = doc.reference.parent.parent?.id;
+          if (billId == null || !wanted.contains(billId)) continue;
+          (byBill[billId] ??= []).add(FSBillItem.fromFirestore(doc));
+        }
+      } catch (e) {
+        // Index or rule not deployed yet - fall through to per-bill reads.
+        debugPrint('[Stylux] bill items collectionGroup query unavailable, falling back per bill: $e');
+        byBill.clear();
+      }
+    }
+
+    final missing = bills.where((b) => (byBill[b.id] ?? const []).isEmpty).toList();
+    if (missing.isNotEmpty) {
+      final fetched = await Future.wait(missing.map((b) => listBillItems(b.id)));
+      for (var i = 0; i < missing.length; i++) {
+        byBill[missing[i].id] = fetched[i];
+      }
+    }
+
+    return byBill;
+  }
+
+
   // --- Attendance ---
   // Doc id "{employeeId}_{yyyy-MM-dd}" reproduces the REST backend's
   // (employeeId, date) unique constraint without needing a query to check
@@ -550,17 +611,23 @@ class SalonFirestore {
     final todayStart = DateTime(now.year, now.month, now.day);
     final weekStart = todayStart.subtract(const Duration(days: 6));
     final monthStart = DateTime(now.year, now.month, 1);
+    // One query has to cover both windows, so it starts at whichever is
+    // earlier. Anchoring it on monthStart alone silently truncated weekSales
+    // for the first six days of every month (on the 2nd, the trailing-7-day
+    // figure only ever saw the 1st and the 2nd, so weekSales == monthSales).
+    final queryStart = weekStart.isBefore(monthStart) ? weekStart : monthStart;
 
     final results = await Future.wait([
-      db.collection('bills').where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(monthStart)).get(),
+      db.collection('bills').where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(queryStart)).get(),
       db.collection('attendanceRecords').where('date', isEqualTo: Timestamp.fromDate(todayStart)).get(),
       db.collection('discountRequests').where('status', isEqualTo: 'PENDING').get(),
       db.collection('inventoryItems').get(),
     ]);
 
-    final monthBills = results[0].docs.map((d) => FSBill.fromFirestore(d)).toList();
-    final todayBills = monthBills.where((b) => b.createdAt != null && !b.createdAt!.isBefore(todayStart)).toList();
-    final weekBills = monthBills.where((b) => b.createdAt != null && !b.createdAt!.isBefore(weekStart)).toList();
+    final windowBills = results[0].docs.map((d) => FSBill.fromFirestore(d)).toList();
+    final monthBills = windowBills.where((b) => b.createdAt != null && !b.createdAt!.isBefore(monthStart)).toList();
+    final todayBills = windowBills.where((b) => b.createdAt != null && !b.createdAt!.isBefore(todayStart)).toList();
+    final weekBills = windowBills.where((b) => b.createdAt != null && !b.createdAt!.isBefore(weekStart)).toList();
 
     double sumFinal(List<FSBill> bills) => _round2(bills.fold(0.0, (s, b) => s + b.finalAmount));
     double sumByMethod(String method) =>

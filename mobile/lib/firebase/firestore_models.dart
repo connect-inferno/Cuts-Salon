@@ -148,6 +148,7 @@ class FSCustomer {
   final int visitCount;
   final double totalSpent;
   final DateTime? lastVisitAt;
+  final bool archived;
 
   FSCustomer({
     required this.id,
@@ -162,6 +163,7 @@ class FSCustomer {
     this.visitCount = 0,
     this.totalSpent = 0,
     this.lastVisitAt,
+    this.archived = false,
   });
 
   factory FSCustomer.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -179,6 +181,7 @@ class FSCustomer {
       visitCount: _int(d['visitCount']),
       totalSpent: _num(d['totalSpent']),
       lastVisitAt: _ts(d['lastVisitAt']),
+      archived: d['archived'] ?? false,
     );
   }
 
@@ -190,6 +193,7 @@ class FSCustomer {
         'notes': notes,
         'isVip': isVip,
         'branchId': branchId,
+        'archived': archived,
         if (isCreate) 'createdAt': FieldValue.serverTimestamp(),
         if (isCreate) 'visitCount': 0,
         if (isCreate) 'totalSpent': 0,
@@ -351,6 +355,12 @@ class FSBillItem {
         'employeeId': employeeId,
         'employeeName': employeeName,
         'calculatedCommission': calculatedCommission,
+        // Denormalized copy of the parent bill's createdAt, written with the
+        // same serverTimestamp() in the same transaction. It exists purely so
+        // every item for a page of bills can be fetched with ONE
+        // collectionGroup range query instead of one subcollection read per
+        // bill - see SalonFirestore.listBillItemsForBills.
+        'billCreatedAt': FieldValue.serverTimestamp(),
       };
 }
 
@@ -706,7 +716,7 @@ class FSSettings {
       salonName: d['salonName'] ?? 'Salon',
       phone: d['phone'],
       address: d['address'],
-      gstRate: _num(d['gstRate'] ?? 18),
+      gstRate: _num(d['gstRate'] ?? 0),
       lateAttendancePenalty: _num(d['lateAttendancePenalty']),
     );
   }
