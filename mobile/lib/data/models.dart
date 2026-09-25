@@ -113,6 +113,9 @@ class Customer {
   final DateTime? createdAt;
   final int visitCount;
   final double totalSpent;
+  /// What this client still owes across all their bills - see FSCustomer's
+  /// comment for why it lives on the customer doc rather than being summed.
+  final double outstandingBalance;
   final DateTime? lastVisitAt;
   // Archived clients are hidden from every list in the app but their
   // documents (and all their past bills) stay exactly where they were -
@@ -131,6 +134,7 @@ class Customer {
     this.createdAt,
     this.visitCount = 0,
     this.totalSpent = 0,
+    this.outstandingBalance = 0,
     this.lastVisitAt,
     this.archived = false,
   });
@@ -147,6 +151,7 @@ class Customer {
         createdAt: _date(json['createdAt']),
         visitCount: _int(json['visitCount']),
         totalSpent: _num(json['totalSpent']),
+        outstandingBalance: _num(json['outstandingBalance']),
         lastVisitAt: _date(json['lastVisitAt']),
       );
 }
@@ -275,7 +280,10 @@ class Bill {
   final double discountAmount;
   final double taxAmount;
   final double finalAmount;
-  final String paymentMethod; // CASH | CARD | UPI
+  final String paymentMethod; // CASH | CARD | UPI | PENDING
+  /// Everything collected against this bill so far: what was taken at the
+  /// counter plus every later settlement folded in by loadAppData.
+  final double amountPaid;
   final String status;
   final DateTime? createdAt;
   final List<BillItem> items;
@@ -291,10 +299,27 @@ class Bill {
     required this.taxAmount,
     required this.finalAmount,
     required this.paymentMethod,
+    this.amountPaid = 0,
     required this.status,
     this.createdAt,
     required this.items,
   });
+
+  /// Still owed on this bill. Clamped at zero so an overpayment (recorded to
+  /// correct an earlier mistake) can't show as a negative debt.
+  double get amountDue {
+    final due = finalAmount - amountPaid;
+    return due <= 0.009 ? 0 : double.parse(due.toStringAsFixed(2));
+  }
+
+  bool get isFullyPaid => amountDue == 0;
+
+  /// PAID - nothing owed. PARTIAL - something was collected but not all.
+  /// PENDING - nothing has been collected at all.
+  String get paymentStatus {
+    if (isFullyPaid) return 'PAID';
+    return amountPaid > 0 ? 'PARTIAL' : 'PENDING';
+  }
 
   factory Bill.fromJson(Map<String, dynamic> json) => Bill(
         id: json['id'],
@@ -307,6 +332,7 @@ class Bill {
         taxAmount: _num(json['taxAmount']),
         finalAmount: _num(json['finalAmount']),
         paymentMethod: json['paymentMethod'],
+        amountPaid: _num(json['amountPaid'] ?? json['finalAmount']),
         status: json['status'] ?? 'COMPLETED',
         createdAt: _date(json['createdAt']),
         items: (json['items'] as List<dynamic>? ?? [])
@@ -510,6 +536,8 @@ class DashboardSummary {
   final double todayCash;
   final double todayCard;
   final double todayUpi;
+  /// Billed today but not yet collected.
+  final double todayOutstanding;
   final int todayCustomersCount;
   final int todayBillCount;
   final int todayAttendanceCount;
@@ -523,6 +551,7 @@ class DashboardSummary {
     required this.todayCash,
     required this.todayCard,
     required this.todayUpi,
+    this.todayOutstanding = 0,
     required this.todayCustomersCount,
     required this.todayBillCount,
     required this.todayAttendanceCount,
@@ -539,6 +568,7 @@ class DashboardSummary {
       todayCash: _num(breakdown['CASH']),
       todayCard: _num(breakdown['CARD']),
       todayUpi: _num(breakdown['UPI']),
+      todayOutstanding: _num(json['todayOutstanding']),
       todayCustomersCount: _int(json['todayCustomersCount']),
       todayBillCount: _int(json['todayBillCount']),
       todayAttendanceCount: _int(json['todayAttendanceCount']),
@@ -554,6 +584,7 @@ class DashboardSummary {
         todayCash: 0,
         todayCard: 0,
         todayUpi: 0,
+        todayOutstanding: 0,
         todayCustomersCount: 0,
         todayBillCount: 0,
         todayAttendanceCount: 0,
@@ -566,6 +597,10 @@ class SalonSettings {
   final String salonName;
   final String? phone;
   final String? address;
+  // GST is off until the owner turns it on in Settings. Kept separate from
+  // the rate so switching tax off doesn't make them retype the rate (and
+  // lose it) - the configured rate survives a disable/enable round trip.
+  final bool gstEnabled;
   final double gstRate;
   final double lateAttendancePenalty;
 
@@ -573,17 +608,29 @@ class SalonSettings {
     required this.salonName,
     this.phone,
     this.address,
+    this.gstEnabled = false,
     required this.gstRate,
     required this.lateAttendancePenalty,
   });
 
-  factory SalonSettings.fromJson(Map<String, dynamic> json) => SalonSettings(
-        salonName: json['salonName'] ?? 'Salon',
-        phone: json['phone'],
-        address: json['address'],
-        gstRate: _num(json['gstRate']),
-        lateAttendancePenalty: _num(json['lateAttendancePenalty']),
-      );
+  /// The rate that actually applies to a bill. Every caller should use this
+  /// rather than reading [gstRate] directly, so a disabled-but-configured
+  /// rate can never leak into a total or an invoice line.
+  double get effectiveGstRate => gstEnabled ? gstRate : 0;
+
+  factory SalonSettings.fromJson(Map<String, dynamic> json) {
+    final rate = _num(json['gstRate']);
+    return SalonSettings(
+      salonName: json['salonName'] ?? 'Salon',
+      phone: json['phone'],
+      address: json['address'],
+      gstRate: rate,
+      // Same back-compat rule as FSSettings.fromFirestore - see the comment
+      // there for why an absent flag means "on iff a rate was set".
+      gstEnabled: json['gstEnabled'] ?? (rate > 0),
+      lateAttendancePenalty: _num(json['lateAttendancePenalty']),
+    );
+  }
 }
 
 // Draft of one bill line item, built up by the billing UI and resolved

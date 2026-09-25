@@ -147,6 +147,11 @@ class FSCustomer {
   final DateTime? createdAt;
   final int visitCount;
   final double totalSpent;
+  // Running total this client still owes across all their bills. Kept on the
+  // customer doc (like visitCount/totalSpent) so the dues list doesn't have
+  // to scan every bill ever raised; createBill increments it, recordPayment
+  // decrements it, both inside their transaction.
+  final double outstandingBalance;
   final DateTime? lastVisitAt;
   final bool archived;
 
@@ -162,6 +167,7 @@ class FSCustomer {
     this.createdAt,
     this.visitCount = 0,
     this.totalSpent = 0,
+    this.outstandingBalance = 0,
     this.lastVisitAt,
     this.archived = false,
   });
@@ -180,6 +186,7 @@ class FSCustomer {
       createdAt: _ts(d['createdAt']),
       visitCount: _int(d['visitCount']),
       totalSpent: _num(d['totalSpent']),
+      outstandingBalance: _num(d['outstandingBalance']),
       lastVisitAt: _ts(d['lastVisitAt']),
       archived: d['archived'] ?? false,
     );
@@ -197,6 +204,7 @@ class FSCustomer {
         if (isCreate) 'createdAt': FieldValue.serverTimestamp(),
         if (isCreate) 'visitCount': 0,
         if (isCreate) 'totalSpent': 0,
+        if (isCreate) 'outstandingBalance': 0,
       };
 }
 
@@ -374,7 +382,13 @@ class FSBill {
   final double discountAmount;
   final double taxAmount;
   final double finalAmount;
-  final String paymentMethod; // CASH | CARD | UPI
+  // How the amount collected at billing time was taken. PENDING means
+  // nothing was collected then - the whole bill is owed.
+  final String paymentMethod; // CASH | CARD | UPI | PENDING
+  // What was actually handed over when the bill was raised. Anything less
+  // than finalAmount is owed, and is settled later through the payments
+  // subcollection (the bill itself is immutable).
+  final double amountPaid;
   final String createdBy;
   final DateTime? createdAt;
   final List<FSBillItem> items;
@@ -390,6 +404,7 @@ class FSBill {
     required this.taxAmount,
     required this.finalAmount,
     required this.paymentMethod,
+    required this.amountPaid,
     required this.createdBy,
     this.createdAt,
     this.items = const [],
@@ -408,6 +423,11 @@ class FSBill {
       taxAmount: _num(d['taxAmount']),
       finalAmount: _num(d['finalAmount']),
       paymentMethod: d['paymentMethod'] ?? 'CASH',
+      // Bills written before part-payment existed carry no amountPaid, and
+      // every one of them was settled in full at the counter - defaulting to
+      // finalAmount keeps them out of the dues list rather than resurrecting
+      // the entire back catalogue as unpaid.
+      amountPaid: _num(d['amountPaid'] ?? d['finalAmount']),
       createdBy: d['createdBy'] ?? '',
       createdAt: _ts(d['createdAt']),
       items: items,
@@ -424,6 +444,7 @@ class FSBill {
         'taxAmount': taxAmount,
         'finalAmount': finalAmount,
         'paymentMethod': paymentMethod,
+        'amountPaid': amountPaid,
         'createdBy': createdBy,
         if (isCreate) 'createdAt': FieldValue.serverTimestamp(),
       };
@@ -607,6 +628,55 @@ class FSSalesTarget {
       };
 }
 
+// One settlement against a partly-paid bill, living at
+// bills/{billId}/payments/{paymentId}. The amount collected when the bill was
+// first raised is NOT in here - it's denormalized onto FSBill.amountPaid, so
+// this subcollection stays empty for the ordinary paid-in-full bill and only
+// carries what was cleared afterwards.
+class FSPayment {
+  final String id;
+  final String billId;
+  final double amount;
+  final String method; // CASH | CARD | UPI
+  final String receivedBy; // employees/{uid}
+  final DateTime? receivedAt;
+  final String? note;
+
+  FSPayment({
+    required this.id,
+    required this.billId,
+    required this.amount,
+    required this.method,
+    required this.receivedBy,
+    this.receivedAt,
+    this.note,
+  });
+
+  factory FSPayment.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final d = doc.data() ?? {};
+    return FSPayment(
+      id: doc.id,
+      // The parent bill's id, denormalized so a collection-group result can
+      // be bucketed without walking back up each doc's reference.
+      billId: d['billId'] ?? doc.reference.parent.parent?.id ?? '',
+      amount: _num(d['amount']),
+      method: d['method'] ?? 'CASH',
+      receivedBy: d['receivedBy'] ?? '',
+      receivedAt: _ts(d['receivedAt']),
+      note: d['note'],
+    );
+  }
+
+  Map<String, dynamic> toFirestore({bool isCreate = false}) => {
+        'billId': billId,
+        'amount': amount,
+        'method': method,
+        'receivedBy': receivedBy,
+        'note': note,
+        if (isCreate) 'receivedAt': FieldValue.serverTimestamp(),
+      };
+}
+
 class FSExpense {
   final String id;
   final String title;
@@ -699,6 +769,7 @@ class FSSettings {
   final String salonName;
   final String? phone;
   final String? address;
+  final bool gstEnabled;
   final double gstRate;
   final double lateAttendancePenalty;
 
@@ -706,17 +777,26 @@ class FSSettings {
     required this.salonName,
     this.phone,
     this.address,
+    this.gstEnabled = false,
     required this.gstRate,
     required this.lateAttendancePenalty,
   });
 
   factory FSSettings.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data() ?? {};
+    final rate = _num(d['gstRate'] ?? 0);
     return FSSettings(
       salonName: d['salonName'] ?? 'Salon',
       phone: d['phone'],
       address: d['address'],
-      gstRate: _num(d['gstRate'] ?? 0),
+      gstRate: rate,
+      // Salons provisioned before this toggle existed have no `gstEnabled`
+      // field, but plenty of them have a rate configured - defaulting those
+      // to false would silently stop them charging tax on every bill. An
+      // absent field therefore means "on iff a rate was set", which
+      // reproduces the old rate-only behaviour exactly. A new salon starts
+      // at rate 0, so it starts disabled, which is the intended default.
+      gstEnabled: d['gstEnabled'] ?? (rate > 0),
       lateAttendancePenalty: _num(d['lateAttendancePenalty']),
     );
   }
@@ -725,6 +805,7 @@ class FSSettings {
         'salonName': salonName,
         'phone': phone,
         'address': address,
+        'gstEnabled': gstEnabled,
         'gstRate': gstRate,
         'lateAttendancePenalty': lateAttendancePenalty,
       };
