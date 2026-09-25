@@ -4,23 +4,53 @@
     {
       "name": "flutter-web",
       "runtimeExecutable": "flutter",
-      "runtimeArgs": ["run", "-d", "web-server", "--web-port=5173", "--web-hostname=127.0.0.1"],
+      "runtimeArgs": [
+        "run",
+        "-d",
+        "web-server",
+        "--web-port=5173",
+        "--web-hostname=127.0.0.1"
+      ],
       "cwd": "mobile",
       "port": 5173
     },
     {
       "name": "flutter-web-verify",
       "runtimeExecutable": "flutter",
-      "runtimeArgs": ["run", "-d", "web-server", "--release", "--web-port=5174", "--web-hostname=127.0.0.1"],
+      "runtimeArgs": [
+        "run",
+        "-d",
+        "web-server",
+        "--release",
+        "--web-port=5174",
+        "--web-hostname=127.0.0.1"
+      ],
       "cwd": "mobile",
       "port": 5174
     },
     {
       "name": "operator-dashboard",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "cwd": "operator-dashboard",
       "port": 5180
+    },
+    {
+      "name": "flutter-web-ia",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": [
+        "run",
+        "-d",
+        "web-server",
+        "--release",
+        "--web-port=5176",
+        "--web-hostname=127.0.0.1"
+      ],
+      "cwd": "mobile",
+      "port": 5176
     }
   ]
 }
