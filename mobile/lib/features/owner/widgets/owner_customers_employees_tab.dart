@@ -9,13 +9,63 @@ import '../../../widgets/app_page_header.dart';
 import '../../../widgets/app_page_route.dart';
 import '../../../widgets/app_page_switcher.dart';
 import '../../../widgets/app_settings_page.dart';
+import '../../../widgets/add_customer_page.dart';
+import '../../../widgets/app_sub_page.dart';
+import '../../../widgets/pay_period_picker.dart';
 import '../../../widgets/dues_view.dart';
 import '../../../widgets/async_state_views.dart';
 import '../../../widgets/app_dialog.dart';
 import '../../auth/auth_provider.dart';
+import 'add_employee_page.dart';
 import 'owner_archived_clients.dart';
 import 'owner_management_tabs.dart';
 import 'owner_payroll_view.dart';
+
+/// How overdue a client is for their next appointment.
+///
+/// Public, unlike the widgets around it, so the boundary days can be unit
+/// tested without pumping the whole directory - see
+/// `test/client_follow_up_test.dart`.
+///
+/// The salon's working assumption is that a haircut lasts about three weeks,
+/// so a client who has not come back 21 days after their last visit is one
+/// worth chasing, and the two days before that are the window to call them in
+/// before they drift. Both are counted in whole calendar days from
+/// `lastVisitAt`, which billing already maintains on the customer document -
+/// so the markers cost no extra Firestore read, they are derived from the
+/// AppData snapshot the directory has already loaded.
+enum FollowUp { none, dueSoon, overdue }
+
+const int kFollowUpDays = 21;
+const int kFollowUpWarningDays = 2;
+
+// Marker colours. Red and amber rather than two shades of one hue, so the
+// two states are still distinguishable to a red-green colour-blind reader;
+// the dot is always paired with a day count for the same reason.
+const Color _kOverdueColor = Color(0xFFDC2626);
+const Color _kOverdueBg = Color(0xFFFEF2F2);
+const Color _kDueSoonColor = Color(0xFFD97706);
+const Color _kDueSoonBg = Color(0xFFFFFBEB);
+
+FollowUp followUpFor(Customer cust, DateTime now) {
+  final last = cust.lastVisitAt;
+  // Never been in: there is no visit to be overdue from. A client added but
+  // not yet billed must not show up as if they had lapsed.
+  if (last == null) return FollowUp.none;
+  final days = daysSinceVisit(last, now);
+  if (days >= kFollowUpDays) return FollowUp.overdue;
+  if (days >= kFollowUpDays - kFollowUpWarningDays) return FollowUp.dueSoon;
+  return FollowUp.none;
+}
+
+/// Whole calendar days, not elapsed 24-hour periods: a visit late yesterday
+/// evening is "1 day ago" the next morning, which is how anyone reading the
+/// screen counts it.
+int daysSinceVisit(DateTime last, DateTime now) {
+  final lastDay = DateTime(last.year, last.month, last.day);
+  final today = DateTime(now.year, now.month, now.day);
+  return today.difference(lastDay).inDays;
+}
 
 String _initials(String name) => name.split(' ').where((n) => n.isNotEmpty).map((n) => n[0]).take(2).join();
 
@@ -109,114 +159,15 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
   // every other one. (This dialog used to ask for a branch, which implied a
   // per-branch client list the app never actually enforced.) The branch they
   // happened to be registered at is still recorded for reference.
-  void _showAddCustomerDialog(BuildContext context, WidgetRef ref, List<Branch> branches) {
-    final nameController = TextEditingController();
-    final phoneController = TextEditingController();
-    final emailController = TextEditingController();
-    bool isVip = false;
-    bool submitting = false;
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AppDialog(
-          icon: PhosphorIconsRegular.userPlus,
-          title: 'Add New Customer',
-          subtitle: 'Save their details to start tracking visits.',
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: appDialogFieldDecoration(label: 'Full Name *', icon: PhosphorIconsRegular.user),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: phoneController,
-                keyboardType: TextInputType.phone,
-                decoration: appDialogFieldDecoration(label: 'Phone Number *', icon: PhosphorIconsRegular.phone),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: emailController,
-                keyboardType: TextInputType.emailAddress,
-                decoration: appDialogFieldDecoration(label: 'Email Address', icon: PhosphorIconsRegular.envelopeSimple),
-              ),
-              const SizedBox(height: 12),
-              if (branches.length > 1)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(PhosphorIconsRegular.storefront, size: 15, color: Color(0xFF64748B)),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Clients are shared across all branches.',
-                          style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, color: Color(0xFF64748B)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              Container(
-                margin: const EdgeInsets.only(top: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                decoration: BoxDecoration(color: const Color(0xFFF9FAFB), borderRadius: BorderRadius.circular(12)),
-                child: SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('VIP Customer', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  value: isVip,
-                  onChanged: (val) => setDialogState(() => isVip = val),
-                ),
-              ),
-            ],
-          ),
-          actions: AppDialogActions(
-            submitLabel: 'Add Customer',
-            submitting: submitting,
-            onCancel: () => Navigator.pop(ctx),
-            onSubmit: () async {
-              final name = nameController.text.trim();
-              final phone = phoneController.text.trim();
-              if (name.isEmpty || phone.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Name and phone are required.'), backgroundColor: AppTheme.accentRed),
-                );
-                return;
-              }
-              setDialogState(() => submitting = true);
-              try {
-                await ref.read(appDataProvider.notifier).addCustomer(
-                      name: name,
-                      phone: phone,
-                      email: emailController.text.trim(),
-                      isVip: isVip,
-                      registeredAtBranchId: branches.isNotEmpty ? branches.first.id : null,
-                    );
-                if (ctx.mounted) Navigator.pop(ctx);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Customer "$name" added successfully!'), backgroundColor: AppTheme.accentGreen),
-                  );
-                }
-              } catch (e) {
-                setDialogState(() => submitting = false);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed),
-                  );
-                }
-              }
-            },
-          ),
-        ),
-      ),
+  void _openAddCustomer(BuildContext context, List<Branch> branches) {
+    // A full page rather than a dialog: the form is the whole task, and on a
+    // phone a dialog this tall fights the keyboard for room (see the old
+    // AppDialog version, which had no scroll of its own).
+    openAppSubPage(
+      context,
+      title: 'Add Customer',
+      subtitle: 'Save their details to start tracking visits',
+      child: AddCustomerPage(branches: branches),
     );
   }
 
@@ -290,7 +241,13 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
 
   // Directory rows carry only the name (plus the VIP star, which is the one
   // thing staff scan the list for) - everything else lives on the detail page.
-  Widget _buildCustomerNameRow(BuildContext context, WidgetRef ref, Customer cust, bool archived) {
+  Widget _buildCustomerNameRow(
+    BuildContext context,
+    WidgetRef ref,
+    Customer cust,
+    bool archived,
+    DateTime now,
+  ) {
     return InkWell(
       onTap: archived ? null : () => _openCustomerDetail(context, ref, cust),
       child: Padding(
@@ -314,6 +271,12 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            // Follow-up marker. Archived clients are excluded: they have been
+            // deliberately taken out of circulation, so chasing them back in
+            // is not a thing the salon wants to be nudged about.
+            if (!archived) ...[
+              _followUpMarker(cust, now),
+            ],
             if (cust.isVip) ...[
               const Icon(PhosphorIconsFill.star, size: 13, color: Color(0xFFD97706)),
               const SizedBox(width: 10),
@@ -339,6 +302,55 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
               const Icon(PhosphorIconsBold.caretRight, size: 14, color: Color(0xFFCBD5E1)),
             ],
           ],
+        ),
+      ),
+    );
+  }
+
+  /// The red/amber dot beside a client's name, with the day count next to
+  /// it. Returns an empty box for everyone else, so the column only carries
+  /// weight for the clients who need chasing.
+  Widget _followUpMarker(Customer cust, DateTime now) {
+    final status = followUpFor(cust, now);
+    if (status == FollowUp.none) return const SizedBox.shrink();
+
+    final overdue = status == FollowUp.overdue;
+    final days = daysSinceVisit(cust.lastVisitAt!, now);
+    final color = overdue ? _kOverdueColor : _kDueSoonColor;
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Tooltip(
+        message: overdue
+            ? 'Overdue - last visit $days days ago, past the $kFollowUpDays-day mark'
+            : 'Due in ${kFollowUpDays - days} day${kFollowUpDays - days == 1 ? '' : 's'} - last visit $days days ago',
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+          decoration: BoxDecoration(
+            color: overdue ? _kOverdueBg : _kDueSoonBg,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 5),
+              // The number is what makes the two markers tellable apart
+              // without relying on colour alone.
+              Text(
+                '${days}d',
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w800,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -404,6 +416,9 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
 
     final query = _searchController.text.toLowerCase().trim();
     final showingArchived = _activeFilter == 'Archived';
+    // One clock reading for the whole build, so a customer can't land in two
+    // different buckets because midnight passed between two calls.
+    final now = DateTime.now();
     // Archived clients live in their own list precisely so they can't show up
     // anywhere else, so this is the one screen that reads it - and only when
     // the Archived chip is active.
@@ -416,12 +431,47 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
 
       if (!matchesSearch) return false;
       if (_activeFilter == 'Recent') return cust.visitCount > 0;
+      if (_activeFilter == 'Overdue') {
+        return followUpFor(cust, now) == FollowUp.overdue;
+      }
+      if (_activeFilter == 'DueSoon') {
+        return followUpFor(cust, now) == FollowUp.dueSoon;
+      }
       return true;
     }).toList();
 
     final allCount = state.customers.length;
-    final recentCount = state.customers.where((c) => c.visitCount > 0).length;
     final archivedCount = state.archivedCustomers.length;
+
+    // One pass for all three chip counts. Typing in the search box rebuilds
+    // on every keystroke, so a separate `.where().length` per chip walks the
+    // whole client list three extra times per character - free at two
+    // clients, not at the ten thousand listCustomers() is written to expect.
+    var recentCount = 0;
+    var overdueCount = 0;
+    var dueSoonCount = 0;
+    for (final c in state.customers) {
+      if (c.visitCount > 0) recentCount++;
+      switch (followUpFor(c, now)) {
+        case FollowUp.overdue:
+          overdueCount++;
+        case FollowUp.dueSoon:
+          dueSoonCount++;
+        case FollowUp.none:
+          break;
+      }
+    }
+    // Clients carrying an unpaid balance, for the Pending Payments button's
+    // badge. Derived the same way DuesView groups its rows - unpaid bills by
+    // customerId - so the badge and the page it opens can never disagree.
+    // customers.outstandingBalance would be the cheaper read but counts a
+    // different set: it includes archived clients, whom DuesView also shows,
+    // and is maintained independently of the (capped) loaded bills list.
+    final owingCount = state.bills
+        .where((b) => !b.isFullyPaid)
+        .map((b) => b.customerId)
+        .toSet()
+        .length;
 
     final isMobile = MediaQuery.of(context).size.width < 768;
 
@@ -445,6 +495,42 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
+                    // Pending Payments. It was already reachable from the
+                    // gear's Client Settings, but "who owes us money" is a
+                    // daily question, not a setting - this puts it one tap
+                    // from the directory without moving it out of settings.
+                    OutlinedButton.icon(
+                      onPressed: () => openAppSubPage(
+                        context,
+                        title: 'Pending Payments',
+                        subtitle: 'Outstanding balances by client',
+                        child: const DuesView(),
+                      ),
+                      icon: const Icon(PhosphorIconsRegular.handCoins, size: 15),
+                      label: Text(
+                        owingCount > 0 ? 'Pending ($owingCount)' : 'Pending',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor:
+                            owingCount > 0 ? AppTheme.accentAmber : AppTheme.slateMedium,
+                        backgroundColor: Colors.white,
+                        side: BorderSide(
+                          color: owingCount > 0
+                              ? const Color(0xFFFDE68A)
+                              : const Color(0xFFE2E8F0),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        minimumSize: const Size(0, 36),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 20),
                     DecoratedBox(
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
@@ -462,7 +548,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                         ],
                       ),
                       child: ElevatedButton.icon(
-                        onPressed: () => _showAddCustomerDialog(context, ref, state.branches),
+                        onPressed: () => _openAddCustomer(context, state.branches),
                         icon: const Icon(PhosphorIconsBold.plus, size: 14, color: Colors.white),
                         label: const Text(
                           'Add Customer',
@@ -513,29 +599,54 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                 ),
                 const SizedBox(height: 12),
 
-                // 4. Filter Chips Row
-                Row(
-                  children: [
-                    _buildFilterChip(
-                      label: 'All ($allCount)',
-                      isSelected: _activeFilter == 'All',
-                      onTap: () => setState(() => _activeFilter = 'All'),
-                    ),
-                    const SizedBox(width: 8),
-                    _buildFilterChip(
-                      label: 'Recent ($recentCount)',
-                      icon: PhosphorIconsRegular.clock,
-                      isSelected: _activeFilter == 'Recent',
-                      onTap: () => setState(() => _activeFilter = 'Recent'),
-                    ),
-                    const SizedBox(width: 8),
-                    _buildFilterChip(
-                      label: 'Archived ($archivedCount)',
-                      icon: PhosphorIconsRegular.archive,
-                      isSelected: showingArchived,
-                      onTap: () => setState(() => _activeFilter = 'Archived'),
-                    ),
-                  ],
+                // 4. Filter Chips Row. Scrolls horizontally - five chips do
+                // not fit across a phone, and wrapping them onto a second
+                // line pushes the directory itself below the fold.
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _buildFilterChip(
+                        label: 'All ($allCount)',
+                        isSelected: _activeFilter == 'All',
+                        onTap: () => setState(() => _activeFilter = 'All'),
+                      ),
+                      const SizedBox(width: 8),
+                      // The two follow-up markers. Red first: an overdue
+                      // client is the one costing the salon money today.
+                      _buildFilterChip(
+                        label: 'Overdue ($overdueCount)',
+                        icon: PhosphorIconsFill.circle,
+                        isSelected: _activeFilter == 'Overdue',
+                        onTap: () => setState(() => _activeFilter = 'Overdue'),
+                        accent: _kOverdueColor,
+                        accentBg: _kOverdueBg,
+                      ),
+                      const SizedBox(width: 8),
+                      _buildFilterChip(
+                        label: 'Due soon ($dueSoonCount)',
+                        icon: PhosphorIconsFill.circle,
+                        isSelected: _activeFilter == 'DueSoon',
+                        onTap: () => setState(() => _activeFilter = 'DueSoon'),
+                        accent: _kDueSoonColor,
+                        accentBg: _kDueSoonBg,
+                      ),
+                      const SizedBox(width: 8),
+                      _buildFilterChip(
+                        label: 'Recent ($recentCount)',
+                        icon: PhosphorIconsRegular.clock,
+                        isSelected: _activeFilter == 'Recent',
+                        onTap: () => setState(() => _activeFilter = 'Recent'),
+                      ),
+                      const SizedBox(width: 8),
+                      _buildFilterChip(
+                        label: 'Archived ($archivedCount)',
+                        icon: PhosphorIconsRegular.archive,
+                        isSelected: showingArchived,
+                        onTap: () => setState(() => _activeFilter = 'Archived'),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 18),
 
@@ -603,7 +714,13 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                       children: [
                         for (int i = 0; i < filteredCustomers.length; i++) ...[
                           if (i > 0) const Divider(height: 1, thickness: 1, color: Color(0xFFF1F5F9)),
-                          _buildCustomerNameRow(context, ref, filteredCustomers[i], showingArchived),
+                          _buildCustomerNameRow(
+                            context,
+                            ref,
+                            filteredCustomers[i],
+                            showingArchived,
+                            now,
+                          ),
                         ],
                       ],
                     ),
@@ -616,22 +733,32 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
     );
   }
 
+  /// [accent] recolours the chip - used by the two follow-up markers so the
+  /// red and amber dots read the same on the chip as they do in the list.
+  /// Their icon keeps its colour whether the chip is selected or not; that
+  /// dot *is* the marker, so greying it out when unselected would hide the
+  /// very thing the chip is named after.
   Widget _buildFilterChip({
     required String label,
     required bool isSelected,
     required VoidCallback onTap,
     IconData? icon,
+    Color? accent,
+    Color? accentBg,
   }) {
+    final fg = accent ?? const Color(0xFF4F46E5);
+    final selectedBg = accentBg ?? const Color(0xFFEEF2FF);
+    final selectedBorder = accent ?? const Color(0xFFC7D2FE);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(20),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFEEF2FF) : Colors.white,
+          color: isSelected ? selectedBg : Colors.white,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isSelected ? const Color(0xFFC7D2FE) : const Color(0xFFE2E8F0),
+            color: isSelected ? selectedBorder : const Color(0xFFE2E8F0),
             width: 1,
           ),
         ),
@@ -639,15 +766,19 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
           mainAxisSize: MainAxisSize.min,
           children: [
             if (icon != null) ...[
-              Icon(icon, size: 12, color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF64748B)),
-              const SizedBox(width: 4),
+              Icon(
+                icon,
+                size: accent != null ? 9 : 12,
+                color: accent ?? (isSelected ? fg : const Color(0xFF64748B)),
+              ),
+              const SizedBox(width: 5),
             ],
             Text(
               label,
               style: TextStyle(
                 fontSize: 11.5,
                 fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-                color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+                color: isSelected ? fg : const Color(0xFF64748B),
               ),
             ),
           ],
@@ -1478,8 +1609,10 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
   // salon had a single branch, and with *zero* branches it hid the picker
   // and then rejected the form for having no branch, with no way out of the
   // dialog. Only open branches are assignable.
-  void _showAddEmployeeDialog(BuildContext context, WidgetRef ref, List<Branch> branches) {
+  void _openAddEmployee(BuildContext context, List<Branch> branches) {
     final assignable = branches.where((b) => b.active).toList();
+    // Checked before pushing: with no branch to assign to, the form cannot be
+    // completed, so it is better to say why than to open a dead page.
     if (assignable.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1491,124 +1624,12 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
       );
       return;
     }
-    final nameController = TextEditingController();
-    final emailController = TextEditingController();
-    final passwordController = TextEditingController();
-    final phoneController = TextEditingController();
-    final roleController = TextEditingController(text: 'Hair Stylist');
-    final salaryController = TextEditingController(text: '25000');
-    final serviceCommController = TextEditingController(text: '15');
-    final productCommController = TextEditingController(text: '5');
-    bool obscurePassword = true;
-    bool submitting = false;
-    String branchId = assignable.first.id;
 
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AppDialog(
-          icon: PhosphorIconsRegular.userPlus,
-          title: 'Create Employee Account',
-          subtitle: 'They can log in immediately with these credentials.',
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(controller: nameController, decoration: appDialogFieldDecoration(label: 'Full Name *', hint: 'e.g. Jamie Davis', icon: PhosphorIconsRegular.user)),
-              const SizedBox(height: 12),
-              TextField(controller: emailController, decoration: appDialogFieldDecoration(label: 'Login Email *', hint: 'e.g. jamie@salon.com', icon: PhosphorIconsRegular.envelopeSimple)),
-              const SizedBox(height: 12),
-              TextField(
-                controller: passwordController,
-                obscureText: obscurePassword,
-                decoration: appDialogFieldDecoration(label: 'Login Password *', hint: 'min 8 characters', icon: PhosphorIconsRegular.lockKey).copyWith(
-                  suffixIcon: IconButton(
-                    icon: Icon(obscurePassword ? PhosphorIconsRegular.eyeSlash : PhosphorIconsRegular.eye, size: 20),
-                    onPressed: () => setDialogState(() => obscurePassword = !obscurePassword),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(controller: phoneController, keyboardType: TextInputType.phone, decoration: appDialogFieldDecoration(label: 'Phone Number *', hint: '+91 98765 43210', icon: PhosphorIconsRegular.phone)),
-              const SizedBox(height: 12),
-              TextField(controller: roleController, decoration: appDialogFieldDecoration(label: 'Stylist Role', hint: 'Senior Stylist / Colorist', icon: PhosphorIconsRegular.scissors)),
-              const SizedBox(height: 12),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: DropdownButtonFormField<String>(
-                  value: branchId,
-                  decoration: appDialogFieldDecoration(label: 'Branch *', icon: PhosphorIconsRegular.storefront),
-                  borderRadius: BorderRadius.circular(14),
-                  dropdownColor: Colors.white,
-                  elevation: 3,
-                  items: assignable.map((b) => DropdownMenuItem(value: b.id, child: Text(b.name))).toList(),
-                  onChanged: (val) => setDialogState(() => branchId = val ?? branchId),
-                ),
-              ),
-              TextField(controller: salaryController, keyboardType: TextInputType.number, decoration: appDialogFieldDecoration(label: 'Base Retainer (Rs.)', icon: PhosphorIconsRegular.wallet)),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(child: TextField(controller: serviceCommController, keyboardType: TextInputType.number, decoration: appDialogFieldDecoration(label: 'Service Comm. (%)', icon: PhosphorIconsRegular.percent))),
-                  const SizedBox(width: 10),
-                  Expanded(child: TextField(controller: productCommController, keyboardType: TextInputType.number, decoration: appDialogFieldDecoration(label: 'Product Comm. (%)', icon: PhosphorIconsRegular.percent))),
-                ],
-              ),
-            ],
-          ),
-          actions: AppDialogActions(
-            submitLabel: 'Create Account',
-            submitting: submitting,
-            onCancel: () => Navigator.pop(ctx),
-            onSubmit: () async {
-              final name = nameController.text.trim();
-              final email = emailController.text.trim();
-              final phone = phoneController.text.trim();
-              final password = passwordController.text;
-              if (name.isEmpty || email.isEmpty || phone.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Name, email, and phone are required.'), backgroundColor: AppTheme.accentRed),
-                );
-                return;
-              }
-              if (password.length < 8) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Password must be at least 8 characters.'), backgroundColor: AppTheme.accentRed),
-                );
-                return;
-              }
-              final salary = double.tryParse(salaryController.text) ?? 25000;
-              final serviceComm = double.tryParse(serviceCommController.text) ?? 15;
-              final productComm = double.tryParse(productCommController.text) ?? 5;
-
-              setDialogState(() => submitting = true);
-              try {
-                await ref.read(appDataProvider.notifier).addEmployee(
-                      name: name,
-                      phone: phone,
-                      roleTitle: roleController.text.trim(),
-                      baseSalary: salary,
-                      serviceCommissionPct: serviceComm,
-                      productCommissionPct: productComm,
-                      email: email,
-                      password: password,
-                      branchId: branchId,
-                    );
-                if (ctx.mounted) Navigator.pop(ctx);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Account created for $name. They can log in with the password you just set.'), backgroundColor: AppTheme.accentGreen),
-                  );
-                }
-              } catch (e) {
-                setDialogState(() => submitting = false);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
-                }
-              }
-            },
-          ),
-        ),
-      ),
+    openAppSubPage(
+      context,
+      title: 'Add Staff',
+      subtitle: 'Create their login and pay terms',
+      child: AddEmployeePage(assignableBranches: assignable),
     );
   }
 
@@ -1872,7 +1893,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
               InkWell(
-                onTap: () => _showAddEmployeeDialog(context, ref, state.branches),
+                onTap: () => _openAddEmployee(context, state.branches),
                 borderRadius: BorderRadius.circular(22),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8.5),
@@ -2072,7 +2093,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                 tooltip: 'Run Payroll for All Staff',
               ),
               ElevatedButton.icon(
-                onPressed: () => _showAddEmployeeDialog(context, ref, state.branches),
+                onPressed: () => _openAddEmployee(context, state.branches),
                 icon: const Icon(PhosphorIconsRegular.plus, size: 16),
                 label: const Text('Add Staff', style: TextStyle(fontSize: 12)),
                 style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), minimumSize: const Size(0, 34)),
@@ -2813,26 +2834,19 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                 style: const TextStyle(color: AppTheme.slateLight, fontSize: 12),
               ),
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<int>(
-                      value: month,
-                      decoration: appDialogFieldDecoration(label: 'Month', icon: PhosphorIconsRegular.calendarBlank),
-                      items: [for (var m = 1; m <= 12; m++) DropdownMenuItem(value: m, child: Text(_monthNames[m - 1]))],
-                      onChanged: (val) => setDialogState(() => month = val ?? month),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: DropdownButtonFormField<int>(
-                      value: year,
-                      decoration: appDialogFieldDecoration(label: 'Year'),
-                      items: [for (var y = now.year - 1; y <= now.year; y++) DropdownMenuItem(value: y, child: Text('$y'))],
-                      onChanged: (val) => setDialogState(() => year = val ?? year),
-                    ),
-                  ),
-                ],
+              // Replaces two DropdownButtonFormFields that sat side by side.
+              // They overflowed the dialog by 18px once a long month name was
+              // selected, and each opened a full-height menu across the whole
+              // screen to choose from twelve items - for a choice that fits
+              // inside the dialog itself.
+              PayPeriodPicker(
+                month: month,
+                year: year,
+                now: now,
+                onChanged: (m, y) => setDialogState(() {
+                  month = m;
+                  year = y;
+                }),
               ),
             ],
           ),
