@@ -10,6 +10,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import 'package:mobile/data/models.dart';
 import 'package:mobile/features/owner/widgets/add_employee_page.dart';
@@ -44,6 +45,21 @@ Future<void> _pump(
     ),
   );
   await tester.pumpAndSettle();
+}
+
+/// Whether the branch chip carrying [name] is the selected one.
+///
+/// Selection is drawn as a filled storefront icon rather than any text
+/// change, so asserting on the branch name alone cannot tell a successful
+/// tap from one that missed - which is exactly what used to happen here.
+bool _branchSelected(WidgetTester tester, String name) {
+  final icon = tester.widget<Icon>(
+    find.descendant(
+      of: find.ancestor(of: find.text(name), matching: find.byType(InkWell)),
+      matching: find.byType(Icon),
+    ),
+  );
+  return icon.icon == PhosphorIconsFill.storefront;
 }
 
 Finder _inPreview(String text) => find.descendant(
@@ -186,10 +202,23 @@ void main() {
       expect(find.text('Camp'), findsOneWidget);
       expect(find.text('Kothrud'), findsOneWidget);
 
-      // Tapping another branch must not throw or drop the others.
+      // The first branch is selected until something changes it.
+      expect(_branchSelected(tester, 'Vishram bagh'), isTrue);
+      expect(_branchSelected(tester, 'Kothrud'), isFalse);
+
+      // ensureVisible first: the third chip sits below the fold at this
+      // viewport, and tapping it blind lands outside the render tree - the
+      // tap silently does nothing and every assertion below still passes.
+      await tester.ensureVisible(find.text('Kothrud'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Kothrud'));
       await tester.pumpAndSettle();
-      expect(find.text('Kothrud'), findsOneWidget);
+
+      // Selection moved, and the branches that were not tapped are intact.
+      expect(_branchSelected(tester, 'Kothrud'), isTrue);
+      expect(_branchSelected(tester, 'Vishram bagh'), isFalse);
+      expect(find.text('Vishram bagh'), findsOneWidget);
+      expect(find.text('Camp'), findsOneWidget);
     });
 
     testWidgets('many branches wrap instead of overflowing', (tester) async {
