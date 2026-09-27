@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../../data/app_data_provider.dart';
+import '../../../data/models.dart';
 import '../../../theme.dart';
 import '../../../widgets/app_dialog.dart';
 import '../../../widgets/async_state_views.dart';
@@ -34,13 +35,48 @@ class OwnerTaxSettingsPage extends ConsumerStatefulWidget {
 class _OwnerTaxSettingsPageState extends ConsumerState<OwnerTaxSettingsPage> {
   final _gstRateController = TextEditingController();
   bool _gstEnabled = false;
-  bool _initialized = false;
   bool _saving = false;
+  // Unsaved edits on screen. These two fields are also owned by the full
+  // OwnerSettingsTab, so whichever page is showing has to be able to take a
+  // change the other one saved - but never on top of something half-typed.
+  bool _dirty = false;
+  bool _hydrating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Out of build(), where this used to sit behind a one-shot `_initialized`
+    // latch: writing controller.text mid-build fires notifyListeners during
+    // a build, and latching meant a rate saved from the full Settings page
+    // never reached this form, so saving here put the old one back.
+    final settings = ref.read(appDataProvider).valueOrNull?.settings;
+    if (settings != null) _hydrateFrom(settings);
+    _gstRateController.addListener(_markDirty);
+  }
 
   @override
   void dispose() {
+    _gstRateController.removeListener(_markDirty);
     _gstRateController.dispose();
     super.dispose();
+  }
+
+  void _markDirty() {
+    if (_hydrating || _dirty) return;
+    _dirty = true; // nothing on screen reads it, so no setState
+  }
+
+  void _hydrateFrom(SalonSettings settings) {
+    _hydrating = true;
+    _gstEnabled = settings.gstEnabled;
+    _gstRateController.text = settings.gstRate.toStringAsFixed(0);
+    _hydrating = false;
+  }
+
+  /// Adopts a settings change made elsewhere, unless there's unsaved work.
+  void _adoptIfClean(SalonSettings? settings) {
+    if (settings == null || _dirty || _saving) return;
+    setState(() => _hydrateFrom(settings));
   }
 
   Future<void> _save() async {
@@ -64,6 +100,9 @@ class _OwnerTaxSettingsPageState extends ConsumerState<OwnerTaxSettingsPage> {
         // rate they already configured instead of asking for it again.
         'gstRate': rate ?? 0.0,
       });
+      // On screen == stored, so a later change from the full Settings page
+      // is free to land again.
+      _dirty = false;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -89,6 +128,17 @@ class _OwnerTaxSettingsPageState extends ConsumerState<OwnerTaxSettingsPage> {
   Widget build(BuildContext context) {
     final asyncData = ref.watch(appDataProvider);
 
+    // A rate saved from the full Settings page lands here too, as long as
+    // nothing on this form is unsaved. Identity, not field equality:
+    // SalonSettings declares no ==, and AppData.copyWith carries the same
+    // instance through every mutation that doesn't touch settings, so a
+    // differing reference means the doc really was replaced.
+    ref.listen(appDataProvider, (previous, next) {
+      final settings = next.valueOrNull?.settings;
+      if (settings == null || identical(settings, previous?.valueOrNull?.settings)) return;
+      _adoptIfClean(settings);
+    });
+
     return asyncData.when(
       loading: () => const AppLoadingView(),
       error: (err, st) => AppErrorView(
@@ -96,12 +146,6 @@ class _OwnerTaxSettingsPageState extends ConsumerState<OwnerTaxSettingsPage> {
         onRetry: () => ref.read(appDataProvider.notifier).refresh(),
       ),
       data: (state) {
-        if (!_initialized && state.settings != null) {
-          _gstEnabled = state.settings!.gstEnabled;
-          _gstRateController.text = state.settings!.gstRate.toStringAsFixed(0);
-          _initialized = true;
-        }
-
         final rate = double.tryParse(_gstRateController.text.trim()) ?? 0;
         // A worked example on a round number, so the effect of the switch is
         // visible before saving rather than discovered on a real client's bill.
@@ -171,7 +215,10 @@ class _OwnerTaxSettingsPageState extends ConsumerState<OwnerTaxSettingsPage> {
                             Switch(
                               value: _gstEnabled,
                               activeThumbColor: AppTheme.primaryBlue,
-                              onChanged: (v) => setState(() => _gstEnabled = v),
+                              onChanged: (v) => setState(() {
+                                _gstEnabled = v;
+                                _dirty = true;
+                              }),
                             ),
                           ],
                         ),

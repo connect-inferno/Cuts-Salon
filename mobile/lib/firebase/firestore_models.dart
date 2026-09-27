@@ -201,6 +201,12 @@ class FSCustomer {
         'isVip': isVip,
         'branchId': branchId,
         'archived': archived,
+        // Stamped on every write, including the stat bumps inside createBill
+        // and recordPayment - see SalonFirestore.customerTouch. It's what
+        // lets listCustomers read the directory from cache and ask the server
+        // only for the handful of clients that changed, instead of pulling
+        // every client on every load.
+        'updatedAt': FieldValue.serverTimestamp(),
         if (isCreate) 'createdAt': FieldValue.serverTimestamp(),
         if (isCreate) 'visitCount': 0,
         if (isCreate) 'totalSpent': 0,

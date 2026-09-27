@@ -27,6 +27,17 @@ There is no trusted server here — the Flutter client talks to Firestore direct
 
 ## Onboarding a new salon
 
+**Current status: `cuts-salon` is the only provisioned salon, deliberately.**
+Nothing else gets onboarded until the app is proven out end to end on this
+one - get it right here first, then repeat. Two consequences while that
+holds: anything deployed per-project (rules, indexes) only has to reach
+`cuts-salon` today, and the login fallback loop is effectively free because
+there is exactly one project to try. Both stop being true the moment a
+second salon exists - every per-project deploy then has to be repeated for
+every salon, and it is easy to ship a change that silently works only on
+the salon you happened to test.
+
+
 1. Create a new Firebase project (Console or `firebase projects:create`), enable Firestore + Email/Password Auth.
 2. Deploy `mobile/firestore.rules` and `mobile/firestore.indexes.json` to it: `firebase deploy --only firestore:rules,firestore:indexes --project <newSalonId>`.
 3. Create the owner's Firebase Auth account and a matching `employees/{uid}` document (role `OWNER`) plus a `settings` document — see `firestore_models.dart` for the expected shape.

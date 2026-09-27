@@ -4,12 +4,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../theme.dart';
 import '../../data/app_data_provider.dart';
+import '../../data/salary_provider.dart';
 import '../../data/models.dart';
 import '../auth/auth_provider.dart';
 import '../../firebase/salon_auth.dart';
+import '../../widgets/app_drawer.dart';
+import '../../widgets/app_page_header.dart';
 import '../../widgets/app_page_switcher.dart';
+import '../../widgets/app_settings_page.dart';
+import '../../widgets/app_sub_page.dart';
 import '../../widgets/app_dialog.dart';
 import '../../widgets/async_state_views.dart';
+import '../../widgets/bill_history_view.dart';
+import '../../widgets/dues_view.dart';
 import '../../widgets/searchable_picker.dart';
 import '../../widgets/liquid_nav_bar.dart';
 
@@ -73,241 +80,331 @@ class EmployeeDashboard extends ConsumerStatefulWidget {
   ConsumerState<EmployeeDashboard> createState() => _EmployeeDashboardState();
 }
 
+/// The four places a stylist actually works out of.
+///
+/// This used to be eight equally-ranked tabs behind a bottom bar that
+/// reached four of them and a "More" drawer that reached the rest - the
+/// same flat sprawl the owner side had. Everything that isn't one of these
+/// four is now a section of one of their settings screens (profile and
+/// attendance under Home, discount requests under Billing, targets under
+/// Earnings) or a drawer destination.
+enum EmployeeTab { home, billing, clients, earnings }
+
 class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
-  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  int _activeTabIndex = 0;
+  EmployeeTab _activeTab = EmployeeTab.home;
+  late final PageController _pageController;
 
-  final List<String> _tabNames = [
-    'Dashboard',
-    'Attendance Logs',
-    'Customer Roster',
-    'Quick Billing',
-    'Earnings & Salary',
-    'Sales Targets',
-    'Personal Profile',
-    'Discount Requests',
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController(initialPage: _activeTab.index);
+  }
 
-  final List<IconData> _tabIcons = [
-    PhosphorIconsRegular.house,
-    PhosphorIconsRegular.calendarBlank,
-    PhosphorIconsRegular.usersThree,
-    PhosphorIconsRegular.receipt,
-    PhosphorIconsRegular.wallet,
-    PhosphorIconsRegular.chartLineUp,
-    PhosphorIconsRegular.userCircle,
-    PhosphorIconsRegular.tag,
-  ];
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
 
-  Widget _buildSidebar(BuildContext context, EmployeeProfile empProfile, {required bool isMobile}) {
-    final appData = ref.watch(appDataProvider).valueOrNull;
-    final salonName = appData?.settings?.salonName ??
-        ref.watch(authControllerProvider).salonName ??
-        'Cuts Salon';
-    final pendingDiscountCount = appData?.discountRequests.where((r) => r.status == 'PENDING' && r.requestedBy == empProfile.id).length ?? 0;
+  void _switchToTab(EmployeeTab tab) {
+    if (_activeTab == tab) return;
+    setState(() => _activeTab = tab);
+    if (_pageController.hasClients) {
+      final current = _pageController.page?.round() ?? _activeTab.index;
+      if ((tab.index - current).abs() > 1) {
+        _pageController.jumpToPage(tab.index);
+      } else {
+        _pageController.animateToPage(
+          tab.index,
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeInOutCubic,
+        );
+      }
+    }
+  }
 
-    return Container(
-      width: 280,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: isMobile ? null : const Border(right: BorderSide(color: Color(0xFFE2E8F0))),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 24, 20, 18),
-            child: Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEEF2FF),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFC7D2FE)),
-                  ),
-                  child: const Center(
-                    child: Icon(
-                      PhosphorIconsRegular.storefront,
-                      color: Color(0xFF4F46E5),
-                      size: 22,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        salonName,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 16,
-                          color: Color(0xFF0F172A),
-                          letterSpacing: -0.5,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          Container(
-                            width: 6,
-                            height: 6,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFF10B981),
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 5),
-                          Expanded(
-                            child: Text(
-                              empProfile.name,
-                              style: const TextStyle(
-                                color: Color(0xFF64748B),
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w600,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1, color: Color(0xFFF1F5F9)),
-          const SizedBox(height: 12),
+  int _myPendingDiscounts(EmployeeProfile profile, AppData state) => state.discountRequests
+      .where((r) => r.status == 'PENDING' && r.requestedBy == profile.id)
+      .length;
 
-          // Drawer Navigation Items
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 12.0),
-              itemCount: _tabNames.length,
-              itemBuilder: (context, index) {
-                final isSelected = _activeTabIndex == index;
-                final icon = _tabIcons[index];
-                final name = _tabNames[index];
-                final isSalary = index == 4;
-                final isDiscount = index == 7;
+  // ─── Settings ─────────────────────────────────────────────────────────
 
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 4.0),
-                  child: InkWell(
-                    onTap: () {
-                      setState(() {
-                        _activeTabIndex = index;
-                      });
-                      if (isMobile) {
-                        Navigator.pop(context);
-                      }
-                    },
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? const Color(0xFFEEF2FF)
-                            : (isSalary ? const Color(0xFFF8FAFC) : Colors.transparent),
-                        borderRadius: BorderRadius.circular(12),
-                        border: isSelected
-                            ? Border.all(color: const Color(0xFFC7D2FE))
-                            : Border.all(color: Colors.transparent),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            icon,
-                            color: isSelected
-                                ? const Color(0xFF4F46E5)
-                                : (isSalary ? const Color(0xFF10B981) : const Color(0xFF64748B)),
-                            size: 19,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              name,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-                                color: isSelected
-                                    ? const Color(0xFF4F46E5)
-                                    : const Color(0xFF334155),
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (isSalary)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFECFDF5),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: const Text(
-                                'Live',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w800,
-                                  color: Color(0xFF10B981),
-                                ),
-                              ),
-                            ),
-                          if (isDiscount && pendingDiscountCount > 0)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFEF4444),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                '$pendingDiscountCount',
-                                style: const TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
+  /// Everything about *me*, on one screen - the same gear, in the same
+  /// place, behaving the same way as the owner's.
+  void _openMyAccountSettings(BuildContext context, EmployeeProfile profile, AppData state) {
+    final now = DateTime.now();
+    final presentThisMonth = state.attendance
+        .where((a) =>
+            a.employeeId == profile.id &&
+            a.date != null &&
+            a.date!.month == now.month &&
+            a.date!.year == now.year &&
+            (a.status == 'PRESENT' || a.status == 'LATE'))
+        .length;
 
-          // Logout Button
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: OutlinedButton.icon(
-              onPressed: () {
-                ref.read(authControllerProvider.notifier).logout();
-              },
-              icon: const Icon(PhosphorIconsRegular.signOut, size: 16, color: Color(0xFFEF4444)),
-              label: const Text(
-                'Log Out',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFFEF4444)),
-              ),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(44),
-                side: const BorderSide(color: Color(0xFFFEE2E2)),
-                backgroundColor: const Color(0xFFFEF2F2),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-          ),
-        ],
-      ),
+    openAppSettings(
+      context,
+      title: 'My Account',
+      subtitle: profile.name,
+      sections: [
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.userCircle,
+          label: 'Profile',
+          description: 'Your contact details and password.',
+          builder: (_) => _EmployeeProfileTab(profile: profile, state: state),
+        ),
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.calendarCheck,
+          label: 'Attendance',
+          description:
+              '$presentThisMonth day${presentThisMonth == 1 ? '' : 's'} logged this month. Clock in and out from Home.',
+          builder: (_) => _EmployeeAttendanceTab(profile: profile, state: state),
+        ),
+      ],
     );
   }
+
+  void _openBillingSettings(BuildContext context, EmployeeProfile profile, AppData state) {
+    final pending = _myPendingDiscounts(profile, state);
+
+    openAppSettings(
+      context,
+      title: 'Billing Settings',
+      subtitle: 'Everything that feeds into a bill',
+      sections: [
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.sealPercent,
+          label: 'Discounts',
+          description: pending > 0
+              ? '$pending request${pending == 1 ? '' : 's'} waiting on the owner.'
+              : 'Ask the owner to approve a discount on a bill.',
+          badgeCount: pending,
+          builder: (_) => _EmployeeDiscountRequestsTab(profile: profile, state: state),
+        ),
+      ],
+    );
+  }
+
+  /// Client-side money, from the counter's point of view.
+  ///
+  /// firestore.rules lets an active employee create a payment
+  /// (`payments/{paymentId}: allow read, create: if isActiveEmployee()`),
+  /// so a stylist settling a balance when the client is standing in front
+  /// of them is a supported flow, not an owner-only one - it just had
+  /// nowhere to happen from.
+  void _openClientSettings(BuildContext context, AppData state) {
+    final owing = state.bills.where((b) => !b.isFullyPaid).map((b) => b.customerId).toSet().length;
+    final outstanding = state.bills.fold<double>(0, (s, b) => s + b.amountDue);
+
+    openAppSettings(
+      context,
+      title: 'Client Settings',
+      subtitle: 'Client records and their money',
+      sections: [
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.handCoins,
+          label: 'Outstanding',
+          description: owing > 0
+              ? '₹${outstanding.round()} still to collect, across $owing client${owing == 1 ? '' : 's'}.'
+              : 'No client owes anything right now.',
+          builder: (_) => const DuesView(),
+        ),
+      ],
+    );
+  }
+
+  void _openEarningsSettings(BuildContext context, EmployeeProfile profile, AppData state) {
+    final target = state.salesTargets
+        .where((t) => t.employeeId == profile.id)
+        .cast<SalesTarget?>()
+        .firstWhere((t) => t != null, orElse: () => null);
+
+    openAppSettings(
+      context,
+      title: 'Earnings Settings',
+      subtitle: 'How your pay is worked out',
+      sections: [
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.chartLineUp,
+          label: 'Targets',
+          description: target == null
+              ? 'Your manager has not set a sales target yet.'
+              : '${(target.progressFraction * 100).toStringAsFixed(0)}% of your current target reached.',
+          builder: (_) => _EmployeeTargetTab(profile: profile, state: state),
+        ),
+      ],
+    );
+  }
+
+  /// The bell, wired the same way from every page.
+  void _openNotifications(BuildContext context, EmployeeProfile profile, AppData state) {
+    if (_myPendingDiscounts(profile, state) > 0) {
+      openAppSubPage(
+        context,
+        title: 'Discount Requests',
+        subtitle: 'Your requests awaiting approval',
+        child: _EmployeeDiscountRequestsTab(profile: profile, state: state),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No new notifications'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  // ─── Drawer ───────────────────────────────────────────────────────────
+
+  Widget _buildDrawer(
+    BuildContext context,
+    EmployeeProfile profile,
+    AppData state, {
+    required bool isModal,
+  }) {
+    final salonName = state.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Salon';
+    final pending = _myPendingDiscounts(profile, state);
+
+    void go(String title, String subtitle, Widget page) {
+      if (isModal) Navigator.pop(context);
+      openAppSubPage(context, title: title, subtitle: subtitle, child: page);
+    }
+
+    void jump(EmployeeTab tab) {
+      if (isModal) Navigator.pop(context);
+      _switchToTab(tab);
+    }
+
+    return AppDrawer(
+      isModal: isModal,
+      title: salonName,
+      subtitle: '${profile.roleTitle} · ${profile.name}',
+      avatarInitials: profile.name
+          .split(' ')
+          .where((n) => n.isNotEmpty)
+          .map((n) => n[0].toUpperCase())
+          .take(2)
+          .join(),
+      onLogout: () {
+        if (isModal) Navigator.pop(context);
+        ref.read(authControllerProvider.notifier).logout();
+      },
+      sections: [
+        AppDrawerSection(
+          title: 'Go to',
+          items: [
+            AppDrawerItem(
+              icon: PhosphorIconsRegular.house,
+              label: 'Home',
+              selected: _activeTab == EmployeeTab.home,
+              onTap: () => jump(EmployeeTab.home),
+            ),
+            AppDrawerItem(
+              icon: PhosphorIconsRegular.receipt,
+              label: 'Billing',
+              selected: _activeTab == EmployeeTab.billing,
+              onTap: () => jump(EmployeeTab.billing),
+            ),
+            AppDrawerItem(
+              icon: PhosphorIconsRegular.usersThree,
+              label: 'Clients',
+              selected: _activeTab == EmployeeTab.clients,
+              onTap: () => jump(EmployeeTab.clients),
+            ),
+            AppDrawerItem(
+              icon: PhosphorIconsRegular.wallet,
+              label: 'Earnings',
+              selected: _activeTab == EmployeeTab.earnings,
+              onTap: () => jump(EmployeeTab.earnings),
+            ),
+          ],
+        ),
+        AppDrawerSection(
+          title: 'Mine',
+          items: [
+            AppDrawerItem(
+              icon: PhosphorIconsRegular.calendarBlank,
+              label: 'Attendance',
+              onTap: () => go('Attendance', 'Your shift history',
+                  _EmployeeAttendanceTab(profile: profile, state: state)),
+            ),
+            AppDrawerItem(
+              icon: PhosphorIconsRegular.chartLineUp,
+              label: 'Sales Targets',
+              onTap: () => go('Sales Targets', 'Quotas set by your manager',
+                  _EmployeeTargetTab(profile: profile, state: state)),
+            ),
+            AppDrawerItem(
+              icon: PhosphorIconsRegular.sealPercent,
+              label: 'Discount Requests',
+              badgeCount: pending,
+              onTap: () => go('Discount Requests', 'Your requests and their status',
+                  _EmployeeDiscountRequestsTab(profile: profile, state: state)),
+            ),
+            AppDrawerItem(
+              icon: PhosphorIconsRegular.userCircle,
+              label: 'Profile',
+              onTap: () => go('Profile', 'Your details and password',
+                  _EmployeeProfileTab(profile: profile, state: state)),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // ─── Bottom bar ───────────────────────────────────────────────────────
+
+  /// Five slots, five real destinations - identical in shape to the owner's.
+  /// The protruding "+" is gone here too: its sheet only jumped to pages the
+  /// bar already reached.
+  Widget _buildNavBar(BuildContext context, int pendingDiscountCount) {
+    return LiquidNavBar(
+      selectedIndex: _activeTab.index,
+      items: [
+        LiquidNavItem(
+          icon: PhosphorIconsRegular.house,
+          activeIcon: PhosphorIconsFill.house,
+          label: 'Home',
+          onTap: () => _switchToTab(EmployeeTab.home),
+        ),
+        LiquidNavItem(
+          icon: PhosphorIconsRegular.receipt,
+          activeIcon: PhosphorIconsFill.receipt,
+          label: 'Billing',
+          onTap: () => _switchToTab(EmployeeTab.billing),
+        ),
+        LiquidNavItem(
+          icon: PhosphorIconsRegular.usersThree,
+          activeIcon: PhosphorIconsFill.usersThree,
+          label: 'Clients',
+          onTap: () => _switchToTab(EmployeeTab.clients),
+        ),
+        LiquidNavItem(
+          icon: PhosphorIconsRegular.wallet,
+          activeIcon: PhosphorIconsFill.wallet,
+          label: 'Earnings',
+          onTap: () => _switchToTab(EmployeeTab.earnings),
+        ),
+        LiquidNavItem(
+          icon: PhosphorIconsRegular.list,
+          activeIcon: PhosphorIconsFill.list,
+          label: 'Menu',
+          badgeCount: pendingDiscountCount,
+          // Scaffold.of(context), not a GlobalKey: this callback is built
+          // inside the Scaffold's own bottomNavigationBar slot, so the
+          // lookup cannot miss. The key's currentState reads null whenever
+          // the AsyncValue flips through `loading` and remounts the
+          // Scaffold, which silently made this button do nothing.
+          onTap: () => Scaffold.of(context).openDrawer(),
+        ),
+      ],
+    );
+  }
+
+  // ─── Shell ────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -329,124 +426,36 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
     );
   }
 
-  void _switchToTab(int index) {
-    setState(() {
-      _activeTabIndex = index;
-    });
-  }
-
   Widget _buildScaffold(BuildContext context, EmployeeProfile empProfile, AppData state) {
     final isMobile = MediaQuery.of(context).size.width < _kMobileBreakpoint;
-    final salonName = ref.watch(appDataProvider).valueOrNull?.settings?.salonName ??
-        ref.watch(authControllerProvider).salonName ??
-        'Salon';
+    final pending = _myPendingDiscounts(empProfile, state);
 
-    final pendingDiscountCount = state.discountRequests.where((r) => r.status == 'PENDING' && r.requestedBy == empProfile.id).length;
-
-    // 0: Dashboard (tab 0), 1: Billing (tab 3), 2: Center (+ New), 3: Customers (tab 2), 4: More (tabs 1, 4, 5, 6, 7)
-    int navIndex = 0;
-    if (_activeTabIndex == 0) {
-      navIndex = 0;
-    } else if (_activeTabIndex == 3) {
-      navIndex = 1;
-    } else if (_activeTabIndex == 2) {
-      navIndex = 3;
-    } else {
-      navIndex = 4;
-    }
-
+    // No AppBar. It used to draw a salon name, a bell that only opened the
+    // drawer, and an avatar that jumped to a Profile tab - a second header
+    // above whatever header each tab drew for itself. Every page now wears
+    // the shared AppPageHeader instead, exactly as on the owner side.
     return Scaffold(
-      key: _scaffoldKey,
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: AppTheme.bgSurface,
       extendBody: isMobile,
-      appBar: isMobile
-          ? AppBar(
-              backgroundColor: Colors.white,
-              elevation: 0,
-              leading: IconButton(
-                icon: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEEF2FF),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    PhosphorIconsRegular.storefront,
-                    color: Color(0xFF4F46E5),
-                    size: 18,
-                  ),
-                ),
-                onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-              ),
-              titleSpacing: 0,
-              title: Row(
-                children: [
-                  Text(
-                    salonName,
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
-                      letterSpacing: -0.3,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(width: 6),
-                  Container(
-                    width: 7,
-                    height: 7,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF10B981),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                IconButton(
-                  icon: const Badge(
-                    smallSize: 8,
-                    backgroundColor: Color(0xFF4F46E5),
-                    child: Icon(PhosphorIconsRegular.bell, color: Color(0xFF475467), size: 20),
-                  ),
-                  onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(right: 14.0),
-                  child: GestureDetector(
-                    onTap: () => setState(() => _activeTabIndex = 6),
-                    child: CircleAvatar(
-                      radius: 16,
-                      backgroundColor: const Color(0xFF4F46E5),
-                      child: Text(
-                        empProfile.name.split(' ').map((n) => n.isNotEmpty ? n[0] : '').take(2).join(),
-                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            )
-          : null,
-      drawer: isMobile
-          ? Drawer(
-              child: SafeArea(
-                child: _buildSidebar(context, empProfile, isMobile: true),
-              ),
-            )
-          : null,
-      bottomNavigationBar: isMobile
-          ? _buildModernFloatingNavBar(context, navIndex, pendingDiscountCount)
-          : null,
+      drawer: isMobile ? _buildDrawer(context, empProfile, state, isModal: true) : null,
+      bottomNavigationBar:
+          isMobile ? Builder(builder: (ctx) => _buildNavBar(ctx, pending)) : null,
       body: SafeArea(
         bottom: !isMobile,
         child: isMobile
-            ? _buildEmployeeTabContent(empProfile, state)
+            ? PageView(
+                controller: _pageController,
+                physics: const ClampingScrollPhysics(),
+                onPageChanged: (index) => setState(() => _activeTab = EmployeeTab.values[index]),
+                children: _buildPages(context, empProfile, state),
+              )
             : Row(
                 children: [
-                  _buildSidebar(context, empProfile, isMobile: false),
+                  _buildDrawer(context, empProfile, state, isModal: false),
                   Expanded(
-                    child: _buildEmployeeTabContent(empProfile, state),
+                    child: AppPageSwitcher(
+                      child: _buildPages(context, empProfile, state)[_activeTab.index],
+                    ),
                   ),
                 ],
               ),
@@ -454,424 +463,112 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
     );
   }
 
-  // Shared with the owner dashboard - see widgets/liquid_nav_bar.dart for
-  // the glass/flow/spring behaviour. This file used to carry its own
-  // byte-for-byte copy of the bar, so the two drifted apart on every touch.
-  Widget _buildModernFloatingNavBar(BuildContext context, int navIndex, int pendingDiscountCount) {
-    return LiquidNavBar(
-      selectedIndex: navIndex,
-      onCenterTap: () => _showQuickCreateSheet(context),
-      centerIcon: PhosphorIconsBold.plus,
-      items: [
-        LiquidNavItem(
-          icon: PhosphorIconsRegular.squaresFour,
-          activeIcon: PhosphorIconsFill.squaresFour,
-          label: 'Dashboard',
-          onTap: () => _switchToTab(0),
-        ),
-        LiquidNavItem(
-          icon: PhosphorIconsRegular.receipt,
-          activeIcon: PhosphorIconsFill.receipt,
-          label: 'Billing',
-          onTap: () => _switchToTab(3),
-        ),
-        null, // the protruding "+" button is drawn over this slot
-        LiquidNavItem(
-          icon: PhosphorIconsRegular.users,
-          activeIcon: PhosphorIconsFill.users,
-          label: 'Customers',
-          onTap: () => _switchToTab(2),
-        ),
-        LiquidNavItem(
-          icon: PhosphorIconsRegular.dotsThree,
-          activeIcon: PhosphorIconsFill.dotsThree,
-          label: 'More',
-          badgeCount: pendingDiscountCount,
-          onTap: () => _scaffoldKey.currentState?.openDrawer(),
-          onLongPress: () => _showMoreMenu(context),
-        ),
-      ],
-    );
-  }
-
-  void _showQuickCreateSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      // Without this the sheet is capped at 9/16 of the screen and the four
-      // tiles overflow it; the ConstrainedBox then stops it growing past the
-      // screen on short viewports, and the tiles scroll inside instead.
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(ctx).size.height * 0.88,
-            ),
-            child: Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE2E8F0),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Quick Actions',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF0F172A),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Flexible(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                      _buildQuickActionTile(
-                        icon: PhosphorIconsBold.shoppingCart,
-                        iconColor: const Color(0xFF4F46E5),
-                        bgColor: const Color(0xFFEEF2FF),
-                        title: 'Start New Bill',
-                        subtitle: 'Create a new invoice and checkout services',
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _switchToTab(3);
-                        },
-                      ),
-                      const SizedBox(height: 10),
-                      _buildQuickActionTile(
-                        icon: PhosphorIconsBold.calendarCheck,
-                        iconColor: const Color(0xFF7C3AED),
-                        bgColor: const Color(0xFFF5F3FF),
-                        title: 'Attendance & Clock-In',
-                        subtitle: 'Clock in, clock out or check shift logs',
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _switchToTab(1);
-                        },
-                      ),
-                      const SizedBox(height: 10),
-                      _buildQuickActionTile(
-                        icon: PhosphorIconsBold.users,
-                        iconColor: const Color(0xFF0D9488),
-                        bgColor: const Color(0xFFE6FFFA),
-                        title: 'Customer Roster',
-                        subtitle: 'Look up client history and client profiles',
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _switchToTab(2);
-                        },
-                      ),
-                      const SizedBox(height: 10),
-                      _buildQuickActionTile(
-                        icon: PhosphorIconsBold.tag,
-                        iconColor: const Color(0xFFD97706),
-                        bgColor: const Color(0xFFFFFBEB),
-                        title: 'Request Discount',
-                        subtitle: 'Submit a discount request for owner approval',
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _switchToTab(7);
-                        },
-                      ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildQuickActionTile({
-    required IconData icon,
-    required Color iconColor,
-    required Color bgColor,
+  /// Wraps each tab in the shared header rather than letting the tab draw
+  /// its own, so the four pages cannot disagree about where the title,
+  /// the bell and the gear live.
+  Widget _page({
+    Key? key,
     required String title,
-    required String subtitle,
-    required VoidCallback onTap,
+    String? subtitle,
+    List<AppPageAction> actions = const [],
+    required Widget child,
   }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: bgColor,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: iconColor, size: 20),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF0F172A),
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF64748B),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(PhosphorIconsBold.caretRight, size: 16, color: Color(0xFF94A3B8)),
-          ],
-        ),
+    return Container(
+      key: key,
+      color: AppTheme.bgSurface,
+      child: Column(
+        children: [
+          AppPageHeader(title: title, subtitle: subtitle, actions: actions),
+          Expanded(child: child),
+        ],
       ),
     );
   }
 
-  void _showMoreMenu(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE2E8F0),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'More Options',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A),
-                          ),
-                        ),
-                        SizedBox(height: 2),
-                        Text(
-                          'Quick access to all employee tools & drawer',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF64748B),
-                          ),
-                        ),
-                      ],
-                    ),
-                    IconButton(
-                      icon: const Icon(PhosphorIconsRegular.sidebarSimple, color: Color(0xFF4F46E5)),
-                      tooltip: 'Open Full Drawer',
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        _scaffoldKey.currentState?.openDrawer();
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                _buildQuickActionTile(
-                  icon: PhosphorIconsBold.wallet,
-                  iconColor: const Color(0xFF10B981),
-                  bgColor: const Color(0xFFECFDF5),
-                  title: 'Earnings & Salary',
-                  subtitle: 'Live estimated payout, commissions & slips',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _switchToTab(4);
-                  },
-                ),
-                const SizedBox(height: 10),
-                _buildQuickActionTile(
-                  icon: PhosphorIconsBold.calendarBlank,
-                  iconColor: const Color(0xFF6366F1),
-                  bgColor: const Color(0xFFEEF2FF),
-                  title: 'Attendance Logs',
-                  subtitle: 'Review clock-in logs and work shifts',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _switchToTab(1);
-                  },
-                ),
-                const SizedBox(height: 10),
-                _buildQuickActionTile(
-                  icon: PhosphorIconsBold.users,
-                  iconColor: const Color(0xFF0D9488),
-                  bgColor: const Color(0xFFE6FFFA),
-                  title: 'Customer Roster',
-                  subtitle: 'View salon client history and profiles',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _switchToTab(2);
-                  },
-                ),
-                const SizedBox(height: 10),
-                _buildQuickActionTile(
-                  icon: PhosphorIconsBold.receipt,
-                  iconColor: const Color(0xFF4F46E5),
-                  bgColor: const Color(0xFFEEF2FF),
-                  title: 'Quick Billing',
-                  subtitle: 'Fast POS terminal invoice generator',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _switchToTab(3);
-                  },
-                ),
-                const SizedBox(height: 10),
-                _buildQuickActionTile(
-                  icon: PhosphorIconsBold.chartLineUp,
-                  iconColor: const Color(0xFFF59E0B),
-                  bgColor: const Color(0xFFFFFBEB),
-                  title: 'Sales Targets',
-                  subtitle: 'Monthly performance and target tracking',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _switchToTab(5);
-                  },
-                ),
-                const SizedBox(height: 10),
-                _buildQuickActionTile(
-                  icon: PhosphorIconsBold.tag,
-                  iconColor: const Color(0xFF8B5CF6),
-                  bgColor: const Color(0xFFF5F3FF),
-                  title: 'Discount Requests',
-                  subtitle: 'Track status of discounts submitted to owner',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _switchToTab(7);
-                  },
-                ),
-                const SizedBox(height: 10),
-                _buildQuickActionTile(
-                  icon: PhosphorIconsBold.userCircle,
-                  iconColor: const Color(0xFF3B82F6),
-                  bgColor: const Color(0xFFEFF6FF),
-                  title: 'Personal Profile',
-                  subtitle: 'Employee profile, specialization and settings',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _switchToTab(6);
-                  },
-                ),
-                const SizedBox(height: 10),
-                _buildQuickActionTile(
-                  icon: PhosphorIconsBold.list,
-                  iconColor: const Color(0xFF4F46E5),
-                  bgColor: const Color(0xFFEEF2FF),
-                  title: 'Open Menu Drawer',
-                  subtitle: 'View the complete navigation drawer',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _scaffoldKey.currentState?.openDrawer();
-                  },
-                ),
-                const SizedBox(height: 16),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    ref.read(authControllerProvider.notifier).logout();
-                  },
-                  icon: const Icon(PhosphorIconsBold.signOut, size: 18, color: Color(0xFFEF4444)),
-                  label: const Text('Log Out', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFFEF4444))),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
-                    side: const BorderSide(color: Color(0xFFFEE2E2)),
-                    backgroundColor: const Color(0xFFFEF2F2),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-                const SizedBox(height: 8),
-              ],
-            ),
+  List<Widget> _buildPages(BuildContext context, EmployeeProfile profile, AppData state) {
+    final pending = _myPendingDiscounts(profile, state);
+    final now = DateTime.now();
+
+    final myBillsToday = state.bills
+        .where((b) =>
+            b.createdAt != null &&
+            _isSameDay(b.createdAt!, now) &&
+            b.items.any((i) => i.employeeId == profile.id))
+        .length;
+
+    final pendingCommission = state.pendingCommissionFor(profile.id).total;
+
+    return [
+      _page(
+        key: const ValueKey('home'),
+        title: 'Home',
+        subtitle: 'Good ${_greeting(now.hour)}, ${profile.name.split(' ').first}',
+        actions: [
+          AppPageAction(
+            icon: PhosphorIconsRegular.bell,
+            tooltip: 'Notifications',
+            badgeCount: pending,
+            onTap: () => _openNotifications(context, profile, state),
           ),
-        );
-      },
-    );
-  }
-
-  Widget _buildEmployeeTabContent(EmployeeProfile profile, AppData state) {
-    return AppPageSwitcher(child: _buildEmployeeTabContentRaw(profile, state));
-  }
-
-  Widget _buildEmployeeTabContentRaw(EmployeeProfile profile, AppData state) {
-    switch (_activeTabIndex) {
-      case 0:
-        return _EmployeeDashboardTab(
+          appSettingsAction(
+            tooltip: 'My account',
+            onTap: () => _openMyAccountSettings(context, profile, state),
+          ),
+        ],
+        child: _EmployeeDashboardTab(
           profile: profile,
           state: state,
-          onTabSelected: (idx) => setState(() => _activeTabIndex = idx),
-        );
-      case 1:
-        return _EmployeeAttendanceTab(profile: profile, state: state);
-      case 2:
-        return const _EmployeeCustomersTab();
-      case 3:
-        return _EmployeeBillingTab(profile: profile);
-      case 4:
-        return _EmployeeSalaryTab(profile: profile, state: state);
-      case 5:
-        return _EmployeeTargetTab(profile: profile, state: state);
-      case 6:
-        return _EmployeeProfileTab(profile: profile, state: state, onTabSelected: (i) => setState(() => _activeTabIndex = i));
-      case 7:
-        return _EmployeeDiscountRequestsTab(profile: profile, state: state);
-      default:
-        return const Center(key: ValueKey('fallback'), child: Text('Coming Soon Screen'));
-    }
+          onOpenBilling: () => _switchToTab(EmployeeTab.billing),
+        ),
+      ),
+      _page(
+        key: const ValueKey('billing'),
+        title: 'Billing',
+        subtitle: myBillsToday > 0
+            ? '$myBillsToday bill${myBillsToday == 1 ? '' : 's'} by you today'
+            : 'No bills by you yet today',
+        actions: [
+          appSettingsAction(
+            tooltip: 'Billing settings',
+            badgeCount: pending,
+            onTap: () => _openBillingSettings(context, profile, state),
+          ),
+        ],
+        child: _EmployeeBillingTab(profile: profile),
+      ),
+      _page(
+        key: const ValueKey('clients'),
+        title: 'Clients',
+        subtitle: '${state.customers.length} on the books',
+        actions: [
+          AppPageAction(
+            icon: PhosphorIconsRegular.bell,
+            tooltip: 'Notifications',
+            badgeCount: pending,
+            onTap: () => _openNotifications(context, profile, state),
+          ),
+          appSettingsAction(
+            tooltip: 'Client settings',
+            onTap: () => _openClientSettings(context, state),
+          ),
+        ],
+        child: const _EmployeeCustomersTab(),
+      ),
+      _page(
+        key: const ValueKey('earnings'),
+        title: 'Earnings',
+        subtitle: pendingCommission > 0
+            ? '₹${pendingCommission.round()} commission pending'
+            : 'No commission pending',
+        actions: [
+          appSettingsAction(
+            tooltip: 'Earnings settings',
+            onTap: () => _openEarningsSettings(context, profile, state),
+          ),
+        ],
+        child: _EmployeeSalaryTab(profile: profile, state: state),
+      ),
+    ];
   }
 }
 
@@ -880,9 +577,16 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
 class _EmployeeDashboardTab extends ConsumerWidget {
   final EmployeeProfile profile;
   final AppData state;
-  final ValueChanged<int> onTabSelected;
+  // Named for where it goes. `onTabSelected(3)` meant this widget had to
+  // know that 3 was Billing - numbering owned by another class that broke
+  // silently whenever the tab list was reordered.
+  final VoidCallback onOpenBilling;
 
-  const _EmployeeDashboardTab({required this.profile, required this.state, required this.onTabSelected});
+  const _EmployeeDashboardTab({
+    required this.profile,
+    required this.state,
+    required this.onOpenBilling,
+  });
 
   Future<void> _toggleClock(BuildContext context, WidgetRef ref, bool isClockedIn) async {
     try {
@@ -1182,7 +886,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
 
           // 5. Fast POS New Billing / Checkout Hero Card
           InkWell(
-            onTap: () => onTabSelected(3),
+            onTap: onOpenBilling,
             borderRadius: BorderRadius.circular(20),
             child: Container(
               padding: const EdgeInsets.all(18),
@@ -1329,7 +1033,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                     ),
                     const Spacer(),
                     GestureDetector(
-                      onTap: () => onTabSelected(3),
+                      onTap: onOpenBilling,
                       child: Text(
                         'See all (${myBills.length})',
                         style: const TextStyle(
@@ -1359,7 +1063,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
               ],
             ),
           ),
-          const SizedBox(height: 120),
+          const SizedBox(height: 88),
         ],
       ),
     );
@@ -1535,10 +1239,7 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Attendance Logs', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22, color: AppTheme.slateDark, letterSpacing: -0.5)),
-              const SizedBox(height: 4),
-              const Text('Clock in when entering the salon and clock out at end of shift.', style: TextStyle(color: AppTheme.slateLight, fontSize: 13)),
-              const SizedBox(height: 20),
+              // Title removed: the page this sits in already names it.
 
               // Clock in/out card
               Container(
@@ -1735,20 +1436,11 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
       ..sort((a, b) => (b.lastVisitAt ?? DateTime(0)).compareTo(a.lastVisitAt ?? DateTime(0)));
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Client Roster',
-            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22, color: Color(0xFF0F172A), letterSpacing: -0.5),
-          ),
-          const SizedBox(height: 2),
-          const Text(
-            'Search clients and view their visit history.',
-            style: TextStyle(color: Color(0xFF64748B), fontSize: 12, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 16),
+          // Title removed: the page this sits in already names it.
 
           // Summary tiles
           Row(
@@ -2034,7 +1726,13 @@ class _EmployeeBillingTab extends ConsumerStatefulWidget {
   ConsumerState<_EmployeeBillingTab> createState() => _EmployeeBillingTabState();
 }
 
+enum _EmpBillingSection { newBill, history }
+
 class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
+  // Billing is a section with two views, not just a form. Staff could
+  // create a bill but had nowhere to look one up afterwards - same gap the
+  // owner side had.
+  _EmpBillingSection _section = _EmpBillingSection.newBill;
   String? _selectedCustomerId;
   // Selections start empty and only ever hold ids the employee actually
   // tapped in the live catalog below. They used to be seeded with demo ids
@@ -2064,7 +1762,85 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
     return asyncData.when(
       loading: () => const AppLoadingView(),
       error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
-      data: (state) => _buildBody(context, state),
+      data: (state) => Column(
+        children: [
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: _buildSegmentedControl(),
+          ),
+          const Divider(height: 1, color: AppTheme.borderSubtle),
+          Expanded(
+            child: _section == _EmpBillingSection.history
+                // Scoped to this stylist's own bills - the same widget the
+                // owner's history uses, so a bill can never be formatted
+                // two different ways depending on who is looking.
+                ? BillHistoryView(state: state, onlyEmployeeId: widget.profile.id)
+                : _buildBody(context, state),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSegmentedControl() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          for (final section in _EmpBillingSection.values)
+            Expanded(
+              child: InkWell(
+                onTap: () => setState(() => _section = section),
+                borderRadius: BorderRadius.circular(11),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOut,
+                  padding: const EdgeInsets.symmetric(vertical: 9),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: _section == section ? Colors.white : Colors.transparent,
+                    borderRadius: BorderRadius.circular(11),
+                    boxShadow: _section == section
+                        ? [
+                            BoxShadow(
+                              color: const Color(0xFF0F172A).withValues(alpha: 0.06),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        section == _EmpBillingSection.newBill
+                            ? PhosphorIconsBold.plusCircle
+                            : PhosphorIconsBold.clockCounterClockwise,
+                        size: 15,
+                        color: _section == section ? AppTheme.primaryBlue : AppTheme.slateLight,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        section == _EmpBillingSection.newBill ? 'New Bill' : 'History',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: _section == section ? AppTheme.primaryBlue : AppTheme.slateLight,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -3014,6 +2790,10 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
         _selectedProductQuantities.clear();
         _selectedCustomerId = null;
         _partPaymentController.clear();
+        // Land on History: the bill just written is the top row there, so
+        // saving visibly produces something instead of just emptying the
+        // form.
+        _section = _EmpBillingSection.history;
       });
 
       if (!context.mounted) return;
@@ -3083,14 +2863,14 @@ class _BillingCatalogEmpty extends StatelessWidget {
 
 // ─── Earnings & Salary tab ───────────────────────────────────────────────────
 
-class _EmployeeSalaryTab extends StatelessWidget {
+class _EmployeeSalaryTab extends ConsumerWidget {
   final EmployeeProfile profile;
   final AppData state;
 
   const _EmployeeSalaryTab({required this.profile, required this.state});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final now = DateTime.now();
     final split = state.pendingCommissionFor(profile.id);
     final pendingCommission = split.total;
@@ -3116,7 +2896,10 @@ class _EmployeeSalaryTab extends StatelessWidget {
 
     // Real payout history, newest first - the page previously showed three
     // hardcoded 2024 rows.
-    final payouts = [...state.salaryRecords.where((r) => r.employeeId == profile.id)]
+    final payouts = [
+      ...(ref.watch(salaryRecordsProvider).valueOrNull ?? const <SalaryRecord>[])
+          .where((r) => r.employeeId == profile.id)
+    ]
       ..sort((a, b) => (b.year * 100 + b.month).compareTo(a.year * 100 + a.month));
 
     final activeTarget = state.salesTargets
@@ -3145,16 +2928,7 @@ class _EmployeeSalaryTab extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Earnings & Salary',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
+                  // Title removed: the page this sits in already names it.
                   Row(
                     children: [
                       Container(
@@ -3671,7 +3445,7 @@ class _EmployeeSalaryTab extends StatelessWidget {
             ),
           ),
 
-          const SizedBox(height: 120),
+          const SizedBox(height: 88),
         ],
       ),
     );
@@ -3782,23 +3556,14 @@ class _EmployeeTargetTab extends StatelessWidget {
     final achieved = targets.where((t) => t.status == 'ACHIEVED').length;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 600),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Sales Targets',
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22, color: Color(0xFF0F172A), letterSpacing: -0.5),
-              ),
-              const SizedBox(height: 2),
-              const Text(
-                'Track your revenue quotas set by your manager.',
-                style: TextStyle(color: Color(0xFF64748B), fontSize: 12, fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 16),
+              // Title removed: the page this sits in already names it.
 
               if (active.isNotEmpty) ...[
                 _buildHeroTarget(active.first),
@@ -4106,12 +3871,18 @@ class _EmployeeTargetTab extends StatelessWidget {
 
 // ─── Profile / Account & Preferences tab ─────────────────────────────────────
 
+/// Profile, as a section of My Account settings.
+///
+/// It used to carry a six-row menu linking to Attendance, Commission,
+/// Earnings, Targets and Discount Requests - a signpost duplicating the
+/// nav, which is exactly the sprawl this restructure removes. What is left
+/// is the thing only this screen does: show your details and change your
+/// password.
 class _EmployeeProfileTab extends ConsumerStatefulWidget {
   final EmployeeProfile profile;
   final AppData state;
-  final ValueChanged<int> onTabSelected;
 
-  const _EmployeeProfileTab({required this.profile, required this.state, required this.onTabSelected});
+  const _EmployeeProfileTab({required this.profile, required this.state});
 
   @override
   ConsumerState<_EmployeeProfileTab> createState() => _EmployeeProfileTabState();
@@ -4294,71 +4065,28 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
 
               const SizedBox(height: 16),
 
-              // Menu list
+              // Just the one row this screen owns. The five navigation
+              // tiles that used to sit here pointed at Attendance,
+              // Earnings, Targets and Discount Requests - all reachable
+              // from the nav, the drawer and their own section gears.
               Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: AppTheme.borderSubtle),
                 ),
-                child: Column(
-                  children: [
-                    _buildMenuTile(
-                      icon: PhosphorIconsRegular.calendarBlank,
-                      iconColor: AppTheme.primaryBlue,
-                      iconBg: AppTheme.primaryLight,
-                      title: 'Attendance Logs',
-                      subtitle: 'View your shift history',
-                      onTap: () => widget.onTabSelected(1),
-                    ),
-                    const Divider(height: 1, indent: 62, color: AppTheme.borderSubtle),
-                    _buildMenuTile(
-                      icon: PhosphorIconsRegular.coins,
-                      iconColor: AppTheme.accentGreen,
-                      iconBg: AppTheme.accentGreenBg,
-                      title: 'Commission Review',
-                      subtitle: '₹${state.commissions.where((c) => c.employeeId == profile.id && c.status == 'PENDING').fold<double>(0, (s, c) => s + c.amount).toStringAsFixed(0)} pending',
-                      onTap: () => widget.onTabSelected(4),
-                    ),
-                    const Divider(height: 1, indent: 62, color: AppTheme.borderSubtle),
-                    _buildMenuTile(
-                      icon: PhosphorIconsRegular.wallet,
-                      iconColor: const Color(0xFF7C3AED),
-                      iconBg: const Color(0xFFF5F3FF),
-                      title: 'Earnings & Billing',
-                      subtitle: 'Salary breakdown & payout history',
-                      onTap: () => widget.onTabSelected(4),
-                    ),
-                    const Divider(height: 1, indent: 62, color: AppTheme.borderSubtle),
-                    _buildMenuTile(
-                      icon: PhosphorIconsRegular.chartLineUp,
-                      iconColor: AppTheme.accentAmber,
-                      iconBg: AppTheme.accentAmberBg,
-                      title: 'Sales Target',
-                      subtitle: target == null ? 'No active target' : '${(target.progressFraction * 100).toStringAsFixed(0)}% completed',
-                      onTap: () => widget.onTabSelected(5),
-                    ),
-                    const Divider(height: 1, indent: 62, color: AppTheme.borderSubtle),
-                    _buildMenuTile(
-                      icon: PhosphorIconsRegular.userCircle,
-                      iconColor: AppTheme.slateMedium,
-                      iconBg: const Color(0xFFF1F5F9),
-                      title: 'Account Profile',
-                      subtitle: '${profile.email} · ${profile.phone}',
-                      onTap: () => _showChangePasswordDialog(context, ref),
-                    ),
-                    const Divider(height: 1, indent: 62, color: AppTheme.borderSubtle),
-                    _buildMenuTile(
-                      icon: PhosphorIconsRegular.tag,
-                      iconColor: AppTheme.accentRed,
-                      iconBg: AppTheme.accentRedBg,
-                      title: 'Discount Requests',
-                      subtitle: '${state.discountRequests.where((r) => r.status == 'PENDING').length} pending approvals',
-                      onTap: () => widget.onTabSelected(7),
-                    ),
-                  ],
+                child: _buildMenuTile(
+                  icon: PhosphorIconsRegular.lockKey,
+                  iconColor: AppTheme.slateMedium,
+                  iconBg: const Color(0xFFF1F5F9),
+                  title: 'Change Password',
+                  subtitle: '${profile.email} · ${profile.phone}',
+                  onTap: () => _showChangePasswordDialog(context, ref),
                 ),
               ),
+
+              const SizedBox(height: 16),
+
 
               const SizedBox(height: 16),
 
@@ -4385,6 +4113,13 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
                           onCancel: () => Navigator.pop(ctx),
                           onSubmit: () {
                             Navigator.pop(ctx);
+                            // Unwind any pushed settings/sub-pages first.
+                            // Logging out only swaps the route GoRouter owns
+                            // underneath; a page pushed imperatively on top
+                            // of it stays there, so the user would be left
+                            // staring at a settings screen for an account
+                            // they are no longer signed in to.
+                            Navigator.of(context).popUntil((r) => r.isFirst);
                             ref.read(authControllerProvider.notifier).logout();
                           },
                         ),
@@ -4776,33 +4511,19 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
       onRefresh: () => ref.read(appDataProvider.notifier).refresh(),
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 600),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Title removed: the page this sits in already names it, so
+                // this row is just the "New Request" action.
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Discount Requests',
-                            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22, color: Color(0xFF0F172A), letterSpacing: -0.5),
-                          ),
-                          SizedBox(height: 2),
-                          Text(
-                            'Ask your manager to approve a discount beyond what you can give.',
-                            style: TextStyle(color: Color(0xFF64748B), fontSize: 12, fontWeight: FontWeight.w600),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 10),
                     InkWell(
                       onTap: () => _showNewRequestDialog(context, ref),
                       borderRadius: BorderRadius.circular(22),

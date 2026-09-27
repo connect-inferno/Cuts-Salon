@@ -31,6 +31,79 @@ class SalonFirestore {
 
   SalonFirestore(FirebaseApp app) : db = FirebaseFirestore.instanceFor(app: app);
 
+  /// How far back a delta read reaches behind the newest thing already
+  /// cached.
+  ///
+  /// The naive watermark - "newest document I hold" - has a hole when two
+  /// people bill at once. Say this device cached up to 2pm, a colleague rang
+  /// up a bill at 2:05, and then this device rang up its own at 2:10. Its
+  /// own write lands in its own cache, so the newest cached timestamp is now
+  /// 2:10 and a delta of "after 2:10" skips straight past the colleague's
+  /// 2:05 bill - which would then never appear here at all, because nothing
+  /// re-reads that range.
+  ///
+  /// Overlapping by a day closes that: anything written in the last 24 hours
+  /// is re-read, ids are deduped on merge, and the cost is one day of
+  /// documents per load rather than the full page. The same buffer, for the
+  /// same reason, is why the items and payments group queries below reach a
+  /// day behind their oldest bill.
+  static const Duration _deltaOverlap = Duration(days: 1);
+
+  // Apps whose Firestore instance has already had persistence turned on.
+  // Doing it twice throws, and SalonFirestore is constructed fresh on every
+  // AppData rebuild (see AppDataNotifier.build), so the guard is per app
+  // name rather than per instance.
+  static final Set<String> _persistenceEnabledFor = {};
+
+  /// Turns on the local document cache for [app], once.
+  ///
+  /// This is what makes the delta reads in [listBills], [listBillItemsForBills]
+  /// and [listPaymentsForBills] possible: bills, their items and their
+  /// payments are all append-only (firestore.rules denies update and delete
+  /// on every one of them), so a document that has been read once can never
+  /// change, and re-reading it on every load was pure waste.
+  ///
+  /// Each salon has its own FirebaseApp, and Firestore keys its IndexedDB
+  /// store by project - so one salon's cache is physically a different store
+  /// from another's, and a shared Vercel origin can't leak one tenant's
+  /// documents into another's cache.
+  ///
+  /// Every failure here is survivable and deliberately swallowed: Safari in
+  /// Private Browsing has no IndexedDB at all, ITP evicts script-writable
+  /// storage after seven days of not visiting (see the notes in
+  /// salon_auth.dart), and a second tab without synchronizeTabs would throw
+  /// failed-precondition. In all of those the cache reads below simply come
+  /// back empty and every query falls through to the server, which is
+  /// exactly how the app behaved before any of this existed.
+  static Future<void> enablePersistence(FirebaseApp app) async {
+    if (!_persistenceEnabledFor.add(app.name)) return;
+    final db = FirebaseFirestore.instanceFor(app: app);
+    try {
+      if (kIsWeb) {
+        // synchronizeTabs matters here: two tabs on one origin already share
+        // a Firebase Auth session (see
+        // AuthController._watchForIdentityChange), so they should share one
+        // cache too - in single-tab mode the second tab can't take the
+        // IndexedDB lock and silently runs uncached.
+        //
+        // enablePersistence is deprecated in favour of
+        // Settings.webPersistentTabManager, which this project's
+        // cloud_firestore (5.6.12 / platform interface 6.6.12) doesn't have
+        // yet - Settings there exposes only persistenceEnabled, which is
+        // single-tab. Swap to the Settings form when the package is next
+        // upgraded; until then this is the only multi-tab option.
+        // ignore: deprecated_member_use
+        await db.enablePersistence(const PersistenceSettings(synchronizeTabs: true));
+      } else {
+        // Mobile enables it by default; set explicitly so the intent is
+        // visible and survives a default changing.
+        db.settings = const Settings(persistenceEnabled: true);
+      }
+    } catch (e) {
+      debugPrint('[Stylux] Firestore local cache unavailable, reads go to the server: $e');
+    }
+  }
+
   // --- Settings (single fixed-id document) ---
 
   Future<FSSettings> getSettings() async {
@@ -55,11 +128,18 @@ class SalonFirestore {
     return snap.docs.map(FSBranch.fromFirestore).toList();
   }
 
+  // No read-back after the add(): nothing written here is server-generated
+  // (FSBranch has no serverTimestamp field), so the doc that would come back
+  // is exactly what went in plus the id we already hold. Same reasoning for
+  // createServiceCategory/createService/createInventoryItem/createSalesTarget
+  // /createExpense below; the creates that DO write a serverTimestamp
+  // (customers, bills, payments, discount requests) still re-read, because
+  // there the round trip is the only way to learn createdAt.
   Future<FSBranch> createBranch({required String name, String? address, String? phone}) async {
     final ref = await db.collection('branches').add(
           FSBranch(id: '', name: name, address: address, phone: phone, active: true).toFirestore(),
         );
-    return FSBranch.fromFirestore(await ref.get());
+    return FSBranch(id: ref.id, name: name, address: address, phone: phone, active: true);
   }
 
   Future<void> updateBranch(String id, Map<String, dynamic> changes) => db.collection('branches').doc(id).update(changes);
@@ -104,9 +184,58 @@ class SalonFirestore {
 
   // --- Customers ---
 
+  /// The whole client directory, read forward from the local cache.
+  ///
+  /// This was the single largest read in the app and the only one with no
+  /// ceiling at all: every client the salon has ever taken, on every load,
+  /// growing forever. At 10,000 clients it cost more than everything else on
+  /// a load put together.
+  ///
+  /// Customers are not immutable the way bills are - billing bumps
+  /// visitCount, totalSpent and outstandingBalance - so the delta keys on an
+  /// `updatedAt` stamp that every write path sets (see [customerTouch])
+  /// rather than on creation order. The cached copy of a client nobody has
+  /// touched is still correct by definition, because the only thing that
+  /// could have changed it would have stamped it.
+  ///
+  /// Deliberately not a name/phone index document: visitCount, totalSpent,
+  /// lastVisitAt and outstandingBalance are read by the client lists on both
+  /// dashboards, the archived list and the dues view, so a trimmed index
+  /// would have to be re-joined against full documents in four places - and
+  /// a *fat* index would be rewritten by every bill, since those same fields
+  /// change on every bill, which is exactly the write-contention an index is
+  /// supposed to avoid.
+  ///
+  /// With no usable cache the watermark is null, the query is unbounded, and
+  /// this reads the full collection exactly as it always did.
   Future<List<FSCustomer>> listCustomers() async {
-    final snap = await db.collection('customers').orderBy('createdAt', descending: true).get();
-    return snap.docs.map(FSCustomer.fromFirestore).toList();
+    final ordering = db.collection('customers').orderBy('createdAt', descending: true);
+    final cached = await _cachedDocs(ordering);
+
+    DateTime? newest;
+    for (final doc in cached) {
+      final at = _timestampOf(doc, 'updatedAt');
+      if (at != null && (newest == null || at.isAfter(newest))) newest = at;
+    }
+
+    // Documents written before updatedAt existed carry none, so they never
+    // raise the watermark - which is right: they also can't have changed
+    // since, or the change would have stamped them.
+    final fresh = newest == null
+        ? await ordering.get(const GetOptions(source: Source.server))
+        : await db
+            .collection('customers')
+            .where('updatedAt', isGreaterThan: Timestamp.fromDate(newest.subtract(_deltaOverlap)))
+            .get(const GetOptions(source: Source.server));
+
+    return _mergeNewestFirst(
+      fresh.docs,
+      cached,
+      FSCustomer.fromFirestore,
+      (c) => c.id,
+      (c) => c.createdAt,
+      null,
+    );
   }
 
   Future<FSCustomer> createCustomer(FSCustomer customer) async {
@@ -114,7 +243,18 @@ class SalonFirestore {
     return FSCustomer.fromFirestore(await ref.get());
   }
 
-  Future<void> updateCustomer(String id, Map<String, dynamic> changes) => db.collection('customers').doc(id).update(changes);
+  /// Every field that can change on a customer document must go through a
+  /// write that carries this stamp, or [listCustomers]'s delta will not see
+  /// the change and the directory will serve a stale copy from cache
+  /// indefinitely. That means here, [createCustomer], and the two stat bumps
+  /// inside createBill's and recordPayment's transactions.
+  static Map<String, dynamic> customerTouch(Map<String, dynamic> changes) => {
+        ...changes,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+  Future<void> updateCustomer(String id, Map<String, dynamic> changes) =>
+      db.collection('customers').doc(id).update(customerTouch(changes));
 
   // Mirrors customer.service.ts's per-salon phone-uniqueness check.
   Future<bool> isCustomerPhoneTaken(String phone) async {
@@ -131,7 +271,7 @@ class SalonFirestore {
 
   Future<FSServiceCategory> createServiceCategory(String name) async {
     final ref = await db.collection('serviceCategories').add({'name': name});
-    return FSServiceCategory.fromFirestore(await ref.get());
+    return FSServiceCategory(id: ref.id, name: name);
   }
 
   // Mirrors serviceCategory.service.ts's per-salon name-uniqueness check.
@@ -147,7 +287,13 @@ class SalonFirestore {
 
   Future<FSService> createService(FSService service) async {
     final ref = await db.collection('services').add(service.toFirestore());
-    return FSService.fromFirestore(await ref.get());
+    return FSService(
+      id: ref.id,
+      name: service.name,
+      price: service.price,
+      categoryId: service.categoryId,
+      categoryName: service.categoryName,
+    );
   }
 
   // Mirrors service.service.ts's per-salon name-uniqueness check.
@@ -163,7 +309,16 @@ class SalonFirestore {
 
   Future<FSInventoryItem> createInventoryItem(FSInventoryItem item) async {
     final ref = await db.collection('inventoryItems').add(item.toFirestore());
-    return FSInventoryItem.fromFirestore(await ref.get());
+    return FSInventoryItem(
+      id: ref.id,
+      sku: item.sku,
+      name: item.name,
+      category: item.category,
+      price: item.price,
+      costPrice: item.costPrice,
+      stockCount: item.stockCount,
+      minAlertThreshold: item.minAlertThreshold,
+    );
   }
 
   Future<void> updateInventoryItem(String id, Map<String, dynamic> changes) => db.collection('inventoryItems').doc(id).update(changes);
@@ -186,7 +341,7 @@ class SalonFirestore {
   // by query, so that lookup runs *before* runTransaction; each matching
   // target document is then re-read via tx.get() inside the transaction so
   // its update is still transactionally consistent at commit time.
-  Future<FSBill> createBill({
+  Future<FSCreatedBill> createBill({
     required String customerId,
     required String customerName,
     required String branchId,
@@ -206,20 +361,39 @@ class SalonFirestore {
     final now = DateTime.now();
     final todayStart = DateTime(now.year, now.month, now.day);
 
-    final targetDocsByEmployee = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+    // One query per distinct employee on the bill, issued together: these
+    // are independent of each other, and awaiting them in the loop made a
+    // three-stylist bill three serial round trips before the transaction
+    // could even start.
+    final targetLookups = <String, String>{};
     for (final item in items) {
-      if (targetDocsByEmployee.containsKey(item.employeeId)) continue;
-      final targetType = item.type == 'SERVICE' ? 'SERVICE_VOLUME' : 'PRODUCT_SALES_COUNT';
-      final snap = await db
-          .collection('salesTargets')
-          .where('employeeId', isEqualTo: item.employeeId)
-          .where('type', isEqualTo: targetType)
-          .where('status', isEqualTo: 'ACTIVE')
-          .get();
-      targetDocsByEmployee[item.employeeId] = snap.docs;
+      targetLookups.putIfAbsent(
+        item.employeeId,
+        () => item.type == 'SERVICE' ? 'SERVICE_VOLUME' : 'PRODUCT_SALES_COUNT',
+      );
     }
+    final targetSnaps = await Future.wait(targetLookups.entries.map((e) => db
+        .collection('salesTargets')
+        .where('employeeId', isEqualTo: e.key)
+        .where('type', isEqualTo: e.value)
+        .where('status', isEqualTo: 'ACTIVE')
+        .get()));
+    final targetDocsByEmployee = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{
+      for (var i = 0; i < targetLookups.length; i++)
+        targetLookups.keys.elementAt(i): targetSnaps[i].docs,
+    };
 
-    return db.runTransaction<FSBill>((tx) async {
+    return db.runTransaction<FSCreatedBill>((tx) async {
+      // Built fresh per attempt, not outside the closure - runTransaction
+      // re-runs this on contention, and anything hoisted out would
+      // accumulate a duplicate set on every retry.
+      final createdItems = <FSBillItem>[];
+      final createdCommissions = <FSCommissionRecord>[];
+      final stockDeltas = <String, int>{};
+      final updatedTargets = <String, FSSalesTarget>{};
+      // Target path -> progress so far within this bill, so multiple lines
+      // hitting the same target add up instead of overwriting each other.
+      final runningProgress = <String, double>{};
       // ---- READS (must all happen before any write below) ----
       final freshTargets = <String, DocumentSnapshot<Map<String, dynamic>>>{};
       for (final docs in targetDocsByEmployee.values) {
@@ -267,10 +441,37 @@ class SalonFirestore {
       );
       tx.set(billRef, bill.toFirestore(isCreate: true));
 
+      // Roll this bill into its day's totals, so the dashboard can read ~37
+      // small docs instead of every bill raised in the last five weeks. See
+      // dailyStatsDocId and getDashboardSummary.
+      //
+      // Keyed on the client clock rather than the bill's serverTimestamp: a
+      // transaction can't read back its own serverTimestamp to decide which
+      // day doc to touch, and the two only disagree for a bill rung up
+      // within seconds of midnight.
+      tx.set(
+        db.collection('dailyStats').doc(dailyStatsDocId(todayStart)),
+        {
+          'date': Timestamp.fromDate(todayStart),
+          'sales': FieldValue.increment(finalAmount),
+          'billCount': FieldValue.increment(1),
+          'outstanding': FieldValue.increment(amountDue),
+          // Bucketed by the bill's own method and incremented by what was
+          // actually collected, which is what the pre-rollup query did.
+          // A PENDING bill lands in no bucket, by design - see
+          // getDashboardSummary's note on billed vs received.
+          if (_isTillMethod(paymentMethod)) 'collected_$paymentMethod': FieldValue.increment(amountPaid),
+          // arrayUnion, so a client billed twice in a day is still one
+          // visitor - the figure is "distinct clients", not "bills".
+          'customerIds': FieldValue.arrayUnion([customerId]),
+        },
+        SetOptions(merge: true),
+      );
+
       // Denormalized onto the customer doc so list/profile views can show
       // visit count, total spent, and last visit without re-reading the
       // whole bill history - see listBills()'s comment for why that matters.
-      tx.update(db.collection('customers').doc(customerId), {
+      tx.update(db.collection('customers').doc(customerId), customerTouch({
         'visitCount': FieldValue.increment(1),
         // totalSpent tracks what they were billed, not what they've handed
         // over - an unpaid bill still counts as business done, and the money
@@ -278,43 +479,41 @@ class SalonFirestore {
         'totalSpent': FieldValue.increment(finalAmount),
         if (amountDue > 0) 'outstandingBalance': FieldValue.increment(amountDue),
         'lastVisitAt': FieldValue.serverTimestamp(),
-      });
+      }));
 
       for (final item in items) {
         final itemRef = billRef.collection('items').doc();
         final netAmount = _round2(item.unitPrice * item.quantity - item.discountAmount);
         final commission = _round2(netAmount * (item.commissionPct / 100));
 
-        tx.set(
-          itemRef,
-          FSBillItem(
-            id: itemRef.id,
-            type: item.type,
-            serviceId: item.serviceId,
-            serviceName: item.serviceName,
-            inventoryItemId: item.inventoryItemId,
-            productName: item.productName,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            discountAmount: item.discountAmount,
-            employeeId: item.employeeId,
-            employeeName: item.employeeName,
-            calculatedCommission: commission,
-          ).toFirestore(),
+        final billItem = FSBillItem(
+          id: itemRef.id,
+          type: item.type,
+          serviceId: item.serviceId,
+          serviceName: item.serviceName,
+          inventoryItemId: item.inventoryItemId,
+          productName: item.productName,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          discountAmount: item.discountAmount,
+          employeeId: item.employeeId,
+          employeeName: item.employeeName,
+          calculatedCommission: commission,
         );
+        tx.set(itemRef, billItem.toFirestore());
+        createdItems.add(billItem);
 
         final commissionRef = db.collection('commissionRecords').doc();
-        tx.set(
-          commissionRef,
-          FSCommissionRecord(
-            id: commissionRef.id,
-            employeeId: item.employeeId,
-            billId: billRef.id,
-            billItemId: itemRef.id,
-            amount: commission,
-            status: 'PENDING',
-          ).toFirestore(isCreate: true),
+        final commissionRecord = FSCommissionRecord(
+          id: commissionRef.id,
+          employeeId: item.employeeId,
+          billId: billRef.id,
+          billItemId: itemRef.id,
+          amount: commission,
+          status: 'PENDING',
         );
+        tx.set(commissionRef, commissionRecord.toFirestore(isCreate: true));
+        createdCommissions.add(commissionRecord);
 
         final progressIncrement = item.type == 'SERVICE' ? netAmount : item.quantity.toDouble();
         for (final d in targetDocsByEmployee[item.employeeId] ?? []) {
@@ -325,21 +524,49 @@ class SalonFirestore {
           // yet started, or already ended, don't get progress bumped.
           if (target.startDate != null && target.startDate!.isAfter(now)) continue;
           if (target.endDate != null && target.endDate!.isBefore(todayStart)) continue;
-          final newProgress = _round2(target.progressValue + progressIncrement);
+          // Accumulated across lines, not recomputed from the snapshot each
+          // time. freshTargets holds the state at transaction start, so two
+          // lines by the same stylist both read the same progressValue and
+          // the second tx.update overwrote the first - a two-service bill
+          // moved the target by one of its lines instead of both.
+          final base = runningProgress[d.reference.path] ?? target.progressValue;
+          final newProgress = _round2(base + progressIncrement);
+          runningProgress[d.reference.path] = newProgress;
+          final achieved = newProgress >= target.targetValue;
           tx.update(d.reference, {
             'progressValue': newProgress,
-            if (newProgress >= target.targetValue) 'status': 'ACHIEVED',
+            if (achieved) 'status': 'ACHIEVED',
           });
+          updatedTargets[target.id] = FSSalesTarget(
+            id: target.id,
+            employeeId: target.employeeId,
+            type: target.type,
+            targetValue: target.targetValue,
+            progressValue: newProgress,
+            startDate: target.startDate,
+            endDate: target.endDate,
+            status: achieved ? 'ACHIEVED' : target.status,
+          );
         }
 
         if (item.type == 'PRODUCT' && item.inventoryItemId != null) {
           tx.update(db.collection('inventoryItems').doc(item.inventoryItemId), {
             'stockCount': FieldValue.increment(-item.quantity),
           });
+          // Accumulated for the same reason: two lines of the same product
+          // decrement it twice, and the caller patches by the total.
+          stockDeltas[item.inventoryItemId!] =
+              (stockDeltas[item.inventoryItemId!] ?? 0) + item.quantity;
         }
       }
 
-      return bill;
+      return FSCreatedBill(
+        bill: bill,
+        items: createdItems,
+        commissions: createdCommissions,
+        stockDeltas: stockDeltas,
+        updatedTargets: updatedTargets,
+      );
     });
   }
 
@@ -354,9 +581,99 @@ class SalonFirestore {
   // denormalized onto the customer doc (see createBill's transaction).
   static const int billsPageSize = 300;
 
+  /// The newest [billsPageSize] bills, read forward from the local cache.
+  ///
+  /// A bill is immutable once written, so anything already cached is still
+  /// correct and only bills raised since the last load need fetching. The
+  /// cached page costs nothing; the server query is bounded to what's new,
+  /// which on a return visit is usually a handful of documents and used to
+  /// be the full 300 every single time.
+  ///
+  /// With no usable cache - first load on this browser, Safari having
+  /// evicted it, persistence unavailable - the watermark is null, the server
+  /// query is unbounded and this behaves exactly like the plain page read it
+  /// replaced.
   Future<List<FSBill>> listBills() async {
-    final snap = await db.collection('bills').orderBy('createdAt', descending: true).limit(billsPageSize).get();
-    return snap.docs.map((d) => FSBill.fromFirestore(d)).toList();
+    final cached = await _cachedDocs(
+      db.collection('bills').orderBy('createdAt', descending: true).limit(billsPageSize),
+    );
+
+    // Newest cached bill bounds the delta. Bills with no createdAt yet (the
+    // serverTimestamp hasn't resolved on this client) are ignored for the
+    // watermark, so one can never push it past bills we haven't seen.
+    DateTime? newest;
+    for (final doc in cached) {
+      final at = _timestampOf(doc, 'createdAt');
+      if (at != null && (newest == null || at.isAfter(newest))) newest = at;
+    }
+
+    Query<Map<String, dynamic>> q = db.collection('bills').orderBy('createdAt', descending: true);
+    if (newest != null) {
+      q = q.where('createdAt', isGreaterThan: Timestamp.fromDate(newest.subtract(_deltaOverlap)));
+    }
+    final fresh = await q.limit(billsPageSize).get(const GetOptions(source: Source.server));
+
+    return _mergeNewestFirst(
+      fresh.docs,
+      cached,
+      FSBill.fromFirestore,
+      (b) => b.id,
+      (b) => b.createdAt,
+      billsPageSize,
+    );
+  }
+
+  /// Runs [q] against the local cache only, returning nothing if there isn't
+  /// one. Never throws: an unavailable cache is a cost question, not a
+  /// correctness one, and every caller falls through to the server.
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _cachedDocs(
+    Query<Map<String, dynamic>> q,
+  ) async {
+    try {
+      final snap = await q.get(const GetOptions(source: Source.cache));
+      return snap.docs;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static DateTime? _timestampOf(QueryDocumentSnapshot<Map<String, dynamic>> doc, String field) {
+    final raw = doc.data()[field];
+    return raw is Timestamp ? raw.toDate() : null;
+  }
+
+  /// Folds a server delta over a cached page: newest first, one entry per id
+  /// with the server's copy winning, capped at [limit] when one is given
+  /// (null for collections that are read whole, like the client directory).
+  static List<T> _mergeNewestFirst<T>(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> fresh,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> cached,
+    T Function(QueryDocumentSnapshot<Map<String, dynamic>>) parse,
+    String Function(T) idOf,
+    DateTime? Function(T) dateOf,
+    int? limit,
+  ) {
+    final byId = <String, T>{};
+    // Cached first so a server copy of the same id overwrites it - the two
+    // overlap whenever a bill was written by this client and is already in
+    // its own cache.
+    for (final doc in [...cached, ...fresh]) {
+      final parsed = parse(doc);
+      byId[idOf(parsed)] = parsed;
+    }
+    final merged = byId.values.toList()
+      ..sort((a, b) {
+        final at = dateOf(a);
+        final bt = dateOf(b);
+        // Undated rows sort newest: a serverTimestamp that hasn't resolved
+        // belongs to something just written.
+        if (at == null && bt == null) return 0;
+        if (at == null) return -1;
+        if (bt == null) return 1;
+        return bt.compareTo(at);
+      });
+    if (limit == null || merged.length <= limit) return merged;
+    return merged.sublist(0, limit);
   }
 
   // Used by a customer's profile view instead of filtering the capped
@@ -417,15 +734,35 @@ class SalonFirestore {
     final timestamps = bills.map((b) => b.createdAt).whereType<DateTime>().toList();
     if (timestamps.isNotEmpty) {
       final oldest = timestamps.reduce((a, b) => a.isBefore(b) ? a : b);
+      final from = Timestamp.fromDate(oldest.subtract(const Duration(days: 1)));
+      // Items are immutable like their bills, so the cache is read first and
+      // the server is asked only for what it doesn't already hold. Both
+      // queries share the same lower bound; the server's upper bound starts
+      // where the cache leaves off.
+      final cached = await _cachedDocs(
+        db.collectionGroup('items').where('billCreatedAt', isGreaterThanOrEqualTo: from),
+      );
+      DateTime? newestCached;
+      for (final doc in cached) {
+        final at = _timestampOf(doc, 'billCreatedAt');
+        if (at != null && (newestCached == null || at.isAfter(newestCached))) newestCached = at;
+      }
+
       try {
-        final snap = await db
-            .collectionGroup('items')
-            .where('billCreatedAt', isGreaterThanOrEqualTo: Timestamp.fromDate(oldest.subtract(const Duration(days: 1))))
-            .get();
-        for (final doc in snap.docs) {
+        final Query<Map<String, dynamic>> q = db.collectionGroup('items').where(
+              'billCreatedAt',
+              isGreaterThanOrEqualTo:
+                  newestCached == null ? from : Timestamp.fromDate(newestCached.subtract(_deltaOverlap)),
+            );
+        final snap = await q.get(const GetOptions(source: Source.server));
+        for (final doc in [...cached, ...snap.docs]) {
           final billId = doc.reference.parent.parent?.id;
           if (billId == null || !wanted.contains(billId)) continue;
-          (byBill[billId] ??= []).add(FSBillItem.fromFirestore(doc));
+          final items = byBill[billId] ??= [];
+          // The two results overlap at the boundary bill, so dedupe by id.
+          final item = FSBillItem.fromFirestore(doc);
+          items.removeWhere((existing) => existing.id == item.id);
+          items.add(item);
         }
       } catch (e) {
         // Index or rule not deployed yet - fall through to per-bill reads.
@@ -496,9 +833,35 @@ class SalonFirestore {
           note: note,
         ).toFirestore(isCreate: true),
       );
-      tx.update(db.collection('customers').doc(bill.customerId), {
+      tx.update(db.collection('customers').doc(bill.customerId), customerTouch({
         'outstandingBalance': FieldValue.increment(-applied),
-      });
+      }));
+
+      // Draw down the rollup for the day the *bill* was raised, not today.
+      // The dashboard's outstanding figure is "billed today and not yet
+      // collected", so settling a bill from last Tuesday belongs to last
+      // Tuesday's doc - which is exactly what the bills-counting path
+      // computed by re-reading bill.amountPaid. Skipped when the bill has no
+      // createdAt (never observed, since it's set on write) because there'd
+      // be no day to attribute it to.
+      final billDay = bill.createdAt;
+      if (billDay != null) {
+        final day = DateTime(billDay.year, billDay.month, billDay.day);
+        tx.set(
+          db.collection('dailyStats').doc(dailyStatsDocId(day)),
+          {
+            'date': Timestamp.fromDate(day),
+            'outstanding': FieldValue.increment(-applied),
+            // Money reaching the till later still shows under the bill's own
+            // method, matching the old sumByMethod - which bucketed on
+            // bill.paymentMethod and summed its running amountPaid. A
+            // PENDING bill stays in no bucket however it's settled.
+            if (_isTillMethod(bill.paymentMethod))
+              'collected_${bill.paymentMethod}': FieldValue.increment(applied),
+          },
+          SetOptions(merge: true),
+        );
+      }
     });
 
     return FSPayment.fromFirestore(await paymentRef.get());
@@ -527,15 +890,36 @@ class SalonFirestore {
     final timestamps = bills.map((b) => b.createdAt).whereType<DateTime>().toList();
     if (timestamps.isNotEmpty) {
       final oldest = timestamps.reduce((a, b) => a.isBefore(b) ? a : b);
+      final from = Timestamp.fromDate(oldest.subtract(const Duration(days: 1)));
+      // Payments are append-only too, but unlike items they are NOT tied to
+      // their bill's date: a balance from three weeks ago can be settled
+      // this afternoon. So the watermark here is the newest receivedAt in
+      // the cache, not anything about the bills - a delta on receivedAt
+      // picks up late settlements against old bills exactly as a full read
+      // of the window would.
+      final cached = await _cachedDocs(
+        db.collectionGroup('payments').where('receivedAt', isGreaterThanOrEqualTo: from),
+      );
+      DateTime? newestCached;
+      for (final doc in cached) {
+        final at = _timestampOf(doc, 'receivedAt');
+        if (at != null && (newestCached == null || at.isAfter(newestCached))) newestCached = at;
+      }
+
       try {
         final snap = await db
             .collectionGroup('payments')
-            .where('receivedAt', isGreaterThanOrEqualTo: Timestamp.fromDate(oldest.subtract(const Duration(days: 1))))
-            .get();
-        for (final doc in snap.docs) {
+            .where('receivedAt',
+                isGreaterThanOrEqualTo:
+                    newestCached == null ? from : Timestamp.fromDate(newestCached.subtract(_deltaOverlap)))
+            .get(const GetOptions(source: Source.server));
+        for (final doc in [...cached, ...snap.docs]) {
           final billId = doc.reference.parent.parent?.id;
           if (billId == null || !wanted.contains(billId)) continue;
-          (byBill[billId] ??= []).add(FSPayment.fromFirestore(doc));
+          final payments = byBill[billId] ??= [];
+          final payment = FSPayment.fromFirestore(doc);
+          payments.removeWhere((existing) => existing.id == payment.id);
+          payments.add(payment);
         }
         groupQueryWorked = true;
       } catch (e) {
@@ -597,14 +981,37 @@ class SalonFirestore {
     return FSAttendanceRecord.fromFirestore(await ref.get());
   }
 
-  Future<FSAttendanceRecord> markAttendance({required String employeeId, required DateTime date, required String status}) async {
+  /// Sets one day's status for one employee, leaving any clock times alone.
+  ///
+  /// Returns what the merged doc now holds without reading it back: the write
+  /// only touches employeeId/date/status (no serverTimestamp anywhere), so
+  /// the result is those three plus whatever clock times were already there -
+  /// which the caller passes in as [existingClockIn]/[existingClockOut] from
+  /// the record it already has loaded. Confirming a roster writes one of
+  /// these per employee, so the read-back that used to follow each one
+  /// doubled the cost of the single biggest bulk action in the app.
+  Future<FSAttendanceRecord> markAttendance({
+    required String employeeId,
+    required DateTime date,
+    required String status,
+    DateTime? existingClockIn,
+    DateTime? existingClockOut,
+  }) async {
+    final day = DateTime(date.year, date.month, date.day);
     final ref = db.collection('attendanceRecords').doc(attendanceDocId(employeeId, date));
     await ref.set({
       'employeeId': employeeId,
-      'date': Timestamp.fromDate(DateTime(date.year, date.month, date.day)),
+      'date': Timestamp.fromDate(day),
       'status': status,
     }, SetOptions(merge: true));
-    return FSAttendanceRecord.fromFirestore(await ref.get());
+    return FSAttendanceRecord(
+      id: ref.id,
+      employeeId: employeeId,
+      date: day,
+      clockIn: existingClockIn,
+      clockOut: existingClockOut,
+      status: status,
+    );
   }
 
   Future<List<FSAttendanceRecord>> listAttendance({String? employeeId, int limit = 500}) async {
@@ -626,16 +1033,57 @@ class SalonFirestore {
 
   Future<FSSalesTarget> createSalesTarget(FSSalesTarget target) async {
     final ref = await db.collection('salesTargets').add(target.toFirestore());
-    return FSSalesTarget.fromFirestore(await ref.get());
+    return FSSalesTarget(
+      id: ref.id,
+      employeeId: target.employeeId,
+      type: target.type,
+      targetValue: target.targetValue,
+      progressValue: target.progressValue,
+      startDate: target.startDate,
+      endDate: target.endDate,
+      status: target.status,
+    );
   }
 
   // --- Salary ---
 
+  /// Salary slips for the recent period, newest first.
+  ///
+  /// This was the one query in the app with no bound at all - an owner read
+  /// every slip ever written, for the whole team, so the cost grew with the
+  /// salon's age rather than its size.
+  ///
+  /// Bounded by period rather than by row count on purpose: an owner's query
+  /// spans every employee, so a flat `limit` would cut one person's history
+  /// shorter as the roster grew - six staff and `limit(24)` is four months,
+  /// not two years. A year window gives everyone the same span whatever the
+  /// headcount, and the screens only ever show recent months anyway.
+  ///
+  /// [FSSalaryRecord] keeps month and year as separate integers with no
+  /// timestamp, hence the two-field ordering and its composite indexes in
+  /// firestore.indexes.json. Until those finish building the query throws,
+  /// so this falls back to the old unbounded read rather than leaving
+  /// Payroll broken - same shape as listPendingCommissions.
   Future<List<FSSalaryRecord>> listSalaryRecords({String? employeeId}) async {
-    Query<Map<String, dynamic>> q = db.collection('salaryRecords');
-    if (employeeId != null) q = q.where('employeeId', isEqualTo: employeeId);
-    final snap = await q.get();
-    return snap.docs.map(FSSalaryRecord.fromFirestore).toList();
+    final cutoffYear = DateTime.now().year - 2;
+
+    Query<Map<String, dynamic>> windowed = db.collection('salaryRecords');
+    if (employeeId != null) windowed = windowed.where('employeeId', isEqualTo: employeeId);
+    windowed = windowed
+        .where('year', isGreaterThanOrEqualTo: cutoffYear)
+        .orderBy('year', descending: true)
+        .orderBy('month', descending: true);
+
+    try {
+      final snap = await windowed.get();
+      return snap.docs.map(FSSalaryRecord.fromFirestore).toList();
+    } catch (e) {
+      debugPrint('[Stylux] salary period index unavailable, reading unbounded: $e');
+      Query<Map<String, dynamic>> all = db.collection('salaryRecords');
+      if (employeeId != null) all = all.where('employeeId', isEqualTo: employeeId);
+      final snap = await all.get();
+      return snap.docs.map(FSSalaryRecord.fromFirestore).toList();
+    }
   }
 
   Future<void> createSalaryRecord(FSSalaryRecord record) => db.collection('salaryRecords').add(record.toFirestore());
@@ -726,13 +1174,65 @@ class SalonFirestore {
     return results;
   }
 
+  // --- Daily rollups ---
+  //
+  // One doc per calendar day holding that day's billing totals, written by
+  // createBill's transaction and drawn down by recordPayment. The dashboard
+  // needs today, the trailing week and the month to date; reading those from
+  // the bills collection meant pulling every bill raised in ~37 days on
+  // every load *and* after every bill - over a thousand documents for a
+  // salon doing thirty bills a day. Thirty-seven rollup docs answer the same
+  // question, and the write that maintains them is free at these volumes.
+
+  static String dailyStatsDocId(DateTime day) =>
+      '${day.year.toString().padLeft(4, '0')}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
+
+  /// Whether a bill's payment method represents money in the till today.
+  /// PENDING doesn't - nothing was handed over - and neither would any
+  /// method added later without a matching `collected_` field.
+  static bool _isTillMethod(String method) =>
+      method == 'CASH' || method == 'CARD' || method == 'UPI';
+
+  /// The first day that has a rollup doc, or null if none exist.
+  ///
+  /// Salons provisioned before rollups existed have bills with no matching
+  /// day docs, and a summary built from those would silently under-report
+  /// real revenue. One cheap doc read tells [getDashboardSummary] whether
+  /// the rollups actually cover the window it needs, or whether it has to
+  /// fall back to counting bills. Once the oldest rollup is more than five
+  /// weeks old the fallback can never trigger again.
+  Future<DateTime?> _earliestRollupDay() async {
+    final snap = await db.collection('dailyStats').orderBy('date').limit(1).get();
+    if (snap.docs.isEmpty) return null;
+    final raw = snap.docs.first.data()['date'];
+    return raw is Timestamp ? raw.toDate() : null;
+  }
+
   // --- Dashboard ---
   // Mirrors backend/src/services/dashboard.service.ts, returning the exact
   // same JSON shape so the existing DashboardSummary.fromJson (models.dart)
   // can parse it unchanged. One query for the widest window (month) instead
   // of three separate today/week/month queries - today and week are both
   // subsets of month, filtered client-side.
-  Future<Map<String, dynamic>> getDashboardSummary() async {
+  //
+  // The three non-bill figures are passed in rather than queried, because
+  // every caller has already loaded the collections they come from and was
+  // paying for them twice:
+  //   - lowStockItemCount re-ran `inventoryItems.get()`, the identical
+  //     unfiltered read listInventory() had just done (in loadAppData, and
+  //     again concurrently with it inside createBill's own Future.wait);
+  //   - todayAttendanceCount and pendingDiscountRequests re-queried subsets
+  //     of listAttendance()/listDiscountRequests(), both of which an owner
+  //     loads unfiltered.
+  // Deriving them caller-side is exact for any salon under the page caps on
+  // those two lists (500 attendance rows, 300 discount requests) - and the
+  // owner dashboard already derived pendingDiscountRequests that way for its
+  // own bell badge, so this also removes a second source for that number.
+  Future<Map<String, dynamic>> getDashboardSummary({
+    required int todayAttendanceCount,
+    required int pendingDiscountRequests,
+    required int lowStockItemCount,
+  }) async {
     final now = DateTime.now();
     final todayStart = DateTime(now.year, now.month, now.day);
     final weekStart = todayStart.subtract(const Duration(days: 6));
@@ -743,14 +1243,29 @@ class SalonFirestore {
     // figure only ever saw the 1st and the 2nd, so weekSales == monthSales).
     final queryStart = weekStart.isBefore(monthStart) ? weekStart : monthStart;
 
-    final results = await Future.wait([
-      db.collection('bills').where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(queryStart)).get(),
-      db.collection('attendanceRecords').where('date', isEqualTo: Timestamp.fromDate(todayStart)).get(),
-      db.collection('discountRequests').where('status', isEqualTo: 'PENDING').get(),
-      db.collection('inventoryItems').get(),
-    ]);
+    // Rollups first, when they cover the whole window.
+    final earliestRollup = await _earliestRollupDay();
+    if (earliestRollup != null && !earliestRollup.isAfter(queryStart)) {
+      return _summaryFromRollups(
+        queryStart: queryStart,
+        todayStart: todayStart,
+        weekStart: weekStart,
+        monthStart: monthStart,
+        todayAttendanceCount: todayAttendanceCount,
+        pendingDiscountRequests: pendingDiscountRequests,
+        lowStockItemCount: lowStockItemCount,
+      );
+    }
 
-    final windowBills = results[0].docs.map((d) => FSBill.fromFirestore(d)).toList();
+    // Otherwise count the bills, exactly as before rollups existed - this is
+    // the path a salon takes for its first five weeks after the rollups ship,
+    // and the only path one takes if they were never written.
+    final snap = await db
+        .collection('bills')
+        .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(queryStart))
+        .get();
+
+    final windowBills = snap.docs.map((d) => FSBill.fromFirestore(d)).toList();
     final monthBills = windowBills.where((b) => b.createdAt != null && !b.createdAt!.isBefore(monthStart)).toList();
     final todayBills = windowBills.where((b) => b.createdAt != null && !b.createdAt!.isBefore(todayStart)).toList();
     final weekBills = windowBills.where((b) => b.createdAt != null && !b.createdAt!.isBefore(weekStart)).toList();
@@ -765,13 +1280,6 @@ class SalonFirestore {
     double sumByMethod(String method) => _round2(
           todayBills.where((b) => b.paymentMethod == method).fold(0.0, (s, b) => s + b.amountPaid),
         );
-
-    final todayAttendanceCount = results[1].docs.where((d) {
-      final status = d.data()['status'];
-      return status == 'PRESENT' || status == 'LATE';
-    }).length;
-
-    final lowStockItemCount = results[3].docs.map((d) => FSInventoryItem.fromFirestore(d)).where((i) => i.isLowStock).length;
 
     return {
       'todaySales': sumFinal(todayBills),
@@ -790,19 +1298,116 @@ class SalonFirestore {
       'todayCustomersCount': todayBills.map((b) => b.customerId).toSet().length,
       'todayBillCount': todayBills.length,
       'todayAttendanceCount': todayAttendanceCount,
-      'pendingDiscountRequests': results[2].docs.length,
+      'pendingDiscountRequests': pendingDiscountRequests,
       'lowStockItemCount': lowStockItemCount,
     };
   }
 
+  /// Same shape as the bills-counting path above, assembled from one doc per
+  /// day instead of one per bill.
+  ///
+  /// Every figure it returns is additive across days, which is why this works
+  /// at all - except distinct clients, which is why each day's doc carries
+  /// the set of customer ids it saw rather than a count.
+  Future<Map<String, dynamic>> _summaryFromRollups({
+    required DateTime queryStart,
+    required DateTime todayStart,
+    required DateTime weekStart,
+    required DateTime monthStart,
+    required int todayAttendanceCount,
+    required int pendingDiscountRequests,
+    required int lowStockItemCount,
+  }) async {
+    final snap = await db
+        .collection('dailyStats')
+        .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(queryStart))
+        .get();
+
+    double sales(DateTime from) {
+      var total = 0.0;
+      for (final doc in snap.docs) {
+        final day = _dayOf(doc);
+        if (day == null || day.isBefore(from)) continue;
+        total += _double(doc.data()['sales']);
+      }
+      return _round2(total);
+    }
+
+    Map<String, dynamic>? todayDoc;
+    for (final doc in snap.docs) {
+      final day = _dayOf(doc);
+      if (day != null && !day.isBefore(todayStart)) todayDoc = doc.data();
+    }
+    final today = todayDoc ?? const <String, dynamic>{};
+
+    return {
+      'todaySales': sales(todayStart),
+      'weekSales': sales(weekStart),
+      'monthSales': sales(monthStart),
+      'todayPaymentBreakdown': {
+        'CASH': _round2(_double(today['collected_CASH'])),
+        'CARD': _round2(_double(today['collected_CARD'])),
+        'UPI': _round2(_double(today['collected_UPI'])),
+      },
+      // Clamped for the same reason the bills path clamps: a correction
+      // could otherwise push the day negative.
+      'todayOutstanding': _round2(_double(today['outstanding']).clamp(0, double.infinity)),
+      'todayCustomersCount': (today['customerIds'] as List<dynamic>?)?.length ?? 0,
+      'todayBillCount': (today['billCount'] as num?)?.toInt() ?? 0,
+      'todayAttendanceCount': todayAttendanceCount,
+      'pendingDiscountRequests': pendingDiscountRequests,
+      'lowStockItemCount': lowStockItemCount,
+    };
+  }
+
+  static DateTime? _dayOf(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final raw = doc.data()['date'];
+    return raw is Timestamp ? raw.toDate() : null;
+  }
+
+  static double _double(dynamic v) => v is num ? v.toDouble() : 0.0;
+
   // --- Commissions ---
 
-  Future<List<FSCommissionRecord>> listCommissions({String? employeeId, int limit = 1000}) async {
-    Query<Map<String, dynamic>> q = db.collection('commissionRecords');
-    if (employeeId != null) q = q.where('employeeId', isEqualTo: employeeId);
-    q = q.orderBy('createdAt', descending: true).limit(limit);
-    final snap = await q.get();
-    return snap.docs.map(FSCommissionRecord.fromFirestore).toList();
+  /// Outstanding commission only - what someone is still owed.
+  ///
+  /// Filtered on status rather than taking the newest [limit] of everything,
+  /// because a PAID record is never rendered anywhere: the only three things
+  /// that read this list are AppData.pendingCommissionFor (which backs both
+  /// the employee's Earnings screen and the owner's Payroll estimate) and
+  /// the owner's two per-employee cards, and all three filter to PENDING
+  /// before doing anything. The old query fetched a flat 1000 newest records
+  /// and the app discarded every settled one - on an established salon that
+  /// was most of them, on every single load.
+  ///
+  /// The limit stays as a ceiling, not a window: it now bounds how much is
+  /// genuinely outstanding, which payroll drives back down, rather than how
+  /// far back the history reaches.
+  /// Falls back to the old unfiltered page if the status index isn't there.
+  /// A composite index takes minutes to build after `firebase deploy`, and
+  /// until it is ready the filtered query fails outright - so without this,
+  /// shipping the code before the index finished would black out every
+  /// owner's dashboard. Same defensive shape as listBillItemsForBills: the
+  /// fallback just costs what this used to.
+  Future<List<FSCommissionRecord>> listPendingCommissions({String? employeeId, int limit = 1000}) async {
+    Query<Map<String, dynamic>> base = db.collection('commissionRecords');
+    if (employeeId != null) base = base.where('employeeId', isEqualTo: employeeId);
+
+    try {
+      final snap = await base
+          .where('status', isEqualTo: 'PENDING')
+          .orderBy('createdAt', descending: true)
+          .limit(limit)
+          .get();
+      return snap.docs.map(FSCommissionRecord.fromFirestore).toList();
+    } catch (e) {
+      debugPrint('[Stylux] pending-commission index unavailable, reading the unfiltered page: $e');
+      final snap = await base.orderBy('createdAt', descending: true).limit(limit).get();
+      return snap.docs
+          .map(FSCommissionRecord.fromFirestore)
+          .where((c) => c.status == 'PENDING')
+          .toList();
+    }
   }
 
   Future<void> markCommissionPaid(String id) async {
@@ -855,8 +1460,52 @@ class SalonFirestore {
 
   Future<FSExpense> createExpense(FSExpense expense) async {
     final ref = await db.collection('expenses').add(expense.toFirestore());
-    return FSExpense.fromFirestore(await ref.get());
+    return FSExpense(
+      id: ref.id,
+      title: expense.title,
+      amount: expense.amount,
+      category: expense.category,
+      date: expense.date,
+      notes: expense.notes,
+    );
   }
+}
+
+/// Everything [SalonFirestore.createBill]'s transaction wrote.
+///
+/// All of it is composed client-side - the transaction allocates its own refs
+/// and computes its own figures - so the caller can fold a bill into the
+/// loaded snapshot without re-reading anything. That used to cost a full
+/// commissionRecords page (1000 docs), the whole inventory collection and
+/// every sales target on *every bill*, to learn values this object already
+/// carries.
+///
+/// The one thing genuinely unknowable here is the bill's createdAt
+/// ([FieldValue.serverTimestamp]), which is why the caller still re-reads
+/// that single doc. Commission createdAt has the same problem but no caller
+/// needs it to be exact, so it's approximated client-side (see
+/// AppDataNotifier.createBill).
+class FSCreatedBill {
+  final FSBill bill;
+  final List<FSBillItem> items;
+
+  /// One per line, already carrying the id the transaction allocated.
+  final List<FSCommissionRecord> commissions;
+
+  /// inventoryItemId -> units taken out of stock by this bill.
+  final Map<String, int> stockDeltas;
+
+  /// Sales targets this bill moved, keyed by id and holding their new
+  /// progress (and ACHIEVED status, where it tipped over).
+  final Map<String, FSSalesTarget> updatedTargets;
+
+  const FSCreatedBill({
+    required this.bill,
+    required this.items,
+    required this.commissions,
+    required this.stockDeltas,
+    required this.updatedTargets,
+  });
 }
 
 // Input shape for one line of createBill() - deliberately not FSBillItem

@@ -3,14 +3,15 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../theme.dart';
 import '../../../data/app_data_provider.dart';
+import '../../../data/expenses_provider.dart';
 import '../../../data/models.dart';
 import '../../../widgets/async_state_views.dart';
 import '../../../widgets/searchable_picker.dart';
 import '../../../widgets/app_dialog.dart';
 import '../../../widgets/app_page_header.dart';
+import '../../../widgets/bill_history_view.dart';
+import '../../../widgets/dues_view.dart';
 import '../../../widgets/app_settings_page.dart';
-import 'owner_bill_history.dart';
-import 'owner_dues_tab.dart';
 import 'owner_management_tabs.dart';
 import 'owner_tax_settings.dart';
 
@@ -209,7 +210,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
           description: outstanding > 0
               ? '${_formatRupees(outstanding)} billed but not collected, across $unpaidClients client${unpaidClients == 1 ? '' : 's'}.'
               : 'Every bill has been collected in full.',
-          builder: (_) => const OwnerDuesTab(),
+          builder: (_) => const DuesView(),
         ),
         AppSettingsSection(
           icon: PhosphorIconsRegular.sealPercent,
@@ -263,7 +264,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
           const Divider(height: 1, color: AppTheme.borderSubtle),
           Expanded(
             child: _section == _BillingSection.history
-                ? OwnerBillHistoryView(state: state)
+                ? BillHistoryView(state: state)
                 : _buildBody(context, ref, state),
           ),
         ],
@@ -2295,7 +2296,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
               }
               setDialogState(() => submitting = true);
               try {
-                await ref.read(appDataProvider.notifier).addExpense(
+                await ref.read(expensesProvider.notifier).add(
                       title: title,
                       amount: amount,
                       category: category,
@@ -2326,22 +2327,25 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
   Widget build(BuildContext context) {
     return Consumer(
       builder: (context, ref, child) {
-        final asyncData = ref.watch(appDataProvider);
+        // Its own provider, not AppData: expenses are fetched when this
+        // screen opens rather than on every sign-in - see
+        // data/expenses_provider.dart.
+        final asyncData = ref.watch(expensesProvider);
         return asyncData.when(
           loading: () => const AppLoadingView(),
-          error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
-          data: (state) => _buildBody(context, ref, state),
+          error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(expensesProvider.notifier).refresh()),
+          data: (expenses) => _buildBody(context, ref, expenses),
         );
       },
     );
   }
 
-  Widget _buildBody(BuildContext context, WidgetRef ref, AppData state) {
+  Widget _buildBody(BuildContext context, WidgetRef ref, List<Expense> expenses) {
     final now = DateTime.now();
     final catSums = <String, double>{};
     double totalExpense = 0;
     double monthExpense = 0;
-    for (final exp in state.expenses) {
+    for (final exp in expenses) {
       catSums[exp.category] = (catSums[exp.category] ?? 0) + exp.amount;
       totalExpense += exp.amount;
       final d = exp.date;
@@ -2349,8 +2353,8 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
     }
 
     final visible = _filter == 'All'
-        ? state.expenses
-        : state.expenses.where((e) => e.category == _filter).toList();
+        ? expenses
+        : expenses.where((e) => e.category == _filter).toList();
     final topCategory = catSums.entries.isEmpty
         ? null
         : catSums.entries.reduce((a, b) => a.value >= b.value ? a : b);
@@ -2454,7 +2458,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Text(
-                              '${state.expenses.length} ${state.expenses.length == 1 ? 'entry' : 'entries'}',
+                              '${expenses.length} ${expenses.length == 1 ? 'entry' : 'entries'}',
                               style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white),
                             ),
                           ),
@@ -2508,10 +2512,10 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: [
-                      _filterChip('All', state.expenses.length),
+                      _filterChip('All', expenses.length),
                       for (final cat in _expenseCategories) ...[
                         const SizedBox(width: 8),
-                        _filterChip(cat, state.expenses.where((e) => e.category == cat).length),
+                        _filterChip(cat, expenses.where((e) => e.category == cat).length),
                       ],
                     ],
                   ),

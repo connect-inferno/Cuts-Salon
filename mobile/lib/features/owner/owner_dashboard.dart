@@ -45,7 +45,6 @@ class OwnerDashboard extends ConsumerStatefulWidget {
 }
 
 class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
-  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   OwnerTab _activeTab = OwnerTab.dashboard;
   String? _preselectedCustomerId;
   // null = the whole salon; set from _showBranchSelector.
@@ -81,8 +80,16 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
     }
   }
 
+  /// read, not watch: this is called from the nav bar's builder *and* from
+  /// the bell's onTap, and ref.watch outside a build registers a
+  /// markNeedsBuild subscription from an event handler. It only ever behaved
+  /// because build() below already watches appDataProvider on this same
+  /// element, so the subscription was always a pre-existing one being reused
+  /// - drop that watch and the callback would start leaking its own. That
+  /// same build-time watch is what keeps the badge live, so reading here
+  /// costs nothing.
   int get _pendingDiscountCount =>
-      ref.watch(appDataProvider).valueOrNull?.discountRequests.where((r) => r.status == 'PENDING').length ?? 0;
+      ref.read(appDataProvider).valueOrNull?.discountRequests.where((r) => r.status == 'PENDING').length ?? 0;
 
   // ─── Drawer ───────────────────────────────────────────────────────────
 
@@ -268,7 +275,10 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
           activeIcon: PhosphorIconsFill.list,
           label: 'Menu',
           badgeCount: _pendingDiscountCount,
-          onTap: () => _scaffoldKey.currentState?.openDrawer(),
+          // Scaffold.of(context), not a GlobalKey - see the employee
+          // dashboard's note: the key's currentState reads null if the
+          // Scaffold remounts, and the button then silently does nothing.
+          onTap: () => Scaffold.of(context).openDrawer(),
         ),
       ],
     );
@@ -456,11 +466,10 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
     final branches = appData?.branches ?? [];
 
     return Scaffold(
-      key: _scaffoldKey,
       backgroundColor: AppTheme.bgSurface,
       extendBody: isMobile,
       drawer: isMobile ? _buildDrawer(context, isModal: true) : null,
-      bottomNavigationBar: isMobile ? _buildNavBar(context) : null,
+      bottomNavigationBar: isMobile ? Builder(builder: _buildNavBar) : null,
       body: SafeArea(
         bottom: !isMobile,
         child: isMobile

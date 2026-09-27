@@ -3,18 +3,19 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../theme.dart';
 import '../../../data/app_data_provider.dart';
+import '../../../data/salary_provider.dart';
 import '../../../data/models.dart';
 import '../../../widgets/app_page_header.dart';
 import '../../../widgets/app_page_route.dart';
 import '../../../widgets/app_page_switcher.dart';
 import '../../../widgets/app_settings_page.dart';
+import '../../../widgets/dues_view.dart';
 import '../../../widgets/async_state_views.dart';
 import '../../../widgets/app_dialog.dart';
 import '../../auth/auth_provider.dart';
 import 'owner_archived_clients.dart';
 import 'owner_management_tabs.dart';
 import 'owner_payroll_view.dart';
-import 'owner_dues_tab.dart';
 
 String _initials(String name) => name.split(' ').where((n) => n.isNotEmpty).map((n) => n[0]).take(2).join();
 
@@ -244,7 +245,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
           description: owing > 0
               ? '$owing client${owing == 1 ? '' : 's'} with an unpaid balance.'
               : 'No client owes anything right now.',
-          builder: (_) => const OwnerDuesTab(),
+          builder: (_) => const DuesView(),
         ),
       ],
     );
@@ -3838,12 +3839,16 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
   }
 
   Widget _buildSalaryHistoryCard(BuildContext context, WidgetRef ref, AppData state, EmployeeProfile emp) {
-    final records = state.salaryRecords.where((r) => r.employeeId == emp.id).toList()
+    // Loaded with this card rather than at sign-in; an empty history while
+    // it arrives is the same thing the card shows for a new employee.
+    final records = (ref.watch(salaryRecordsProvider).valueOrNull ?? const <SalaryRecord>[])
+        .where((r) => r.employeeId == emp.id)
+        .toList()
       ..sort((a, b) => (b.year * 12 + b.month).compareTo(a.year * 12 + a.month));
 
     Future<void> markPaid(String id) async {
       try {
-        await ref.read(appDataProvider.notifier).markSalaryPaid(id);
+        await ref.read(salaryRecordsProvider.notifier).markPaid(id);
       } catch (e) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
@@ -3986,16 +3991,86 @@ class OwnerAttendanceTab extends StatefulWidget {
 }
 
 class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
-  final Map<String, String> _localRosterStatus = {};
+  // Unsaved edits only - the letters the owner has tapped but not yet
+  // confirmed. Cleared per employee the moment that row is written, so
+  // AppData goes back to being the only thing this screen reads from.
+  //
+  // It used to be a plain local mirror that was never cleared, which made it
+  // win over the provider forever: once a row had been tapped, a later
+  // clock-in (or a refresh, or the same staff member being marked from
+  // another device) patched AppData.attendance correctly and this screen
+  // carried on showing the stale letter. A failed save was worse - the
+  // roster kept rendering every edit as though it had been written.
+  final Map<String, String> _pendingRosterEdits = {};
   bool _submittingRoster = false;
 
   String _statusFor(AppData state, String employeeId) {
-    if (_localRosterStatus.containsKey(employeeId)) {
-      return _localRosterStatus[employeeId]!;
-    }
+    // An unsaved edit shows through, because that's what the owner is
+    // looking at while they work; anything already saved reads from AppData.
+    final pending = _pendingRosterEdits[employeeId];
+    if (pending != null) return pending;
     final today = DateTime.now();
     final match = state.attendance.where((a) => a.employeeId == employeeId && a.date != null && _isSameDay(a.date!, today));
     return match.isEmpty ? 'ABSENT' : match.first.status;
+  }
+
+  /// Writes today's roster, then drops the draft for every row that landed.
+  ///
+  /// Each row is its own doc ("{employeeId}_{date}"), so they're independent:
+  /// one failing shouldn't abandon the rest, and the ones that succeeded
+  /// shouldn't stay queued as unsaved edits. Issued together rather than in
+  /// sequence - this used to await one write per employee back to back, so a
+  /// 15-person salon paid 15 serial round trips (and 15 full rebuilds, one
+  /// per _patchAttendance) before the button released.
+  Future<void> _confirmRoster(WidgetRef ref, AppData state) async {
+    final dateStr = DateTime.now().toIso8601String().split('T').first;
+    // Read the statuses before any await, so what gets written is what was
+    // on screen when the button was tapped.
+    final roster = <String, String>{
+      for (final emp in state.employees) emp.id: _statusFor(state, emp.id),
+    };
+    final notifier = ref.read(appDataProvider.notifier);
+
+    setState(() => _submittingRoster = true);
+
+    final failures = <String, Object>{};
+    await Future.wait(roster.entries.map((entry) async {
+      try {
+        await notifier.markAttendance(employeeId: entry.key, date: dateStr, status: entry.value);
+      } catch (e) {
+        failures[entry.key] = e;
+      }
+    }));
+
+    if (!mounted) return;
+    setState(() {
+      _submittingRoster = false;
+      // Everything that saved is in AppData now, so its draft goes away and
+      // _statusFor reads the real record again. Rows that failed stay queued
+      // so the owner still sees what they entered and can retry it.
+      _pendingRosterEdits.removeWhere(
+        (empId, _) => roster.containsKey(empId) && !failures.containsKey(empId),
+      );
+    });
+
+    final messenger = ScaffoldMessenger.of(context);
+    if (failures.isEmpty) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Daily roster confirmed successfully!'),
+        backgroundColor: Color(0xFF10B981),
+        behavior: SnackBarBehavior.floating,
+      ));
+      return;
+    }
+    // Named, not counted: "3 rows failed" with no idea which three is not
+    // something the owner can act on.
+    final names = failures.keys.map((id) => state.employeeById(id)?.name ?? 'Unknown').join(', ');
+    messenger.showSnackBar(SnackBar(
+      content: Text('Could not save $names: ${failures.values.first}'),
+      backgroundColor: const Color(0xFFEF4444),
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 5),
+    ));
   }
 
   void _showAllHistoryModal(BuildContext context, List<AttendanceRecord> records, AppData state) {
@@ -4175,7 +4250,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
     return InkWell(
       onTap: () {
         setState(() {
-          _localRosterStatus[empId] = statusKey;
+          _pendingRosterEdits[empId] = statusKey;
         });
       },
       borderRadius: BorderRadius.circular(15),
@@ -4320,7 +4395,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                       onTap: () {
                         setState(() {
                           for (final emp in state.employees) {
-                            _localRosterStatus[emp.id] = 'PRESENT';
+                            _pendingRosterEdits[emp.id] = 'PRESENT';
                           }
                         });
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -4445,39 +4520,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                             ],
                           ),
                           child: ElevatedButton(
-                            onPressed: _submittingRoster
-                                ? null
-                                : () async {
-                                    setState(() => _submittingRoster = true);
-                                    final dateStr = DateTime.now().toIso8601String().split('T').first;
-                                    try {
-                                      for (final emp in state.employees) {
-                                        final status = _statusFor(state, emp.id);
-                                        await ref.read(appDataProvider.notifier).markAttendance(
-                                              employeeId: emp.id,
-                                              date: dateStr,
-                                              status: status,
-                                            );
-                                      }
-                                      if (context.mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(
-                                            content: Text('Daily roster confirmed successfully!'),
-                                            backgroundColor: Color(0xFF10B981),
-                                            behavior: SnackBarBehavior.floating,
-                                          ),
-                                        );
-                                      }
-                                    } catch (e) {
-                                      if (context.mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(content: Text('Error: $e'), backgroundColor: const Color(0xFFEF4444)),
-                                        );
-                                      }
-                                    } finally {
-                                      if (mounted) setState(() => _submittingRoster = false);
-                                    }
-                                  },
+                            onPressed: _submittingRoster ? null : () => _confirmRoster(ref, state),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.transparent,
                               shadowColor: Colors.transparent,

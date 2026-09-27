@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../theme.dart';
-import '../../../data/app_data_provider.dart';
-import '../../../data/models.dart';
-import '../../../widgets/async_state_views.dart';
-import '../../../widgets/app_dialog.dart';
+import '../theme.dart';
+import '../data/app_data_provider.dart';
+import '../data/models.dart';
+import 'async_state_views.dart';
+import 'app_dialog.dart';
 
 String _rupees(double amount) {
   final whole = amount.round().toString();
@@ -41,8 +41,8 @@ class _ClientDue {
 /// on the bill that gets flipped - it's finalAmount minus everything
 /// collected (at the counter plus the payments ledger). This screen groups
 /// those leftovers by client and lets the owner record a settlement.
-class OwnerDuesTab extends ConsumerWidget {
-  const OwnerDuesTab({super.key});
+class DuesView extends ConsumerWidget {
+  const DuesView({super.key});
 
   /// Derived from the loaded bills rather than from customers.outstandingBalance,
   /// because the owner needs to see *which* bills make up the total, not just

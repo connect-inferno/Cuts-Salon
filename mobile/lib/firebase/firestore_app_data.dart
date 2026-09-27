@@ -6,6 +6,27 @@ import 'salon_firestore.dart';
 
 double _round2(num n) => (n * 100).round() / 100;
 
+/// "How many staff are in today", counted the way dashboard.service.ts did:
+/// LATE still means they turned up.
+///
+/// Two entry points because the figure is needed once per shape - from the
+/// raw FS rows during a load, and from the loaded snapshot when patching
+/// after a bill - and both feed [SalonFirestore.getDashboardSummary], so a
+/// single rule here is what stops the two paths reporting different numbers
+/// for the same day.
+bool _countsAsInToday(DateTime? date, String status) {
+  if (date == null) return false;
+  if (status != 'PRESENT' && status != 'LATE') return false;
+  final now = DateTime.now();
+  return date.year == now.year && date.month == now.month && date.day == now.day;
+}
+
+int todayAttendanceCountFS(List<FSAttendanceRecord> attendance) =>
+    attendance.where((a) => _countsAsInToday(a.date, a.status)).length;
+
+int todayAttendanceCountOf(List<AttendanceRecord> attendance) =>
+    attendance.where((a) => _countsAsInToday(a.date, a.status)).length;
+
 // Pure FS* (Firestore-native) -> app-facing model mappers. Kept separate
 // from firestore_models.dart because these depend on data/models.dart,
 // which the FS models themselves deliberately don't - firestore_models.dart
@@ -202,11 +223,14 @@ SalonSettings settingsFromFS(FSSettings s) => SalonSettings(
 // Firestore model there's no separate User/EmployeeProfile split - the
 // employees/{uid} doc IS both, so the Firebase Auth uid (auth.userId) is
 // the one key that plays all of those roles.
-Future<AppData> loadAppData(SalonFirestore fs, AuthState auth) async {
+/// [preloadedSettings] is the settings doc sign-in already fetched, when this
+/// is the first load of a session - see AuthController.consumeInitialSettings.
+/// A refresh passes null and reads it fresh like everything else.
+Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? preloadedSettings}) async {
   final selfId = auth.isOwner ? null : auth.userId;
 
   final results = await Future.wait([
-    fs.getSettings(),
+    preloadedSettings == null ? fs.getSettings() : Future.value(preloadedSettings),
     fs.listBranches(),
     fs.listEmployees(),
     fs.listCustomers(),
@@ -214,11 +238,14 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth) async {
     fs.listServices(),
     fs.listInventory(),
     fs.listBills(),
-    auth.isOwner ? fs.listExpenses() : Future.value(<FSExpense>[]),
+    // Expenses are deliberately absent: they belong to one screen and load
+    // when it opens (see data/expenses_provider.dart), not on every sign-in.
     fs.listDiscountRequests(requestedBy: selfId),
     fs.listSalesTargets(employeeId: selfId),
-    fs.listSalaryRecords(employeeId: selfId),
-    fs.listCommissions(employeeId: selfId),
+    // Salary records are absent for the same reason as expenses, and more
+    // urgently: the query is uncapped, so it grows every month forever.
+    // See data/salary_provider.dart.
+    fs.listPendingCommissions(employeeId: selfId),
     fs.listAttendance(employeeId: selfId),
   ]);
 
@@ -230,21 +257,42 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth) async {
   final servicesFS = results[5] as List<FSService>;
   final inventoryFS = results[6] as List<FSInventoryItem>;
   final billsFS = results[7] as List<FSBill>;
-  final expensesFS = results[8] as List<FSExpense>;
-  final discountRequestsFS = results[9] as List<FSDiscountRequest>;
-  final salesTargetsFS = results[10] as List<FSSalesTarget>;
-  final salaryRecordsFS = results[11] as List<FSSalaryRecord>;
-  final commissionsFS = results[12] as List<FSCommissionRecord>;
-  final attendanceFS = results[13] as List<FSAttendanceRecord>;
+  final discountRequestsFS = results[8] as List<FSDiscountRequest>;
+  final salesTargetsFS = results[9] as List<FSSalesTarget>;
+  final commissionsFS = results[10] as List<FSCommissionRecord>;
+  final attendanceFS = results[11] as List<FSAttendanceRecord>;
 
   // listBills() doesn't fetch the items subcollection (would be N+1 for
   // every list load otherwise); fetch each bill's items in parallel here,
   // reproducing the REST backend's `include: { items: true }` shape.
-  final billItemsByBill = await fs.listBillItemsForBills(billsFS);
-  // Settlements recorded after a bill was raised - see recordPayment. Folded
-  // into each Bill's amountPaid below so amountDue/paymentStatus are correct
-  // everywhere without any caller re-deriving them.
-  final paymentsByBill = await fs.listPaymentsForBills(billsFS);
+  //
+  // Items, payments and the dashboard are independent of each other and only
+  // items/payments even need billsFS, so they go out together - awaiting them
+  // one after another made the load four serial round-trip phases where two
+  // do. Settlements recorded after a bill was raised (see recordPayment) get
+  // folded into each Bill's amountPaid below, so amountDue/paymentStatus are
+  // correct everywhere without any caller re-deriving them.
+  // Started together, awaited one by one: they're all in flight from the
+  // moment the futures are created, so this is concurrent without the
+  // heterogeneous Future.wait that would erase their types to Object.
+  final itemsFuture = fs.listBillItemsForBills(billsFS);
+  final paymentsFuture = fs.listPaymentsForBills(billsFS);
+  final dashboardFuture = auth.isOwner
+      ? fs.getDashboardSummary(
+          // Derived from the lists already fetched above instead of
+          // re-querying the same three collections - see the note on
+          // getDashboardSummary itself.
+          todayAttendanceCount: todayAttendanceCountFS(attendanceFS),
+          pendingDiscountRequests: discountRequestsFS.where((r) => r.status == 'PENDING').length,
+          lowStockItemCount: inventoryFS.where((i) => i.isLowStock).length,
+        )
+      : null;
+
+  final billItemsByBill = await itemsFuture;
+  final paymentsByBill = await paymentsFuture;
+  final dashboardJson = await dashboardFuture;
+  final dashboard = dashboardJson == null ? null : DashboardSummary.fromJson(dashboardJson);
+
   final bills = <Bill>[
     for (var i = 0; i < billsFS.length; i++)
       billFromFS(
@@ -277,8 +325,6 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth) async {
     );
   }).toList();
 
-  final dashboard = auth.isOwner ? DashboardSummary.fromJson(await fs.getDashboardSummary()) : null;
-
   final allCustomers = customersFS.map(customerFromFS).toList();
 
   return AppData(
@@ -293,10 +339,8 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth) async {
     services: servicesFS.map(serviceFromFS).toList(),
     inventory: inventoryFS.map(inventoryFromFS).toList(),
     bills: bills,
-    expenses: expensesFS.map(expenseFromFS).toList(),
     discountRequests: discountRequestsFS.map(discountRequestFromFS).toList(),
     salesTargets: salesTargetsFS.map(salesTargetFromFS).toList(),
-    salaryRecords: salaryRecordsFS.map(salaryRecordFromFS).toList(),
     commissions: commissionsFS.map(commissionRecordFromFS).toList(),
     attendance: attendanceFS.map(attendanceFromFS).toList(),
     dashboard: dashboard,

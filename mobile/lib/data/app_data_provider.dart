@@ -6,6 +6,7 @@ import '../firebase/firestore_models.dart';
 import '../firebase/salon_auth.dart';
 import '../firebase/salon_firestore.dart';
 import 'app_data.dart';
+import 'salary_provider.dart';
 import 'models.dart';
 
 export 'app_data.dart';
@@ -32,10 +33,8 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
         services: [],
         inventory: [],
         bills: [],
-        expenses: [],
         discountRequests: [],
         salesTargets: [],
-        salaryRecords: [],
         commissions: [],
         attendance: [],
         dashboard: null,
@@ -47,7 +46,13 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     if (app == null) throw Exception('No initialized Firebase app for salon "${auth.salonId}"');
     _fs = SalonFirestore(app);
 
-    return _loadAll(auth);
+    // Only build() consumes the sign-in settings - refresh() below goes
+    // through _loadAll and always re-reads them.
+    return loadAppData(
+      _fs,
+      auth,
+      preloadedSettings: ref.read(authControllerProvider.notifier).consumeInitialSettings(),
+    );
   }
 
   Future<AppData> _loadAll(AuthState auth) => loadAppData(_fs, auth);
@@ -154,8 +159,10 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     // untouched; this client then writes the profile while still
     // authenticated as owner, which is what firestore.rules requires.
     final uid = await SalonAuth.createEmployeeAccount(ownerApp, email, password);
-    final current = state.value;
-    final branchName = current?.branchById(branchId)?.name;
+    // `branch` above, not the loaded snapshot: it's the same name, fetched
+    // fresh for the active-branch check, and reading it here means nothing
+    // needs the pre-await snapshot (see the re-read note below).
+    final branchName = branch.name;
     final fsEmployee = FSEmployee(
       id: uid,
       userId: uid,
@@ -172,13 +179,15 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       branchName: branchName,
     );
     await _fs.writeEmployeeProfile(uid, fsEmployee);
-    if (current == null) return;
+    // Read only now that every await is done - see the note in addService.
+    final latest = state.value;
+    if (latest == null) return;
     // addEmployee is owner-only (firestore.rules), so the actor here is
     // always the owner and can see the new hire's own pay fields.
     final created = employeeFromFS(fsEmployee, canSeePay: true);
-    state = AsyncData(current.copyWith(
-      employees: [...current.employees, created],
-      branches: [for (final b in current.branches) b.id == branchId ? _withEmployeeCountDelta(b, 1) : b],
+    state = AsyncData(latest.copyWith(
+      employees: [...latest.employees, created],
+      branches: [for (final b in latest.branches) b.id == branchId ? _withEmployeeCountDelta(b, 1) : b],
     ));
   }
 
@@ -293,9 +302,14 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     if (match.isEmpty) throw Exception('Customer not found');
 
     await _fs.updateCustomer(id, {'archived': true});
-    state = AsyncData(current.copyWith(
-      customers: current.customers.where((c) => c.id != id).toList(),
-      archivedCustomers: [match.first, ...current.archivedCustomers],
+    // Re-read after the await - see the note in addService. The record being
+    // moved is re-resolved too, so a balance that recordPayment patched
+    // while this write was in flight moves across with it.
+    final latest = state.value ?? current;
+    final moved = latest.customers.where((c) => c.id == id);
+    state = AsyncData(latest.copyWith(
+      customers: latest.customers.where((c) => c.id != id).toList(),
+      archivedCustomers: [moved.isEmpty ? match.first : moved.first, ...latest.archivedCustomers],
     ));
   }
 
@@ -308,9 +322,12 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     if (match.isEmpty) throw Exception('Customer not found');
 
     await _fs.updateCustomer(id, {'archived': false});
-    state = AsyncData(current.copyWith(
-      archivedCustomers: current.archivedCustomers.where((c) => c.id != id).toList(),
-      customers: [match.first, ...current.customers],
+    // Re-read after the await - see the note in archiveCustomer.
+    final latest = state.value ?? current;
+    final moved = latest.archivedCustomers.where((c) => c.id == id);
+    state = AsyncData(latest.copyWith(
+      archivedCustomers: latest.archivedCustomers.where((c) => c.id != id).toList(),
+      customers: [moved.isEmpty ? match.first : moved.first, ...latest.customers],
     ));
   }
 
@@ -347,7 +364,12 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     final categoryName = categoryMatch.first.name;
     final createdFS = await _fs.createService(FSService(id: '', name: name, price: price, categoryId: categoryId, categoryName: categoryName));
     final created = serviceFromFS(createdFS);
-    if (current != null) state = AsyncData(current.copyWith(services: [...current.services, created]));
+    // Re-read rather than patching the pre-await `current`: anything that
+    // landed while the write was in flight (a bill, a clock-in, a refresh)
+    // would otherwise be thrown away when the whole snapshot is replaced
+    // with the stale one plus this service. Same reason as recordPayment.
+    final latest = state.value;
+    if (latest != null) state = AsyncData(latest.copyWith(services: [...latest.services, created]));
   }
 
   Future<void> addInventoryItem({
@@ -484,39 +506,88 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       items: drafts,
       amountPaidNow: amountPaidNow,
     );
-    // The transaction's own return value never has createdAt set (that's
-    // FieldValue.serverTimestamp(), which only resolves once read back) -
-    // one extra doc get() resolves it without reloading the whole bills list.
-    final freshBillFS = await _fs.getBill(createdFS.id) ?? createdFS;
-    final itemsFS = await _fs.listBillItems(createdFS.id);
-    final created = billFromFS(freshBillFS, items: itemsFS);
-
-    // A bill also touches customer stats, stock, commissions, and sales
-    // targets (see createBill's transaction in salon_firestore.dart). Rather
-    // than reloading the entire salon - up to billsPageSize bills plus one
-    // items-subcollection read *each*, on every single bill - patch the new
-    // bill and the customer's denormalized stats in directly, and only
-    // refetch the handful of small collections a bill can actually change.
-    final selfId = auth.isOwner ? null : auth.userId;
-    final results = await Future.wait([
-      _fs.listInventory(),
-      _fs.listSalesTargets(employeeId: selfId),
-      _fs.listCommissions(employeeId: selfId),
-      auth.isOwner ? _fs.getDashboardSummary() : Future.value(<String, dynamic>{}),
-    ]);
-    final inventory = (results[0] as List<FSInventoryItem>).map(inventoryFromFS).toList();
-    final salesTargets = (results[1] as List<FSSalesTarget>).map(salesTargetFromFS).toList();
-    final commissions = (results[2] as List<FSCommissionRecord>).map(commissionRecordFromFS).toList();
+    // A bill touches customer stats, stock, commissions and sales targets
+    // (see createBill's transaction in salon_firestore.dart) - but the
+    // transaction composes every one of those values itself, so all of them
+    // fold into the loaded snapshot without a single re-read. This used to
+    // refetch the whole inventory collection, every sales target and a full
+    // 1000-doc page of commissionRecords after *every bill*, to learn
+    // numbers createdFS already carries.
+    //
+    // The one exception is the bill's own createdAt: that's
+    // FieldValue.serverTimestamp(), which only resolves once read back, so
+    // this single doc get() stays.
+    final freshBillFS = await _fs.getBill(createdFS.bill.id);
+    final created = billFromFS(freshBillFS ?? createdFS.bill, items: createdFS.items);
 
     final startOfMonth = DateTime(DateTime.now().year, DateTime.now().month, 1);
     final billCountsThisMonth = created.createdAt == null || !created.createdAt!.isBefore(startOfMonth);
     // Re-read state.value rather than reusing the `current` snapshot from
-    // before all the awaits above (the transaction plus four more reads) -
-    // patching a stale base could silently clobber some other mutation that
-    // completed in the meantime. inventory/salesTargets/commissions came
-    // straight from Firestore just now so they're never stale either way.
+    // before the transaction - patching a stale base could silently clobber
+    // some other mutation that completed in the meantime.
     final latest = state.value ?? current;
-    final dashboard = auth.isOwner ? DashboardSummary.fromJson(results[3] as Map<String, dynamic>) : latest.dashboard;
+
+    // Stock the transaction decremented, applied to the loaded list by the
+    // same deltas it used.
+    final inventory = createdFS.stockDeltas.isEmpty
+        ? latest.inventory
+        : [
+            for (final i in latest.inventory)
+              if (!createdFS.stockDeltas.containsKey(i.id))
+                i
+              else
+                InventoryItem(
+                  id: i.id,
+                  sku: i.sku,
+                  name: i.name,
+                  category: i.category,
+                  price: i.price,
+                  costPrice: i.costPrice,
+                  stockCount: i.stockCount - createdFS.stockDeltas[i.id]!,
+                  minAlertThreshold: i.minAlertThreshold,
+                ),
+          ];
+
+    // Targets the transaction moved, with the progress it computed.
+    final salesTargets = createdFS.updatedTargets.isEmpty
+        ? latest.salesTargets
+        : [
+            for (final t in latest.salesTargets)
+              createdFS.updatedTargets.containsKey(t.id)
+                  ? salesTargetFromFS(createdFS.updatedTargets[t.id]!)
+                  : t,
+          ];
+
+    // One pending commission per line. calculatedAt is approximated with the
+    // local clock: the stored value is a serverTimestamp this client can't
+    // see without reading the doc back, and the only thing reading it is the
+    // owner's commission list, which sorts and formats it - a few hundred ms
+    // of skew there is not worth a round trip per line. The exact value
+    // arrives with the next full load.
+    final now = DateTime.now();
+    final commissions = [
+      for (final c in createdFS.commissions)
+        CommissionRecord(
+          id: c.id,
+          employeeId: c.employeeId,
+          billItemId: c.billItemId,
+          amount: c.amount,
+          status: c.status,
+          calculatedAt: now,
+        ),
+      ...latest.commissions,
+    ];
+
+    // Only the bill figures need Firestore: a bill can't change who clocked
+    // in or how many discount requests are pending, and the stock it did
+    // change is in the patched inventory above.
+    final dashboard = auth.isOwner
+        ? DashboardSummary.fromJson(await _fs.getDashboardSummary(
+            todayAttendanceCount: todayAttendanceCountOf(latest.attendance),
+            pendingDiscountRequests: latest.discountRequests.where((r) => r.status == 'PENDING').length,
+            lowStockItemCount: inventory.where((i) => i.isLowStock).length,
+          ))
+        : latest.dashboard;
     state = AsyncData(latest.copyWith(
       bills: [created, ...latest.bills],
       customers: [
@@ -655,11 +726,8 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
 
   // --- Expenses ---
 
-  Future<void> addExpense({required String title, required double amount, required String category, required String date, String? notes}) async {
-    final createdFS = await _fs.createExpense(FSExpense(id: '', title: title, amount: amount, category: category, date: DateTime.parse(date), notes: notes));
-    final current = state.value;
-    if (current != null) state = AsyncData(current.copyWith(expenses: [expenseFromFS(createdFS), ...current.expenses]));
-  }
+  // addExpense lives on ExpensesNotifier now (data/expenses_provider.dart),
+  // beside the list it has to patch - expenses are no longer part of AppData.
 
   // --- Discount requests ---
 
@@ -733,31 +801,15 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   // simplest way to guarantee the two agree.
   Future<void> generateSalary({required int month, required int year, String? employeeId}) async {
     await _fs.generateSalary(month: month, year: year, employeeId: employeeId);
+    // Settling a month moves that employee's PENDING commissions to PAID, so
+    // AppData is stale too - this stays a full refresh for that reason, not
+    // for the salary rows themselves.
     await refresh();
+    ref.invalidate(salaryRecordsProvider);
   }
 
-  Future<void> markSalaryPaid(String id) async {
-    await _fs.markSalaryPaid(id);
-    final current = state.value;
-    if (current == null) return;
-    state = AsyncData(current.copyWith(salaryRecords: [
-      for (final r in current.salaryRecords)
-        if (r.id != id)
-          r
-        else
-          SalaryRecord(
-            id: r.id,
-            employeeId: r.employeeId,
-            month: r.month,
-            year: r.year,
-            baseSalary: r.baseSalary,
-            commissionEarned: r.commissionEarned,
-            deductions: r.deductions,
-            totalPaid: r.totalPaid,
-            status: 'PAID',
-          ),
-    ]));
-  }
+  // markSalaryPaid lives on SalaryRecordsNotifier now
+  // (data/salary_provider.dart), beside the list it patches.
 
   // --- Commissions ---
 
@@ -792,10 +844,29 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   }
 
   Future<void> markAttendance({required String employeeId, required String date, required String status, String? notes}) async {
-    if (state.value?.employeeById(employeeId) == null) {
+    final current = state.value;
+    if (current?.employeeById(employeeId) == null) {
       throw Exception('Employee not found');
     }
-    final recordFS = await _fs.markAttendance(employeeId: employeeId, date: DateTime.parse(date), status: status);
+    final day = DateTime.parse(date);
+    // Setting a status must not wipe the clock times the day already has, and
+    // this snapshot is where they are - handing them down means the write
+    // doesn't need a read-back to find out. A day with no loaded record has
+    // no clock times either: listAttendance returns newest-first, so today
+    // is always in the loaded page.
+    final existing = current!.attendance.where((a) =>
+        a.employeeId == employeeId &&
+        a.date != null &&
+        a.date!.year == day.year &&
+        a.date!.month == day.month &&
+        a.date!.day == day.day);
+    final recordFS = await _fs.markAttendance(
+      employeeId: employeeId,
+      date: day,
+      status: status,
+      existingClockIn: existing.isEmpty ? null : existing.first.clockIn,
+      existingClockOut: existing.isEmpty ? null : existing.first.clockOut,
+    );
     _patchAttendance(recordFS);
   }
 

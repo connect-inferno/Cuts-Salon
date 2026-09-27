@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
-import '../../../data/app_data.dart';
-import '../../../data/models.dart';
-import '../../../theme.dart';
+import '../data/app_data.dart';
+import '../data/models.dart';
+import '../theme.dart';
 
 /// Bill history for the Billing section.
 ///
@@ -13,20 +13,27 @@ import '../../../theme.dart';
 /// beyond recognition in Reports. So "what did we bill this morning" and
 /// "pull up that invoice again" had no answer. This is that answer, and it
 /// lives inside Billing rather than as yet another top-level page.
-class OwnerBillHistoryView extends StatefulWidget {
+class BillHistoryView extends StatefulWidget {
   final AppData state;
 
   /// Opens a bill's customer, when the host page can navigate there.
   final void Function(Customer customer)? onOpenCustomer;
 
-  const OwnerBillHistoryView({
+  /// When set, only bills this employee worked on are listed, and the
+  /// summary tiles count only those. Staff see their own counter, the owner
+  /// sees the salon's - same widget, so the two can never drift into
+  /// formatting a bill differently.
+  final String? onlyEmployeeId;
+
+  const BillHistoryView({
     super.key,
     required this.state,
     this.onOpenCustomer,
+    this.onlyEmployeeId,
   });
 
   @override
-  State<OwnerBillHistoryView> createState() => _OwnerBillHistoryViewState();
+  State<BillHistoryView> createState() => _BillHistoryViewState();
 }
 
 const _kMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -61,7 +68,7 @@ bool _isToday(DateTime? d) {
   return d.year == now.year && d.month == now.month && d.day == now.day;
 }
 
-class _OwnerBillHistoryViewState extends State<OwnerBillHistoryView> {
+class _BillHistoryViewState extends State<BillHistoryView> {
   final _searchController = TextEditingController();
   String _filter = 'All';
 
@@ -71,12 +78,21 @@ class _OwnerBillHistoryViewState extends State<OwnerBillHistoryView> {
     super.dispose();
   }
 
+  /// Every bill this view is allowed to show, before search and filters.
+  List<Bill> get _scopedBills {
+    final id = widget.onlyEmployeeId;
+    if (id == null) return widget.state.bills;
+    return widget.state.bills
+        .where((b) => b.items.any((i) => i.employeeId == id))
+        .toList();
+  }
+
   List<Bill> _visibleBills() {
     final q = _searchController.text.toLowerCase().trim();
 
     // Newest first - a history that opens on the oldest bill is a list you
     // have to scroll to the bottom of to use.
-    final bills = [...widget.state.bills]..sort((a, b) {
+    final bills = [..._scopedBills]..sort((a, b) {
         final at = a.createdAt;
         final bt = b.createdAt;
         if (at == null && bt == null) return 0;
@@ -114,9 +130,10 @@ class _OwnerBillHistoryViewState extends State<OwnerBillHistoryView> {
     final bills = _visibleBills();
     final isMobile = MediaQuery.of(context).size.width < 768;
 
-    final todayBills = widget.state.bills.where((b) => _isToday(b.createdAt)).toList();
+    final scoped = _scopedBills;
+    final todayBills = scoped.where((b) => _isToday(b.createdAt)).toList();
     final todayRevenue = todayBills.fold<double>(0, (s, b) => s + b.finalAmount);
-    final outstanding = widget.state.bills.fold<double>(0, (s, b) => s + b.amountDue);
+    final outstanding = scoped.fold<double>(0, (s, b) => s + b.amountDue);
 
     return Center(
       child: ConstrainedBox(
@@ -300,19 +317,20 @@ class _OwnerBillHistoryViewState extends State<OwnerBillHistoryView> {
 
   Widget _filterChip(String label) {
     final selected = _filter == label;
+    final scoped = _scopedBills;
     var count = 0;
     switch (label) {
       case 'All':
-        count = widget.state.bills.length;
+        count = scoped.length;
         break;
       case 'Today':
-        count = widget.state.bills.where((b) => _isToday(b.createdAt)).length;
+        count = scoped.where((b) => _isToday(b.createdAt)).length;
         break;
       case 'Unpaid':
-        count = widget.state.bills.where((b) => !b.isFullyPaid).length;
+        count = scoped.where((b) => !b.isFullyPaid).length;
         break;
       case 'Paid':
-        count = widget.state.bills.where((b) => b.isFullyPaid).length;
+        count = scoped.where((b) => b.isFullyPaid).length;
         break;
     }
 

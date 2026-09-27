@@ -914,14 +914,14 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
 
 // --- SETTINGS TAB ---
 
-class OwnerSettingsTab extends StatefulWidget {
+class OwnerSettingsTab extends ConsumerStatefulWidget {
   const OwnerSettingsTab({super.key});
 
   @override
-  State<OwnerSettingsTab> createState() => _OwnerSettingsTabState();
+  ConsumerState<OwnerSettingsTab> createState() => _OwnerSettingsTabState();
 }
 
-class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
+class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
   // Empty until _hydrateFrom loads the real settings doc - these used to
   // default to a fabricated business identity ("Cuts Salon & Luxury Spa",
   // a fake phone, a fake address) which _hydrateFrom only overwrites when
@@ -935,27 +935,75 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
   // GST ships off; the rate below only applies once this is on.
   bool _gstEnabled = false;
   final _latePenaltyController = TextEditingController(text: '150');
-  bool _initialized = false;
   bool _saving = false;
+  // Set the moment the owner touches any field, cleared when a save lands.
+  // It's what decides whether an incoming settings change is safe to adopt:
+  // see _adoptIfClean.
+  bool _dirty = false;
 
   @override
   void dispose() {
-    _businessNameController.dispose();
-    _phoneController.dispose();
-    _addressController.dispose();
-    _gstRateController.dispose();
-    _latePenaltyController.dispose();
+    for (final c in _controllers) {
+      c.removeListener(_markDirty);
+      c.dispose();
+    }
     super.dispose();
   }
 
+  List<TextEditingController> get _controllers => [
+        _businessNameController,
+        _phoneController,
+        _addressController,
+        _gstRateController,
+        _latePenaltyController,
+      ];
+
+  // True only while _hydrateFrom is writing, so the controller listeners
+  // below can tell the owner typing from us filling the form in.
+  bool _hydrating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Hydrated here rather than from build(). This used to run inside the
+    // Consumer's data branch behind a one-shot `_initialized` latch, which
+    // meant writing TextEditingController.text - and so firing
+    // notifyListeners - during a build, and meant the form never re-synced
+    // afterwards: the GST rate it owns is also owned by OwnerTaxSettingsPage,
+    // so saving there and then saving here silently reverted it.
+    final settings = ref.read(appDataProvider).valueOrNull?.settings;
+    if (settings != null) _hydrateFrom(settings);
+    // One listener per controller beats onChanged on each TextField: a field
+    // added later is covered as soon as its controller joins _controllers,
+    // rather than silently not marking the form dirty.
+    for (final c in _controllers) {
+      c.addListener(_markDirty);
+    }
+  }
+
+  void _markDirty() {
+    if (_hydrating || _dirty) return;
+    _dirty = true; // nothing on screen reads it, so no setState
+  }
+
+  /// Takes a settings change that arrived from somewhere else - the tax page,
+  /// a refresh, another device - but only while the owner has nothing
+  /// unsaved. Typing into any field sets [_dirty] and locks this out, so an
+  /// incoming update can never overwrite an edit in progress.
+  void _adoptIfClean(SalonSettings? settings) {
+    if (settings == null || _dirty || _saving) return;
+    setState(() => _hydrateFrom(settings));
+  }
+
   void _hydrateFrom(SalonSettings settings) {
+    _hydrating = true;
     if (settings.salonName.isNotEmpty) _businessNameController.text = settings.salonName;
     if (settings.phone?.isNotEmpty ?? false) _phoneController.text = settings.phone!;
     if (settings.address?.isNotEmpty ?? false) _addressController.text = settings.address!;
     _gstEnabled = settings.gstEnabled;
     _gstRateController.text = settings.gstRate.toStringAsFixed(0);
     if (settings.lateAttendancePenalty > 0) _latePenaltyController.text = settings.lateAttendancePenalty.toStringAsFixed(0);
-    _initialized = true;
+    _hydrating = false;
   }
 
   Future<void> _save(WidgetRef ref) async {
@@ -971,6 +1019,9 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
         'gstRate': double.tryParse(_gstRateController.text.replaceAll('%', '').trim()) ?? 0.0,
         'lateAttendancePenalty': double.tryParse(_latePenaltyController.text.replaceAll('₹', '').replaceAll('/ hr', '').trim()) ?? 150.0,
       });
+      // What's on screen is now what's stored, so later changes from
+      // elsewhere are free to land again.
+      _dirty = false;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -998,6 +1049,20 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
 
   @override
   Widget build(BuildContext context) {
+    // Settings that land from anywhere else refresh the form, as long as
+    // nothing here is unsaved - and outside the build itself, so no
+    // controller is written to mid-build.
+    ref.listen(appDataProvider, (previous, next) {
+      final settings = next.valueOrNull?.settings;
+      // Identity, not field equality: SalonSettings declares no ==, and
+      // AppData.copyWith carries the same instance through every mutation
+      // that doesn't touch settings - so a differing reference means the
+      // settings doc really was replaced (a save, or a reload), not that a
+      // bill was rung up.
+      if (settings == null || identical(settings, previous?.valueOrNull?.settings)) return;
+      _adoptIfClean(settings);
+    });
+
     return Consumer(
       builder: (context, ref, child) {
         final authState = ref.watch(authControllerProvider);
@@ -1007,13 +1072,22 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
           loading: () => const AppLoadingView(),
           error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
           data: (state) {
-            if (!_initialized && state.settings != null) {
-              _hydrateFrom(state.settings!);
-            }
-
-            final ownerName = authState.name?.isNotEmpty == true ? authState.name! : 'Rajesh Kumar';
-            final ownerEmail = authState.email?.isNotEmpty == true ? authState.email! : 'owner@cutssalon.com';
-            final initials = ownerName.trim().split(' ').map((e) => e.isNotEmpty ? e[0].toUpperCase() : '').take(2).join();
+            // Null when the signed-in account genuinely has no value, not a
+            // stand-in. These used to fall back to 'Rajesh Kumar' /
+            // 'owner@cutssalon.com' / 'RK', so an owner whose Firebase Auth
+            // profile carries no displayName was shown a stranger's name and
+            // address as their own account - the same fabricated-identity
+            // bug called out above this class and on _ownerInitials in
+            // owner_dashboard.dart.
+            final ownerName = authState.name?.trim().isNotEmpty == true ? authState.name!.trim() : null;
+            final ownerEmail = authState.email?.trim().isNotEmpty == true ? authState.email!.trim() : null;
+            final ownerRole = authState.role?.trim().isNotEmpty == true ? authState.role!.trim() : null;
+            final initials = (ownerName ?? '')
+                .split(' ')
+                .where((e) => e.isNotEmpty)
+                .map((e) => e[0].toUpperCase())
+                .take(2)
+                .join();
 
             return SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 18.0, vertical: 12.0),
@@ -1047,15 +1121,25 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
                                 color: Color(0xFF4F46E5),
                                 shape: BoxShape.circle,
                               ),
+                              // A generic person glyph rather than invented
+                              // letters: with no name there are no initials,
+                              // and two made-up capitals read exactly like
+                              // real ones.
                               child: Center(
-                                child: Text(
-                                  initials.isNotEmpty ? initials : 'RK',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
+                                child: initials.isEmpty
+                                    ? const Icon(
+                                        PhosphorIconsFill.user,
+                                        color: Colors.white,
+                                        size: 22,
+                                      )
+                                    : Text(
+                                        initials,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
                               ),
                             ),
                             const SizedBox(width: 14),
@@ -1064,31 +1148,51 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    ownerName,
-                                    style: const TextStyle(
+                                    ownerName ?? 'Name not set',
+                                    style: TextStyle(
                                       fontWeight: FontWeight.w800,
                                       fontSize: 16,
-                                      color: Color(0xFF0F172A),
+                                      // Italic and muted when it is a
+                                      // placeholder, so it cannot be read as
+                                      // the account's actual name.
+                                      fontStyle: ownerName == null
+                                          ? FontStyle.italic
+                                          : FontStyle.normal,
+                                      color: ownerName == null
+                                          ? AppTheme.textMuted
+                                          : const Color(0xFF0F172A),
                                       letterSpacing: -0.3,
                                     ),
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    'Role: ${authState.role ?? "OWNER"} Account',
-                                    style: const TextStyle(
-                                      color: Color(0xFF64748B),
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w500,
+                                  // Only when the session actually reports a
+                                  // role - it used to print "Role: OWNER
+                                  // Account" regardless, asserting something
+                                  // it had not been told.
+                                  if (ownerRole != null) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'Role: $ownerRole Account',
+                                      style: const TextStyle(
+                                        color: Color(0xFF64748B),
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w500,
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 1),
-                                  Text(
-                                    ownerEmail,
-                                    style: const TextStyle(
-                                      color: Color(0xFF94A3B8),
-                                      fontSize: 11,
+                                  ],
+                                  // The email line is dropped entirely when
+                                  // there is none: an address is either the
+                                  // account's or it is misinformation, and a
+                                  // dash in its place says nothing useful.
+                                  if (ownerEmail != null) ...[
+                                    const SizedBox(height: 1),
+                                    Text(
+                                      ownerEmail,
+                                      style: const TextStyle(
+                                        color: Color(0xFF94A3B8),
+                                        fontSize: 11,
+                                      ),
                                     ),
-                                  ),
+                                  ],
                                 ],
                               ),
                             ),
@@ -1115,6 +1219,11 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
                                         onCancel: () => Navigator.pop(ctx),
                                         onSubmit: () {
                                           Navigator.pop(ctx);
+                                          // See the employee dashboard's note:
+                                          // a pushed settings page survives the
+                                          // logout redirect unless popped.
+                                          Navigator.of(context)
+                                              .popUntil((r) => r.isFirst);
                                           ref.read(authControllerProvider.notifier).logout();
                                         },
                                       ),
@@ -1262,7 +1371,7 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
                           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
                           decoration: _buildInputDecoration(
                             icon: PhosphorIconsRegular.storefront,
-                            hint: 'Cuts Salon & Luxury Spa',
+                            hint: 'e.g. Cuts Salon & Luxury Spa',
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -1284,7 +1393,7 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
                           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
                           decoration: _buildInputDecoration(
                             icon: PhosphorIconsRegular.phone,
-                            hint: '+91 98200 12345',
+                            hint: 'e.g. +91 98200 12345',
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -1305,7 +1414,7 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
                           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
                           decoration: _buildInputDecoration(
                             icon: PhosphorIconsRegular.mapPin,
-                            hint: 'Shop 12, Ground Floor, Galleria Arcade',
+                            hint: 'e.g. Shop 12, Ground Floor, Galleria Arcade',
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -1324,7 +1433,10 @@ class _OwnerSettingsTabState extends State<OwnerSettingsTab> {
                             contentPadding: EdgeInsets.zero,
                             dense: true,
                             value: _gstEnabled,
-                            onChanged: (val) => setState(() => _gstEnabled = val),
+                            onChanged: (val) => setState(() {
+                              _gstEnabled = val;
+                              _dirty = true;
+                            }),
                             title: const Text(
                               'Charge GST on bills',
                               style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),

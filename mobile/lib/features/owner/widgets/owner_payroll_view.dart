@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../data/app_data.dart';
 import '../../../data/app_data_provider.dart';
 import '../../../data/models.dart';
+import '../../../data/salary_provider.dart';
 import '../../../theme.dart';
 import '../../../widgets/async_state_views.dart';
 
@@ -32,6 +32,20 @@ class OwnerPayrollView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final asyncData = ref.watch(appDataProvider);
+    // Salary rows load with this screen rather than at sign-in. Both have to
+    // be ready before anything renders: alreadyPaid is derived from them, and
+    // showing a settled employee as unpaid for even one frame invites paying
+    // them twice.
+    final asyncSalary = ref.watch(salaryRecordsProvider);
+
+    if (asyncSalary.isLoading && !asyncSalary.hasValue) return const AppLoadingView();
+    if (asyncSalary.hasError && !asyncSalary.hasValue) {
+      return AppErrorView(
+        error: asyncSalary.error!,
+        onRetry: () => ref.read(salaryRecordsProvider.notifier).refresh(),
+      );
+    }
+    final salaryRecords = asyncSalary.value ?? const <SalaryRecord>[];
 
     return asyncData.when(
       loading: () => const AppLoadingView(),
@@ -59,7 +73,7 @@ class OwnerPayrollView extends ConsumerWidget {
         final now = DateTime.now();
         final rows = state.employees.map((emp) {
           final pending = state.pendingCommissionFor(emp.id);
-          final paidThisMonth = state.salaryRecords.any(
+          final paidThisMonth = salaryRecords.any(
             (s) => s.employeeId == emp.id && s.month == now.month && s.year == now.year,
           );
           return _PayrollRow(

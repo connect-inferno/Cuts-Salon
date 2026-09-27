@@ -123,6 +123,24 @@ service cloud.firestore {
       }
     }
 
+    // Per-day billing totals, maintained by createBill's and recordPayment's
+    // transactions so the dashboard doesn't have to re-read five weeks of
+    // bills on every load. Writable by any active employee because the same
+    // transaction that raises a bill has to roll it in - gating this on
+    // isOwner() would make every employee-rung bill fail as a whole.
+    //
+    // Note this is a derived figure, not a source of truth: the bills it
+    // summarises are immutable and still hold the real numbers, so a
+    // tampered rollup skews the owner's dashboard but cannot alter revenue,
+    // commission or anything an employee is paid. That's the same
+    // client-writes-its-own-totals trade-off called out at the top of this
+    // file, and it's why nothing reads money out of here except the
+    // dashboard cards. Delete stays closed so a day can't be made to vanish.
+    match /dailyStats/{day} {
+      allow read, create, update: if isActiveEmployee();
+      allow delete: if false;
+    }
+
     // Collection-group read for the same bill items. A collectionGroup()
     // query is evaluated against this wildcard path, NOT the nested
     // bills/{billId}/items rule above, so without this the batched fetch in

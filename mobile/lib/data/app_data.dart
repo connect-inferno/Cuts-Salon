@@ -41,10 +41,8 @@ class AppData {
   final List<SalonService> services;
   final List<InventoryItem> inventory;
   final List<Bill> bills;
-  final List<Expense> expenses;
   final List<DiscountRequest> discountRequests;
   final List<SalesTarget> salesTargets;
-  final List<SalaryRecord> salaryRecords;
   final List<CommissionRecord> commissions;
   final List<AttendanceRecord> attendance;
   final DashboardSummary? dashboard;
@@ -59,10 +57,8 @@ class AppData {
     required this.services,
     required this.inventory,
     required this.bills,
-    required this.expenses,
     required this.discountRequests,
     required this.salesTargets,
-    required this.salaryRecords,
     required this.commissions,
     required this.attendance,
     required this.dashboard,
@@ -130,10 +126,8 @@ class AppData {
     List<SalonService>? services,
     List<InventoryItem>? inventory,
     List<Bill>? bills,
-    List<Expense>? expenses,
     List<DiscountRequest>? discountRequests,
     List<SalesTarget>? salesTargets,
-    List<SalaryRecord>? salaryRecords,
     List<CommissionRecord>? commissions,
     List<AttendanceRecord>? attendance,
     DashboardSummary? dashboard,
@@ -148,10 +142,8 @@ class AppData {
       services: services ?? this.services,
       inventory: inventory ?? this.inventory,
       bills: bills ?? this.bills,
-      expenses: expenses ?? this.expenses,
       discountRequests: discountRequests ?? this.discountRequests,
       salesTargets: salesTargets ?? this.salesTargets,
-      salaryRecords: salaryRecords ?? this.salaryRecords,
       commissions: commissions ?? this.commissions,
       attendance: attendance ?? this.attendance,
       dashboard: dashboard ?? this.dashboard,

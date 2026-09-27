@@ -37,20 +37,6 @@
       ],
       "cwd": "operator-dashboard",
       "port": 5180
-    },
-    {
-      "name": "flutter-web-ia",
-      "runtimeExecutable": "flutter",
-      "runtimeArgs": [
-        "run",
-        "-d",
-        "web-server",
-        "--release",
-        "--web-port=5176",
-        "--web-hostname=127.0.0.1"
-      ],
-      "cwd": "mobile",
-      "port": 5176
     }
   ]
 }
