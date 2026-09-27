@@ -13,7 +13,10 @@ String _formatRupees(double amount) {
   if (whole.length <= 3) return '₹$whole';
   final last3 = whole.substring(whole.length - 3);
   final rest = whole.substring(0, whole.length - 3);
-  final grouped = rest.replaceAllMapped(RegExp(r'\B(?=(\d{2})+(?!\d))'), (m) => ',');
+  final grouped = rest.replaceAllMapped(
+    RegExp(r'\B(?=(\d{2})+(?!\d))'),
+    (m) => ',',
+  );
   return '₹$grouped,$last3';
 }
 
@@ -29,7 +32,8 @@ class OwnerTaxSettingsPage extends ConsumerStatefulWidget {
   const OwnerTaxSettingsPage({super.key});
 
   @override
-  ConsumerState<OwnerTaxSettingsPage> createState() => _OwnerTaxSettingsPageState();
+  ConsumerState<OwnerTaxSettingsPage> createState() =>
+      _OwnerTaxSettingsPageState();
 }
 
 class _OwnerTaxSettingsPageState extends ConsumerState<OwnerTaxSettingsPage> {
@@ -80,7 +84,9 @@ class _OwnerTaxSettingsPageState extends ConsumerState<OwnerTaxSettingsPage> {
   }
 
   Future<void> _save() async {
-    final rate = double.tryParse(_gstRateController.text.replaceAll('%', '').trim());
+    final rate = double.tryParse(
+      _gstRateController.text.replaceAll('%', '').trim(),
+    );
     if (_gstEnabled && (rate == null || rate < 0 || rate > 100)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -109,14 +115,19 @@ class _OwnerTaxSettingsPageState extends ConsumerState<OwnerTaxSettingsPage> {
             content: const Text('Tax settings saved'),
             backgroundColor: const Color(0xFF16A34A),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed),
+          SnackBar(
+            content: Text(e.toString()),
+            backgroundColor: AppTheme.accentRed,
+          ),
         );
       }
     } finally {
@@ -135,16 +146,19 @@ class _OwnerTaxSettingsPageState extends ConsumerState<OwnerTaxSettingsPage> {
     // differing reference means the doc really was replaced.
     ref.listen(appDataProvider, (previous, next) {
       final settings = next.valueOrNull?.settings;
-      if (settings == null || identical(settings, previous?.valueOrNull?.settings)) return;
+      if (settings == null ||
+          identical(settings, previous?.valueOrNull?.settings))
+        return;
       _adoptIfClean(settings);
     });
 
     return asyncData.when(
       loading: () => const AppLoadingView(),
-      error: (err, st) => AppErrorView(
-        error: err,
-        onRetry: () => ref.read(appDataProvider.notifier).refresh(),
-      ),
+      error:
+          (err, st) => AppErrorView(
+            error: err,
+            onRetry: () => ref.read(appDataProvider.notifier).refresh(),
+          ),
       data: (state) {
         final rate = double.tryParse(_gstRateController.text.trim()) ?? 0;
         // A worked example on a round number, so the effect of the switch is
@@ -214,19 +228,25 @@ class _OwnerTaxSettingsPageState extends ConsumerState<OwnerTaxSettingsPage> {
                             ),
                             Switch(
                               value: _gstEnabled,
-                              activeThumbColor: AppTheme.primaryBlue,
-                              onChanged: (v) => setState(() {
-                                _gstEnabled = v;
-                                _dirty = true;
-                              }),
+                              activeColor: AppTheme.primaryBlue,
+                              onChanged:
+                                  (v) => setState(() {
+                                    _gstEnabled = v;
+                                    _dirty = true;
+                                  }),
                             ),
                           ],
                         ),
                         if (_gstEnabled) ...[
-                          const Divider(height: 26, color: AppTheme.borderSubtle),
+                          const Divider(
+                            height: 26,
+                            color: AppTheme.borderSubtle,
+                          ),
                           TextField(
                             controller: _gstRateController,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
                             onChanged: (_) => setState(() {}),
                             decoration: appDialogFieldDecoration(
                               label: 'GST rate (%)',
@@ -258,9 +278,14 @@ class _OwnerTaxSettingsPageState extends ConsumerState<OwnerTaxSettingsPage> {
                           ),
                         ),
                         const SizedBox(height: 9),
-                        _taxPreviewRow('Services & products', _formatRupees(sample)),
                         _taxPreviewRow(
-                          _gstEnabled ? 'GST @ ${rate.toStringAsFixed(0)}%' : 'GST (off)',
+                          'Services & products',
+                          _formatRupees(sample),
+                        ),
+                        _taxPreviewRow(
+                          _gstEnabled
+                              ? 'GST @ ${rate.toStringAsFixed(0)}%'
+                              : 'GST (off)',
                           _formatRupees(sampleTax),
                         ),
                         const Divider(height: 16, color: Color(0xFFC7D2FE)),
@@ -278,13 +303,17 @@ class _OwnerTaxSettingsPageState extends ConsumerState<OwnerTaxSettingsPage> {
                     height: 48,
                     child: ElevatedButton(
                       onPressed: _saving ? null : _save,
-                      child: _saving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                            )
-                          : const Text('Save Tax Settings'),
+                      child:
+                          _saving
+                              ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                              : const Text('Save Tax Settings'),
                     ),
                   ),
                 ],
