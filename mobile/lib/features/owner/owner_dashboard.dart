@@ -89,7 +89,7 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
   /// same build-time watch is what keeps the badge live, so reading here
   /// costs nothing.
   int get _pendingDiscountCount =>
-      ref.read(appDataProvider).valueOrNull?.discountRequests.where((r) => r.status == 'PENDING').length ?? 0;
+      ref.read(appDataProvider).valueOrNull?.pendingDiscountCount ?? 0;
 
   // ─── Drawer ───────────────────────────────────────────────────────────
 
@@ -576,7 +576,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
         final branchName = state.branches.length > 1
             ? 'All Branches'
             : (state.branches.isNotEmpty ? state.branches.first.name : 'Main Branch');
-        final pendingDiscountCount = state.discountRequests.where((r) => r.status == 'PENDING').length;
+        final pendingDiscountCount = state.pendingDiscountCount;
 
         final now = DateTime.now();
         final months = List.generate(6, (i) {

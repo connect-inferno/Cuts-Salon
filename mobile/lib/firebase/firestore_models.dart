@@ -779,6 +779,11 @@ class FSSettings {
   final double gstRate;
   final double lateAttendancePenalty;
 
+  /// Bumped by every owner-side catalog edit; see SalonFirestore's catalog
+  /// freshness section. Read-only here - nothing constructs a settings
+  /// object to write this, it is incremented server-side.
+  final int catalogVersion;
+
   FSSettings({
     required this.salonName,
     this.phone,
@@ -786,12 +791,14 @@ class FSSettings {
     this.gstEnabled = false,
     required this.gstRate,
     required this.lateAttendancePenalty,
+    this.catalogVersion = 0,
   });
 
   factory FSSettings.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data() ?? {};
     final rate = _num(d['gstRate'] ?? 0);
     return FSSettings(
+      catalogVersion: _int(d['catalogVersion']),
       salonName: d['salonName'] ?? 'Salon',
       phone: d['phone'],
       address: d['address'],

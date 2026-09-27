@@ -120,7 +120,7 @@ class OwnerDashboardTab extends ConsumerWidget {
                 AppPageAction(
                   icon: PhosphorIconsRegular.bell,
                   tooltip: 'Notifications',
-                  badgeCount: state.discountRequests.where((r) => r.status == 'PENDING').length,
+                  badgeCount: state.pendingDiscountCount,
                   onTap: () => onOpenNotifications?.call(),
                 ),
                 appSettingsAction(

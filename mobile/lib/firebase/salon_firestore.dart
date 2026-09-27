@@ -123,10 +123,86 @@ class SalonFirestore {
 
   // --- Branches ---
 
-  Future<List<FSBranch>> listBranches() async {
-    final snap = await db.collection('branches').get();
-    return snap.docs.map(FSBranch.fromFirestore).toList();
+  // --- Catalog freshness ---
+  //
+  // Services, categories, branches and the roster are about 54 documents
+  // that a salon edits maybe weekly, and the app re-read all of them on
+  // every single load. `catalogVersion` on the settings doc is bumped by
+  // every write that touches one of them, so comparing the cached copy of
+  // that doc against the server's answers "can any of these 54 possibly
+  // have changed?" for one document's worth of cost we were already paying.
+  //
+  // Inventory is deliberately NOT covered by this. createBill decrements
+  // stockCount on every product sale, so a shared version would be bumped
+  // constantly and the gate would never hit. It is also the one catalog
+  // collection an ordinary employee can write (see the stockCount carve-out
+  // in firestore.rules), and staff cannot write settings at all - so they
+  // could not bump the version even if we wanted them to.
+  //
+  // Every owner-side catalog write must call [_bumpCatalogVersion], or the
+  // edit will be invisible on other devices until their cache clears. Same
+  // contract as customerTouch, and the same failure mode if it is missed.
+  Future<bool>? _catalogUnchangedMemo;
+
+  Future<bool> _catalogUnchanged() {
+    return _catalogUnchangedMemo ??= () async {
+      try {
+        final ref = db.collection('settings').doc('main');
+        // Cache first, and before anything refreshes it: a server read here
+        // would overwrite the cached copy with the new version and make the
+        // two always agree, which would serve a stale catalog forever.
+        final cached = await ref.get(const GetOptions(source: Source.cache));
+        final server = await ref.get(const GetOptions(source: Source.server));
+        final was = cached.data()?['catalogVersion'];
+        final now = server.data()?['catalogVersion'];
+        return was != null && now != null && was == now;
+      } catch (_) {
+        // No cached settings yet, or offline - read the catalog properly.
+        return false;
+      }
+    }();
   }
+
+  Future<void> _bumpCatalogVersion() async {
+    try {
+      await db.collection('settings').doc('main').set(
+        {'catalogVersion': FieldValue.increment(1)},
+        SetOptions(merge: true),
+      );
+    } catch (e) {
+      // Never fail the edit itself over the bookkeeping - but say so, since
+      // the consequence is other devices serving a stale catalog.
+      debugPrint('[Stylux] could not bump catalogVersion: $e');
+    }
+  }
+
+  /// One catalog collection, from cache when [catalogVersion] says nothing
+  /// has changed. An empty cache result falls through to the server: the
+  /// version can be current while the documents themselves have been
+  /// evicted, and a silently empty service list would be far worse than a
+  /// read we hoped to skip.
+  Future<List<T>> _catalogList<T>(
+    String collection,
+    T Function(QueryDocumentSnapshot<Map<String, dynamic>>) fromDoc,
+  ) async {
+    final query = db.collection(collection);
+    if (await _catalogUnchanged()) {
+      try {
+        final cached = await query.get(const GetOptions(source: Source.cache));
+        if (cached.docs.isNotEmpty) {
+          debugPrint('[Stylux] $collection served from cache (${cached.docs.length} docs, 0 reads)');
+          return cached.docs.map(fromDoc).toList();
+        }
+      } catch (_) {
+        // fall through
+      }
+    }
+    final snap = await query.get(const GetOptions(source: Source.server));
+    return snap.docs.map(fromDoc).toList();
+  }
+
+  Future<List<FSBranch>> listBranches() =>
+      _catalogList('branches', FSBranch.fromFirestore);
 
   // No read-back after the add(): nothing written here is server-generated
   // (FSBranch has no serverTimestamp field), so the doc that would come back
@@ -136,13 +212,17 @@ class SalonFirestore {
   // (customers, bills, payments, discount requests) still re-read, because
   // there the round trip is the only way to learn createdAt.
   Future<FSBranch> createBranch({required String name, String? address, String? phone}) async {
+    await _bumpCatalogVersion();
     final ref = await db.collection('branches').add(
           FSBranch(id: '', name: name, address: address, phone: phone, active: true).toFirestore(),
         );
     return FSBranch(id: ref.id, name: name, address: address, phone: phone, active: true);
   }
 
-  Future<void> updateBranch(String id, Map<String, dynamic> changes) => db.collection('branches').doc(id).update(changes);
+  Future<void> updateBranch(String id, Map<String, dynamic> changes) async {
+    await db.collection('branches').doc(id).update(changes);
+    await _bumpCatalogVersion();
+  }
 
   Future<FSBranch?> getBranch(String id) async {
     final doc = await db.collection('branches').doc(id).get();
@@ -161,10 +241,8 @@ class SalonFirestore {
   // via the Firebase Console or a future Cloud Function), then their
   // profile document is written here against that same uid.
 
-  Future<List<FSEmployee>> listEmployees() async {
-    final snap = await db.collection('employees').get();
-    return snap.docs.map(FSEmployee.fromFirestore).toList();
-  }
+  Future<List<FSEmployee>> listEmployees() =>
+      _catalogList('employees', FSEmployee.fromFirestore);
 
   Future<FSEmployee?> getEmployee(String uid) async {
     final doc = await db.collection('employees').doc(uid).get();
@@ -172,9 +250,15 @@ class SalonFirestore {
     return FSEmployee.fromFirestore(doc);
   }
 
-  Future<void> writeEmployeeProfile(String uid, FSEmployee profile) => db.collection('employees').doc(uid).set(profile.toFirestore());
+  Future<void> writeEmployeeProfile(String uid, FSEmployee profile) async {
+    await db.collection('employees').doc(uid).set(profile.toFirestore());
+    await _bumpCatalogVersion();
+  }
 
-  Future<void> updateEmployee(String uid, Map<String, dynamic> changes) => db.collection('employees').doc(uid).update(changes);
+  Future<void> updateEmployee(String uid, Map<String, dynamic> changes) async {
+    await db.collection('employees').doc(uid).update(changes);
+    await _bumpCatalogVersion();
+  }
 
   // Mirrors employee.service.ts's per-salon phone-uniqueness check.
   Future<bool> isPhoneTaken(String phone) async {
@@ -264,12 +348,11 @@ class SalonFirestore {
 
   // --- Catalog ---
 
-  Future<List<FSServiceCategory>> listServiceCategories() async {
-    final snap = await db.collection('serviceCategories').get();
-    return snap.docs.map(FSServiceCategory.fromFirestore).toList();
-  }
+  Future<List<FSServiceCategory>> listServiceCategories() =>
+      _catalogList('serviceCategories', FSServiceCategory.fromFirestore);
 
   Future<FSServiceCategory> createServiceCategory(String name) async {
+    await _bumpCatalogVersion();
     final ref = await db.collection('serviceCategories').add({'name': name});
     return FSServiceCategory(id: ref.id, name: name);
   }
@@ -280,12 +363,11 @@ class SalonFirestore {
     return snap.docs.isNotEmpty;
   }
 
-  Future<List<FSService>> listServices() async {
-    final snap = await db.collection('services').get();
-    return snap.docs.map(FSService.fromFirestore).toList();
-  }
+  Future<List<FSService>> listServices() =>
+      _catalogList('services', FSService.fromFirestore);
 
   Future<FSService> createService(FSService service) async {
+    await _bumpCatalogVersion();
     final ref = await db.collection('services').add(service.toFirestore());
     return FSService(
       id: ref.id,
@@ -1417,6 +1499,36 @@ class SalonFirestore {
   }
 
   // --- Discount requests ---
+
+  /// How many discount requests are awaiting a decision.
+  ///
+  /// An owner used to load up to 300 request documents on every sign-in, and
+  /// ten of the twelve places that read them only wanted this number - it is
+  /// a badge on the dashboard, the bell, and four settings rows. A count()
+  /// aggregation is billed as one read per thousand index entries, so this
+  /// is one read instead of fifty.
+  ///
+  /// Deliberately no orderBy: a bare equality filter runs on the automatic
+  /// single-field index, where adding a sort would need a composite one
+  /// deployed to every salon before the badge worked anywhere.
+  ///
+  /// Staff are not covered by this. Their own requests are few, they are
+  /// filtered to requestedBy already, and their Discounts tab needs the
+  /// documents anyway - so they keep loading the list and derive the count
+  /// from it.
+  Future<int> countPendingDiscountRequests() async {
+    try {
+      final snap = await db
+          .collection('discountRequests')
+          .where('status', isEqualTo: 'PENDING')
+          .count()
+          .get();
+      return snap.count ?? 0;
+    } catch (e) {
+      debugPrint('[Stylux] pending discount count failed, badge will read 0: $e');
+      return 0;
+    }
+  }
 
   Future<List<FSDiscountRequest>> listDiscountRequests({String? requestedBy, int limit = 300}) async {
     Query<Map<String, dynamic>> q = db.collection('discountRequests');

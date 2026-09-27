@@ -270,8 +270,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                     AppPageAction(
                       icon: PhosphorIconsRegular.bell,
                       tooltip: 'Notifications',
-                      badgeCount:
-                          state.discountRequests.where((r) => r.status == 'PENDING').length,
+                      badgeCount: state.pendingDiscountCount,
                       onTap: () => widget.onOpenNotifications?.call(),
                     ),
                     appSettingsAction(
@@ -1716,9 +1715,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                           AppPageAction(
                             icon: PhosphorIconsRegular.bell,
                             tooltip: 'Notifications',
-                            badgeCount: state.discountRequests
-                                .where((r) => r.status == 'PENDING')
-                                .length,
+                            badgeCount: state.pendingDiscountCount,
                             onTap: () => widget.onOpenNotifications?.call(),
                           ),
                           appSettingsAction(
@@ -1766,7 +1763,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
           label: 'Discounts',
           description:
               'Discount requests your staff have raised against a bill.',
-          badgeCount: state.discountRequests.where((r) => r.status == 'PENDING').length,
+          badgeCount: state.pendingDiscountCount,
           builder: (_) => const OwnerDiscountsTab(),
         ),
         AppSettingsSection(

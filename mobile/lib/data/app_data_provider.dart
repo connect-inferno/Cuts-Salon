@@ -6,6 +6,7 @@ import '../firebase/firestore_models.dart';
 import '../firebase/salon_auth.dart';
 import '../firebase/salon_firestore.dart';
 import 'app_data.dart';
+import 'discount_requests_provider.dart';
 import 'salary_provider.dart';
 import 'models.dart';
 
@@ -584,7 +585,9 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     final dashboard = auth.isOwner
         ? DashboardSummary.fromJson(await _fs.getDashboardSummary(
             todayAttendanceCount: todayAttendanceCountOf(latest.attendance),
-            pendingDiscountRequests: latest.discountRequests.where((r) => r.status == 'PENDING').length,
+            // Not derived from discountRequests: an owner no longer holds
+            // those documents, only the count.
+            pendingDiscountRequests: latest.pendingDiscountCount,
             lowStockItemCount: inventory.where((i) => i.isLowStock).length,
           ))
         : latest.dashboard;
@@ -744,7 +747,12 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       status: 'PENDING',
     ));
     final current = state.value;
-    if (current != null) state = AsyncData(current.copyWith(discountRequests: [discountRequestFromFS(createdFS), ...current.discountRequests]));
+    if (current != null) {
+      state = AsyncData(current.copyWith(
+        discountRequests: [discountRequestFromFS(createdFS), ...current.discountRequests],
+        pendingDiscountCount: current.pendingDiscountCount + 1,
+      ));
+    }
   }
 
   Future<void> approveDiscountRequest(String id) async {
@@ -757,11 +765,22 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     _patchDiscountRequest(resolved);
   }
 
+  /// Applies a resolved request to whichever copy this role holds.
+  ///
+  /// Staff have the list in AppData; an owner has only the badge count here
+  /// and the documents in discountRequestsProvider, so both are nudged. The
+  /// count is clamped because a stale badge is better than a negative one.
   void _patchDiscountRequest(FSDiscountRequest resolved) {
     final current = state.value;
     if (current == null) return;
     final updated = discountRequestFromFS(resolved);
-    state = AsyncData(current.copyWith(discountRequests: [for (final r in current.discountRequests) r.id == updated.id ? updated : r]));
+    final wasPending = updated.status != 'PENDING';
+    state = AsyncData(current.copyWith(
+      discountRequests: [for (final r in current.discountRequests) r.id == updated.id ? updated : r],
+      pendingDiscountCount:
+          wasPending && current.pendingDiscountCount > 0 ? current.pendingDiscountCount - 1 : current.pendingDiscountCount,
+    ));
+    ref.invalidate(discountRequestsProvider);
   }
 
   // --- Sales targets ---

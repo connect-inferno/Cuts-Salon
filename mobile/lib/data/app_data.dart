@@ -41,7 +41,15 @@ class AppData {
   final List<SalonService> services;
   final List<InventoryItem> inventory;
   final List<Bill> bills;
+  /// Staff only - their own requests. Empty for an owner, whose Discounts
+  /// screen loads them on demand (data/discount_requests_provider.dart).
+  /// Use [pendingDiscountCount] for badges; it is correct for both roles.
   final List<DiscountRequest> discountRequests;
+
+  /// Requests awaiting a decision. Counted server-side for an owner, derived
+  /// from the list for staff - so badges work without either role holding
+  /// documents they do not display.
+  final int pendingDiscountCount;
   final List<SalesTarget> salesTargets;
   final List<CommissionRecord> commissions;
   final List<AttendanceRecord> attendance;
@@ -58,6 +66,7 @@ class AppData {
     required this.inventory,
     required this.bills,
     required this.discountRequests,
+    this.pendingDiscountCount = 0,
     required this.salesTargets,
     required this.commissions,
     required this.attendance,
@@ -127,6 +136,7 @@ class AppData {
     List<InventoryItem>? inventory,
     List<Bill>? bills,
     List<DiscountRequest>? discountRequests,
+    int? pendingDiscountCount,
     List<SalesTarget>? salesTargets,
     List<CommissionRecord>? commissions,
     List<AttendanceRecord>? attendance,
@@ -143,6 +153,7 @@ class AppData {
       inventory: inventory ?? this.inventory,
       bills: bills ?? this.bills,
       discountRequests: discountRequests ?? this.discountRequests,
+      pendingDiscountCount: pendingDiscountCount ?? this.pendingDiscountCount,
       salesTargets: salesTargets ?? this.salesTargets,
       commissions: commissions ?? this.commissions,
       attendance: attendance ?? this.attendance,

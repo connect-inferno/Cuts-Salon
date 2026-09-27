@@ -3,6 +3,7 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../theme.dart';
 import '../../../data/app_data_provider.dart';
+import '../../../data/discount_requests_provider.dart';
 import '../../../data/models.dart';
 import '../../auth/auth_provider.dart';
 import '../../../widgets/async_state_views.dart';
@@ -762,8 +763,11 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
           loading: () => const AppLoadingView(),
           error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
           data: (state) {
-            final pendingRequests = state.discountRequests.where((r) => r.status == 'PENDING').toList();
-            final historyRequests = state.discountRequests.where((r) => r.status != 'PENDING').toList();
+            // Owners load these with this screen, not at sign-in - AppData
+            // carries only the badge count for them now.
+            final all = ref.watch(discountRequestsProvider).valueOrNull ?? const <DiscountRequest>[];
+            final pendingRequests = all.where((r) => r.status == 'PENDING').toList();
+            final historyRequests = all.where((r) => r.status != 'PENDING').toList();
 
             final Widget pendingWidget = Card(
               child: Padding(

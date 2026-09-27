@@ -240,7 +240,13 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
     fs.listBills(),
     // Expenses are deliberately absent: they belong to one screen and load
     // when it opens (see data/expenses_provider.dart), not on every sign-in.
-    fs.listDiscountRequests(requestedBy: selfId),
+    // Owners take the count only - ten of the twelve places that read these
+    // want a badge number, and the Discounts screen loads the documents when
+    // it opens (see data/discount_requests_provider.dart). Staff keep the
+    // list: theirs is filtered to their own, so it is a handful of docs, and
+    // their Discounts tab needs them anyway.
+    auth.isOwner ? Future.value(<FSDiscountRequest>[]) : fs.listDiscountRequests(requestedBy: selfId),
+    auth.isOwner ? fs.countPendingDiscountRequests() : Future.value(-1),
     fs.listSalesTargets(employeeId: selfId),
     // Salary records are absent for the same reason as expenses, and more
     // urgently: the query is uncapped, so it grows every month forever.
@@ -258,9 +264,16 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
   final inventoryFS = results[6] as List<FSInventoryItem>;
   final billsFS = results[7] as List<FSBill>;
   final discountRequestsFS = results[8] as List<FSDiscountRequest>;
-  final salesTargetsFS = results[9] as List<FSSalesTarget>;
-  final commissionsFS = results[10] as List<FSCommissionRecord>;
-  final attendanceFS = results[11] as List<FSAttendanceRecord>;
+  final pendingDiscountsCounted = results[9] as int;
+  final salesTargetsFS = results[10] as List<FSSalesTarget>;
+  final commissionsFS = results[11] as List<FSCommissionRecord>;
+  final attendanceFS = results[12] as List<FSAttendanceRecord>;
+
+  // -1 is the staff sentinel from the wait above: derive it from the list
+  // they already hold rather than spending a second query on it.
+  final pendingDiscountCount = pendingDiscountsCounted >= 0
+      ? pendingDiscountsCounted
+      : discountRequestsFS.where((r) => r.status == 'PENDING').length;
 
   // listBills() doesn't fetch the items subcollection (would be N+1 for
   // every list load otherwise); fetch each bill's items in parallel here,
@@ -283,7 +296,7 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
           // re-querying the same three collections - see the note on
           // getDashboardSummary itself.
           todayAttendanceCount: todayAttendanceCountFS(attendanceFS),
-          pendingDiscountRequests: discountRequestsFS.where((r) => r.status == 'PENDING').length,
+          pendingDiscountRequests: pendingDiscountCount,
           lowStockItemCount: inventoryFS.where((i) => i.isLowStock).length,
         )
       : null;
@@ -340,6 +353,7 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
     inventory: inventoryFS.map(inventoryFromFS).toList(),
     bills: bills,
     discountRequests: discountRequestsFS.map(discountRequestFromFS).toList(),
+    pendingDiscountCount: pendingDiscountCount,
     salesTargets: salesTargetsFS.map(salesTargetFromFS).toList(),
     commissions: commissionsFS.map(commissionRecordFromFS).toList(),
     attendance: attendanceFS.map(attendanceFromFS).toList(),

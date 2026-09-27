@@ -173,6 +173,26 @@ Quick sweep for the rest of the work. Both roles.
       than roughly two years drop off the history views. Check the console
       to confirm which path you are actually on.
 
+### Catalog freshness
+- [ ] Load twice — console logs "served from cache (N docs, 0 reads)" for
+      branches, employees, serviceCategories and services
+- [ ] **Edit a service, category, branch or staff member on device A, then
+      reload device B.** B must show the edit. This is the one that matters:
+      if a write path ever forgets `_bumpCatalogVersion`, B serves a stale
+      catalog until its cache clears, and nothing else will tell you.
+- [ ] A brand-new salon logs no cache lines until its first catalog edit —
+      the version is absent on both sides, so the gate stays off. Expected.
+
+### Discount request badges
+- [ ] Owner: the bell badge, the Discounts settings row and the dashboard
+      tile all show the same pending number
+- [ ] Owner -> Team -> Discounts lists pending AND history (loaded with the
+      screen, not at sign-in)
+- [ ] Approve or reject one — every badge drops by one immediately
+- [ ] Raise a bill as an owner — the dashboard's pending-discount figure
+      must NOT reset to zero (it is the count now, not a derived list)
+- [ ] Staff still see their own requests and their own pending badge
+
 ### Clients
 - [ ] Add, edit, archive, restore
 - [ ] Archived clients stay out of the billing picker

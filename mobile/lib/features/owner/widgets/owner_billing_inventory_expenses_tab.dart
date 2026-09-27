@@ -181,7 +181,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
   /// sections of Billing's own settings - switched with the strip at the
   /// top of that screen, not four more places to navigate to.
   void _openBillingSettings(BuildContext context, AppData state) {
-    final pendingDiscounts = state.discountRequests.where((r) => r.status == 'PENDING').length;
+    final pendingDiscounts = state.pendingDiscountCount;
     final outstanding = state.bills.fold<double>(0, (s, b) => s + b.amountDue);
     final unpaidClients =
         state.bills.where((b) => !b.isFullyPaid).map((b) => b.customerId).toSet().length;
@@ -251,7 +251,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
             actions: [
               appSettingsAction(
                 tooltip: 'Billing settings',
-                badgeCount: state.discountRequests.where((r) => r.status == 'PENDING').length,
+                badgeCount: state.pendingDiscountCount,
                 onTap: () => _openBillingSettings(context, state),
               ),
             ],
