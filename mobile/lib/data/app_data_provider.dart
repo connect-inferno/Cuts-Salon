@@ -1,3 +1,7 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../features/auth/auth_provider.dart';
 import '../features/auth/auth_state.dart';
@@ -15,6 +19,12 @@ export 'app_data.dart';
 double _round2(num n) => (n * 100).round() / 100;
 
 class AppDataNotifier extends AsyncNotifier<AppData> {
+  /// Live subscriptions, torn down whenever build() reruns.
+  ///
+  /// build() reruns on every auth change, so without the onDispose below a
+  /// logout/login cycle would leave the previous salon's listeners running
+  /// and writing into the new salon's state.
+  final List<StreamSubscription<dynamic>> _live = [];
   // Not `late final`: build() reruns on every auth state change (e.g. a
   // logout/login cycle without a full page reload), and re-assigning a
   // `late final` field on a rebuild throws LateInitializationError.
@@ -47,13 +57,117 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     if (app == null) throw Exception('No initialized Firebase app for salon "${auth.salonId}"');
     _fs = SalonFirestore(app);
 
+    for (final sub in _live) {
+      sub.cancel();
+    }
+    _live.clear();
+    ref.onDispose(() {
+      for (final sub in _live) {
+        sub.cancel();
+      }
+      _live.clear();
+    });
+
     // Only build() consumes the sign-in settings - refresh() below goes
     // through _loadAll and always re-reads them.
-    return loadAppData(
+    final loaded = await loadAppData(
       _fs,
       auth,
       preloadedSettings: ref.read(authControllerProvider.notifier).consumeInitialSettings(),
     );
+    _watchTodayStats();
+    _watchNewBills();
+    return loaded;
+  }
+
+  /// Surfaces bills raised on other devices without a reload.
+  ///
+  /// This is the one people actually notice: two staff billing at the same
+  /// time could not see each other's work until somebody pulled to refresh.
+  ///
+  /// Bounded to bills created after this load (see watchBillsSince) so the
+  /// opening snapshot is empty and attaching costs nothing. Bills this
+  /// device raised are skipped - createBill has already patched them in,
+  /// complete with items, and re-adding them here would cost a needless
+  /// subcollection read per bill.
+  void _watchNewBills() {
+    final from = DateTime.now();
+    _live.add(_fs.watchBillsSince(from).listen((incoming) async {
+      final current = state.value;
+      if (current == null || incoming.isEmpty) return;
+
+      final known = {for (final b in current.bills) b.id};
+      final unseen = incoming.where((b) => !known.contains(b.id)).toList();
+      if (unseen.isEmpty) return;
+
+      // Items and payments live in subcollections, so a bill arriving this
+      // way is incomplete until they are fetched.
+      final hydrated = <Bill>[];
+      for (final b in unseen) {
+        final items = await _fs.listBillItems(b.id);
+        final payments = await _fs.listPaymentsForBill(b.id);
+        hydrated.add(billFromFS(b, items: items, payments: payments));
+      }
+
+      // Re-read state rather than closing over `current`: the awaits above
+      // mean a local bill may have landed in the meantime.
+      final latest = state.value;
+      if (latest == null) return;
+      final stillKnown = {for (final b in latest.bills) b.id};
+      final toAdd = hydrated.where((b) => !stillKnown.contains(b.id)).toList();
+      if (toAdd.isEmpty) return;
+
+      state = AsyncData(latest.copyWith(
+        bills: [...toAdd, ...latest.bills]
+          ..sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0))),
+      ));
+    }, onError: (Object e) {
+      debugPrint('[Stylux] new-bills listener failed, list stays static: $e');
+    }));
+  }
+
+  /// Keeps the dashboard's today figures live off the rollup document.
+  ///
+  /// Everything on the dashboard that can move during a working day moves
+  /// because this one document changed, so watching it is enough - and it
+  /// means a bill raised on another device shows up here without a reload.
+  ///
+  /// Week and month are carried forward rather than re-read: the earlier
+  /// days in those windows are settled history that cannot change while the
+  /// app is open, so subtracting the old today and adding the new one keeps
+  /// them exact without touching the other ~36 rollup documents.
+  void _watchTodayStats() {
+    _live.add(_fs.watchTodayStats().listen((today) {
+      final current = state.value;
+      final previous = current?.dashboard;
+      if (current == null || previous == null) return;
+
+      final newToday = (today['todaySales'] as num).toDouble();
+      final shift = newToday - previous.todaySales;
+      if (shift == 0 && (today['todayBillCount'] as int) == previous.todayBillCount) return;
+
+      final breakdown = today['todayPaymentBreakdown'] as Map<String, dynamic>;
+      state = AsyncData(current.copyWith(
+        dashboard: DashboardSummary(
+          todaySales: newToday,
+          weekSales: previous.weekSales + shift,
+          monthSales: previous.monthSales + shift,
+          todayCash: (breakdown['CASH'] as num).toDouble(),
+          todayCard: (breakdown['CARD'] as num).toDouble(),
+          todayUpi: (breakdown['UPI'] as num).toDouble(),
+          todayOutstanding: (today['todayOutstanding'] as num).toDouble(),
+          todayCustomersCount: today['todayCustomersCount'] as int,
+          todayBillCount: today['todayBillCount'] as int,
+          // Not carried by the rollup - these keep whatever the last full
+          // load or local mutation established.
+          todayAttendanceCount: previous.todayAttendanceCount,
+          pendingDiscountRequests: previous.pendingDiscountRequests,
+          lowStockItemCount: previous.lowStockItemCount,
+        ),
+      ));
+    }, onError: (Object e) {
+      debugPrint('[Stylux] today-stats listener failed, dashboard stays static: $e');
+    }));
   }
 
   Future<AppData> _loadAll(AuthState auth) => loadAppData(_fs, auth);
@@ -583,18 +697,31 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       ...latest.commissions,
     ];
 
-    // Only the bill figures need Firestore: a bill can't change who clocked
-    // in or how many discount requests are pending, and the stock it did
-    // change is in the patched inventory above.
-    final dashboard = auth.isOwner
-        ? DashboardSummary.fromJson(await _fs.getDashboardSummary(
+    // No dashboard read here any more. This used to re-read every rollup in
+    // the month-to-date window after each bill (~37 documents); the rollup
+    // this bill's own transaction just wrote is delivered by the today-stats
+    // listener instead, which updates the sales figures for free and does it
+    // on every device rather than only the one that rang the bill.
+    //
+    // The three figures the rollup does not carry are patched here, from
+    // state we already hold: stock moved with this bill, and neither
+    // attendance nor pending discounts can change because of one.
+    final dashboard = latest.dashboard == null
+        ? null
+        : DashboardSummary(
+            todaySales: latest.dashboard!.todaySales,
+            weekSales: latest.dashboard!.weekSales,
+            monthSales: latest.dashboard!.monthSales,
+            todayCash: latest.dashboard!.todayCash,
+            todayCard: latest.dashboard!.todayCard,
+            todayUpi: latest.dashboard!.todayUpi,
+            todayOutstanding: latest.dashboard!.todayOutstanding,
+            todayCustomersCount: latest.dashboard!.todayCustomersCount,
+            todayBillCount: latest.dashboard!.todayBillCount,
             todayAttendanceCount: todayAttendanceCountOf(latest.attendance),
-            // Not derived from discountRequests: an owner no longer holds
-            // those documents, only the count.
             pendingDiscountRequests: latest.pendingDiscountCount,
             lowStockItemCount: inventory.where((i) => i.isLowStock).length,
-          ))
-        : latest.dashboard;
+          );
     state = AsyncData(latest.copyWith(
       bills: [created, ...latest.bills],
       customers: [

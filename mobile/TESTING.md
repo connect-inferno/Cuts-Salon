@@ -193,6 +193,24 @@ Quick sweep for the rest of the work. Both roles.
       must NOT reset to zero (it is the count now, not a derived list)
 - [ ] Staff still see their own requests and their own pending badge
 
+### Live updates (two devices, or two browser tabs)
+- [ ] Sign in on both. Raise a bill on A.
+- [ ] **B's dashboard updates without a reload**: Today's Sales, Bills Today
+      and Today's Customers all move.
+- [ ] **B's week and month totals move by exactly the bill's amount.** They
+      are carried forward rather than re-read, so if they drift this is
+      where it shows.
+- [ ] **B's Billing list shows the new bill**, with its item count — the
+      items come from a subcollection fetched when the bill arrives, so a
+      bill showing "0 items" means that hydration broke.
+- [ ] A does NOT double-count its own bill (createBill patches it locally;
+      the listener must skip what A already has).
+- [ ] Log out and back in — no duplicate rows, no stale figures. Listeners
+      are cancelled and reattached on every auth change.
+- [ ] Leave B open across midnight: the today-stats listener is bound to the
+      date at load, so B keeps watching yesterday until it reloads. Known
+      and accepted; reload to roll over.
+
 ### Clients
 - [ ] Add, edit, archive, restore
 - [ ] Archived clients stay out of the billing picker

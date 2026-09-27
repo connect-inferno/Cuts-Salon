@@ -1442,6 +1442,59 @@ class SalonFirestore {
     };
   }
 
+  /// Bills raised from now on, as a live stream.
+  ///
+  /// Scoped to `createdAt > from` deliberately. A listener over the whole
+  /// bills page would be delivered every one of those documents on attach -
+  /// billed all over again, right after listBills() had just read them from
+  /// cache - which would have made the app more expensive, not less. Bounded
+  /// this way the opening snapshot is empty and the only documents it ever
+  /// delivers are bills that did not exist when the app loaded.
+  ///
+  /// A range and an order on the same field need no composite index.
+  Stream<List<FSBill>> watchBillsSince(DateTime from) {
+    return db
+        .collection('bills')
+        .where('createdAt', isGreaterThan: Timestamp.fromDate(from))
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs.map(FSBill.fromFirestore).toList());
+  }
+
+  /// Today's rollup document, as a live stream.
+  ///
+  /// The dashboard's figures all derive from these rollups, and every one of
+  /// them that can move during a working day moves because today's document
+  /// changed - a bill was raised, a payment was collected. Watching that one
+  /// document is what makes the dashboard live, and it replaces the ~37
+  /// rollup reads that used to follow every single bill.
+  ///
+  /// Only today's: the earlier days in the week and month window are settled
+  /// history and cannot change while the app is open. Their totals are held
+  /// as the difference between the aggregate and today, and today's new
+  /// value is added back - see AppDataNotifier.
+  Stream<Map<String, dynamic>> watchTodayStats() {
+    final now = DateTime.now();
+    return db
+        .collection('dailyStats')
+        .doc(dailyStatsDocId(DateTime(now.year, now.month, now.day)))
+        .snapshots()
+        .map((doc) {
+      final d = doc.data() ?? const <String, dynamic>{};
+      return {
+        'todaySales': _round2(_double(d['sales'])),
+        'todayPaymentBreakdown': {
+          'CASH': _round2(_double(d['collected_CASH'])),
+          'CARD': _round2(_double(d['collected_CARD'])),
+          'UPI': _round2(_double(d['collected_UPI'])),
+        },
+        'todayOutstanding': _round2(_double(d['outstanding']).clamp(0, double.infinity)),
+        'todayCustomersCount': (d['customerIds'] as List<dynamic>?)?.length ?? 0,
+        'todayBillCount': (d['billCount'] as num?)?.toInt() ?? 0,
+      };
+    });
+  }
+
   static DateTime? _dayOf(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final raw = doc.data()['date'];
     return raw is Timestamp ? raw.toDate() : null;
