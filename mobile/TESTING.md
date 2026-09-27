@@ -173,15 +173,15 @@ Quick sweep for the rest of the work. Both roles.
       than roughly two years drop off the history views. Check the console
       to confirm which path you are actually on.
 
-### Catalog freshness
-- [ ] Load twice — console logs "served from cache (N docs, 0 reads)" for
-      branches, employees, serviceCategories and services
-- [ ] **Edit a service, category, branch or staff member on device A, then
-      reload device B.** B must show the edit. This is the one that matters:
-      if a write path ever forgets `_bumpCatalogVersion`, B serves a stale
-      catalog until its cache clears, and nothing else will tell you.
-- [ ] A brand-new salon logs no cache lines until its first catalog edit —
-      the version is absent on both sides, so the gate stays off. Expected.
+### Catalog reads (the version gate was REVERTED)
+The `catalogVersion` gate that served services/categories/branches/staff
+from cache shipped a team roster two employees short and has been removed.
+If anyone reinstates it, this is the test that catches it:
+- [ ] Add an employee or service **in the Firebase console**, not the app
+- [ ] Reload the app. It must appear. A version stamp bumped only by the
+      app's own writes will not notice a console edit, and CLAUDE.md's
+      onboarding tells you to create the owner's employee doc that way.
+- [ ] Team roster count matches the employees collection exactly
 
 ### Discount request badges
 - [ ] Owner: the bell badge, the Discounts settings row and the dashboard
@@ -223,6 +223,11 @@ staff token - all five returned 403 PERMISSION_DENIED:
 
 And the legitimate paths must still work:
 - [ ] Staff clock in, then clock out
+- [ ] A staff punch shows "Unconfirmed" in the owner's attendance log
+- [ ] Confirm Daily Roster clears it for today's rows
+- [ ] **An unconfirmed LATE day attracts NO payroll deduction.** Generate a
+      slip covering an unconfirmed LATE day and check the deduction is zero,
+      then confirm the day and regenerate - it should appear.
 - [ ] Staff clock in on a day the owner has ALREADY rostered (this is an
       update, not a create - the rule has a separate branch for it, and it
       is the one most likely to regress)

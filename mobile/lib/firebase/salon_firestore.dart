@@ -123,86 +123,32 @@ class SalonFirestore {
 
   // --- Branches ---
 
-  // --- Catalog freshness ---
+  // --- Catalog freshness: removed, deliberately ---
   //
-  // Services, categories, branches and the roster are about 54 documents
-  // that a salon edits maybe weekly, and the app re-read all of them on
-  // every single load. `catalogVersion` on the settings doc is bumped by
-  // every write that touches one of them, so comparing the cached copy of
-  // that doc against the server's answers "can any of these 54 possibly
-  // have changed?" for one document's worth of cost we were already paying.
+  // There was a version-stamp gate here: a `catalogVersion` counter on the
+  // settings doc, bumped by every catalog write, compared against the cached
+  // copy to decide whether the ~54 catalog documents could be served from
+  // cache. It saved ~54 reads a load and it was WRONG - it shipped a team
+  // roster two employees short.
   //
-  // Inventory is deliberately NOT covered by this. createBill decrements
-  // stockCount on every product sale, so a shared version would be bumped
-  // constantly and the gate would never hit. It is also the one catalog
-  // collection an ordinary employee can write (see the stockCount carve-out
-  // in firestore.rules), and staff cannot write settings at all - so they
-  // could not bump the version even if we wanted them to.
+  // The premise was that every catalog write goes through this class. It
+  // does not. CLAUDE.md's own onboarding says to create the owner's
+  // employees/{uid} document by hand in the Firebase console, and anything
+  // written that way never bumps the counter - so the gate keeps serving a
+  // stale cache indefinitely, with no error and nothing in the UI to say so.
+  // A partial cache passes an isNotEmpty check just as happily as a
+  // complete one.
   //
-  // Every owner-side catalog write must call [_bumpCatalogVersion], or the
-  // edit will be invisible on other devices until their cache clears. Same
-  // contract as customerTouch, and the same failure mode if it is missed.
-  Future<bool>? _catalogUnchangedMemo;
+  // If this is worth revisiting: gate on a count() aggregation instead (one
+  // read per collection, catches out-of-band adds and deletes), and accept
+  // that an out-of-band EDIT with an unchanged count would still slip
+  // through. Given `services` carries the prices bills are built from, that
+  // residual risk is why this was not simply patched.
 
-  Future<bool> _catalogUnchanged() {
-    return _catalogUnchangedMemo ??= () async {
-      try {
-        final ref = db.collection('settings').doc('main');
-        // Cache first, and before anything refreshes it: a server read here
-        // would overwrite the cached copy with the new version and make the
-        // two always agree, which would serve a stale catalog forever.
-        final cached = await ref.get(const GetOptions(source: Source.cache));
-        final server = await ref.get(const GetOptions(source: Source.server));
-        final was = cached.data()?['catalogVersion'];
-        final now = server.data()?['catalogVersion'];
-        return was != null && now != null && was == now;
-      } catch (_) {
-        // No cached settings yet, or offline - read the catalog properly.
-        return false;
-      }
-    }();
+  Future<List<FSBranch>> listBranches() async {
+    final snap = await db.collection('branches').get();
+    return snap.docs.map(FSBranch.fromFirestore).toList();
   }
-
-  Future<void> _bumpCatalogVersion() async {
-    try {
-      await db.collection('settings').doc('main').set(
-        {'catalogVersion': FieldValue.increment(1)},
-        SetOptions(merge: true),
-      );
-    } catch (e) {
-      // Never fail the edit itself over the bookkeeping - but say so, since
-      // the consequence is other devices serving a stale catalog.
-      debugPrint('[Stylux] could not bump catalogVersion: $e');
-    }
-  }
-
-  /// One catalog collection, from cache when [catalogVersion] says nothing
-  /// has changed. An empty cache result falls through to the server: the
-  /// version can be current while the documents themselves have been
-  /// evicted, and a silently empty service list would be far worse than a
-  /// read we hoped to skip.
-  Future<List<T>> _catalogList<T>(
-    String collection,
-    T Function(QueryDocumentSnapshot<Map<String, dynamic>>) fromDoc,
-  ) async {
-    final query = db.collection(collection);
-    if (await _catalogUnchanged()) {
-      try {
-        final cached = await query.get(const GetOptions(source: Source.cache));
-        if (cached.docs.isNotEmpty) {
-          debugPrint('[Stylux] $collection served from cache (${cached.docs.length} docs, 0 reads)');
-          return cached.docs.map(fromDoc).toList();
-        }
-      } catch (_) {
-        // fall through
-      }
-    }
-    final snap = await query.get(const GetOptions(source: Source.server));
-    return snap.docs.map(fromDoc).toList();
-  }
-
-  Future<List<FSBranch>> listBranches() =>
-      _catalogList('branches', FSBranch.fromFirestore);
 
   // No read-back after the add(): nothing written here is server-generated
   // (FSBranch has no serverTimestamp field), so the doc that would come back
@@ -212,17 +158,13 @@ class SalonFirestore {
   // (customers, bills, payments, discount requests) still re-read, because
   // there the round trip is the only way to learn createdAt.
   Future<FSBranch> createBranch({required String name, String? address, String? phone}) async {
-    await _bumpCatalogVersion();
     final ref = await db.collection('branches').add(
           FSBranch(id: '', name: name, address: address, phone: phone, active: true).toFirestore(),
         );
     return FSBranch(id: ref.id, name: name, address: address, phone: phone, active: true);
   }
 
-  Future<void> updateBranch(String id, Map<String, dynamic> changes) async {
-    await db.collection('branches').doc(id).update(changes);
-    await _bumpCatalogVersion();
-  }
+  Future<void> updateBranch(String id, Map<String, dynamic> changes) => db.collection('branches').doc(id).update(changes);
 
   Future<FSBranch?> getBranch(String id) async {
     final doc = await db.collection('branches').doc(id).get();
@@ -241,8 +183,10 @@ class SalonFirestore {
   // via the Firebase Console or a future Cloud Function), then their
   // profile document is written here against that same uid.
 
-  Future<List<FSEmployee>> listEmployees() =>
-      _catalogList('employees', FSEmployee.fromFirestore);
+  Future<List<FSEmployee>> listEmployees() async {
+    final snap = await db.collection('employees').get();
+    return snap.docs.map(FSEmployee.fromFirestore).toList();
+  }
 
   Future<FSEmployee?> getEmployee(String uid) async {
     final doc = await db.collection('employees').doc(uid).get();
@@ -250,15 +194,9 @@ class SalonFirestore {
     return FSEmployee.fromFirestore(doc);
   }
 
-  Future<void> writeEmployeeProfile(String uid, FSEmployee profile) async {
-    await db.collection('employees').doc(uid).set(profile.toFirestore());
-    await _bumpCatalogVersion();
-  }
+  Future<void> writeEmployeeProfile(String uid, FSEmployee profile) => db.collection('employees').doc(uid).set(profile.toFirestore());
 
-  Future<void> updateEmployee(String uid, Map<String, dynamic> changes) async {
-    await db.collection('employees').doc(uid).update(changes);
-    await _bumpCatalogVersion();
-  }
+  Future<void> updateEmployee(String uid, Map<String, dynamic> changes) => db.collection('employees').doc(uid).update(changes);
 
   // Mirrors employee.service.ts's per-salon phone-uniqueness check.
   Future<bool> isPhoneTaken(String phone) async {
@@ -348,11 +286,12 @@ class SalonFirestore {
 
   // --- Catalog ---
 
-  Future<List<FSServiceCategory>> listServiceCategories() =>
-      _catalogList('serviceCategories', FSServiceCategory.fromFirestore);
+  Future<List<FSServiceCategory>> listServiceCategories() async {
+    final snap = await db.collection('serviceCategories').get();
+    return snap.docs.map(FSServiceCategory.fromFirestore).toList();
+  }
 
   Future<FSServiceCategory> createServiceCategory(String name) async {
-    await _bumpCatalogVersion();
     final ref = await db.collection('serviceCategories').add({'name': name});
     return FSServiceCategory(id: ref.id, name: name);
   }
@@ -363,11 +302,12 @@ class SalonFirestore {
     return snap.docs.isNotEmpty;
   }
 
-  Future<List<FSService>> listServices() =>
-      _catalogList('services', FSService.fromFirestore);
+  Future<List<FSService>> listServices() async {
+    final snap = await db.collection('services').get();
+    return snap.docs.map(FSService.fromFirestore).toList();
+  }
 
   Future<FSService> createService(FSService service) async {
-    await _bumpCatalogVersion();
     final ref = await db.collection('services').add(service.toFirestore());
     return FSService(
       id: ref.id,
@@ -1073,17 +1013,22 @@ class SalonFirestore {
 
   /// Sets one day's status for one employee, leaving any clock times alone.
   ///
-  /// Returns what the merged doc now holds without reading it back: the write
-  /// only touches employeeId/date/status (no serverTimestamp anywhere), so
-  /// the result is those three plus whatever clock times were already there -
-  /// which the caller passes in as [existingClockIn]/[existingClockOut] from
-  /// the record it already has loaded. Confirming a roster writes one of
-  /// these per employee, so the read-back that used to follow each one
-  /// doubled the cost of the single biggest bulk action in the app.
+  /// An owner setting a day's status IS the confirmation of that day - it is
+  /// the owner saying the person was there - so this stamps `confirmed`
+  /// alongside the status. Nothing else sets it: a self-punch leaves it
+  /// false, and the rules refuse to let staff write it at all.
+  ///
+  /// Returns what the merged doc now holds without reading it back, because
+  /// confirming a roster writes one of these per employee and a read-back
+  /// each time would double the cost of the biggest bulk action in the app.
+  /// `confirmedAt` is the one field the caller cannot know - it is a server
+  /// timestamp - so the returned record leaves it null until the next load.
+  /// Nothing renders it; the boolean is what screens and payroll read.
   Future<FSAttendanceRecord> markAttendance({
     required String employeeId,
     required DateTime date,
     required String status,
+    required String confirmedBy,
     DateTime? existingClockIn,
     DateTime? existingClockOut,
   }) async {
@@ -1093,6 +1038,9 @@ class SalonFirestore {
       'employeeId': employeeId,
       'date': Timestamp.fromDate(day),
       'status': status,
+      'confirmed': true,
+      'confirmedBy': confirmedBy,
+      'confirmedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
     return FSAttendanceRecord(
       id: ref.id,
@@ -1101,6 +1049,8 @@ class SalonFirestore {
       clockIn: existingClockIn,
       clockOut: existingClockOut,
       status: status,
+      confirmed: true,
+      confirmedBy: confirmedBy,
     );
   }
 
@@ -1231,7 +1181,13 @@ class SalonFirestore {
           .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(periodStart))
           .where('date', isLessThanOrEqualTo: Timestamp.fromDate(periodEnd))
           .get();
-      final deductions = _round2(lateSnap.docs.length * settings.lateAttendancePenalty);
+      // Only days the owner has confirmed. An unconfirmed LATE is a claim
+      // nobody has vouched for, and docking pay on one would be exactly the
+      // "rollup drifted, wage came out wrong" failure this design exists to
+      // avoid. Filtered here rather than in the query: the LATE documents
+      // are already fetched, so this costs nothing and needs no new index.
+      final confirmedLate = lateSnap.docs.where((d) => d.data()['confirmed'] == true).length;
+      final deductions = _round2(confirmedLate * settings.lateAttendancePenalty);
 
       final totalPaid = _round2(employee.baseSalary + commissionEarned - deductions);
       final record = FSSalaryRecord(

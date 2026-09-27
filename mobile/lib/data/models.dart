@@ -510,6 +510,11 @@ class AttendanceRecord {
   final DateTime? clockOut;
   final String status; // PRESENT | LATE | ABSENT
 
+  /// The owner has vouched for this day. A self-punch alone does not.
+  /// Payroll only deducts for a LATE day that carries this.
+  final bool confirmed;
+  final String? confirmedBy;
+
   AttendanceRecord({
     required this.id,
     required this.employeeId,
@@ -517,6 +522,8 @@ class AttendanceRecord {
     this.clockIn,
     this.clockOut,
     required this.status,
+    this.confirmed = false,
+    this.confirmedBy,
   });
 
   factory AttendanceRecord.fromJson(Map<String, dynamic> json) => AttendanceRecord(

@@ -4169,9 +4169,41 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                   style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: Color(0xFF0F172A)),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  _formatRosterDate(rec.date),
-                  style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                Row(
+                  children: [
+                    // Flexible, not a bare Text: "Yesterday, 26 Sep - 12:00
+                    // AM In" plus the chip overruns the row on a phone.
+                    Flexible(
+                      child: Text(
+                        _formatRosterDate(rec.date),
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                      ),
+                    ),
+                    // A day nobody has vouched for. Staff punch for
+                    // themselves, so an unconfirmed row is a claim, not a
+                    // fact - and payroll will not deduct for an unconfirmed
+                    // LATE. Saying so here is the whole point: confirmation
+                    // that is invisible never gets done.
+                    if (!rec.confirmed) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text(
+                          'Unconfirmed',
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF64748B),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),

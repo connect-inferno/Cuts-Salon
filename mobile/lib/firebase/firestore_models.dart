@@ -464,6 +464,16 @@ class FSAttendanceRecord {
   final DateTime? clockOut;
   final String status; // PRESENT | LATE | ABSENT
 
+  /// Whether the owner has vouched for this day.
+  ///
+  /// A self-punch is a claim, not a fact - the app cannot tell whether
+  /// somebody was really at the salon. Confirmation is the owner saying
+  /// they were, and it is the only version payroll will act on. The rules
+  /// refuse to let staff write any of these three.
+  final bool confirmed;
+  final String? confirmedBy;
+  final DateTime? confirmedAt;
+
   FSAttendanceRecord({
     required this.id,
     required this.employeeId,
@@ -471,6 +481,9 @@ class FSAttendanceRecord {
     this.clockIn,
     this.clockOut,
     required this.status,
+    this.confirmed = false,
+    this.confirmedBy,
+    this.confirmedAt,
   });
 
   factory FSAttendanceRecord.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -482,6 +495,9 @@ class FSAttendanceRecord {
       clockIn: _ts(d['clockIn']),
       clockOut: _ts(d['clockOut']),
       status: d['status'] ?? 'PRESENT',
+      confirmed: d['confirmed'] == true,
+      confirmedBy: d['confirmedBy'],
+      confirmedAt: _ts(d['confirmedAt']),
     );
   }
 
@@ -491,6 +507,9 @@ class FSAttendanceRecord {
         'clockIn': clockIn == null ? null : Timestamp.fromDate(clockIn!),
         'clockOut': clockOut == null ? null : Timestamp.fromDate(clockOut!),
         'status': status,
+        'confirmed': confirmed,
+        'confirmedBy': confirmedBy,
+        'confirmedAt': confirmedAt == null ? null : Timestamp.fromDate(confirmedAt!),
       };
 }
 
@@ -779,11 +798,6 @@ class FSSettings {
   final double gstRate;
   final double lateAttendancePenalty;
 
-  /// Bumped by every owner-side catalog edit; see SalonFirestore's catalog
-  /// freshness section. Read-only here - nothing constructs a settings
-  /// object to write this, it is incremented server-side.
-  final int catalogVersion;
-
   FSSettings({
     required this.salonName,
     this.phone,
@@ -791,14 +805,12 @@ class FSSettings {
     this.gstEnabled = false,
     required this.gstRate,
     required this.lateAttendancePenalty,
-    this.catalogVersion = 0,
   });
 
   factory FSSettings.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data() ?? {};
     final rate = _num(d['gstRate'] ?? 0);
     return FSSettings(
-      catalogVersion: _int(d['catalogVersion']),
       salonName: d['salonName'] ?? 'Salon',
       phone: d['phone'],
       address: d['address'],

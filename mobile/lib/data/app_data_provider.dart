@@ -1010,10 +1010,14 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
         a.date!.year == day.year &&
         a.date!.month == day.month &&
         a.date!.day == day.day);
+    // Whoever is marking is whoever is vouching. Only an owner reaches this
+    // - the rules refuse it from anyone else - so the uid is the confirmer.
+    final auth = ref.read(authControllerProvider);
     final recordFS = await _fs.markAttendance(
       employeeId: employeeId,
       date: day,
       status: status,
+      confirmedBy: auth.userId!,
       existingClockIn: existing.isEmpty ? null : existing.first.clockIn,
       existingClockOut: existing.isEmpty ? null : existing.first.clockOut,
     );

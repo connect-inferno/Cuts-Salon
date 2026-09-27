@@ -202,6 +202,8 @@ AttendanceRecord attendanceFromFS(FSAttendanceRecord a) => AttendanceRecord(
       clockIn: a.clockIn,
       clockOut: a.clockOut,
       status: a.status,
+      confirmed: a.confirmed,
+      confirmedBy: a.confirmedBy,
     );
 
 SalonSettings settingsFromFS(FSSettings s) => SalonSettings(
