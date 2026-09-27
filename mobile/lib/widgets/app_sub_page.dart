@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
+import '../router.dart';
 
 import '../theme.dart';
 import 'app_page_header.dart';
-import 'app_page_route.dart';
 
 /// Pushes [child] as a full page with the standard back header.
 ///
@@ -17,14 +17,13 @@ Future<T?> openAppSubPage<T>(
   required Widget child,
   List<AppPageAction> actions = const [],
 }) {
-  return Navigator.of(context).push<T>(
-    AppSlidePageRoute<T>(
-      page: AppSubPage(
-        title: title,
-        subtitle: subtitle,
-        actions: actions,
-        child: child,
-      ),
+  return pushAppRoute<T>(
+    context,
+    AppSubPage(
+      title: title,
+      subtitle: subtitle,
+      actions: actions,
+      child: child,
     ),
   );
 }

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
+import '../router.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../theme.dart';
 import 'app_page_header.dart';
-import 'app_page_route.dart';
 
 /// One section inside a page's settings.
 ///
@@ -190,14 +190,13 @@ Future<void> openAppSettings(
   required List<AppSettingsSection> sections,
   int initialSection = 0,
 }) {
-  return Navigator.of(context).push<void>(
-    AppSlidePageRoute<void>(
-      page: AppSettingsPage(
-        title: title,
-        subtitle: subtitle,
-        sections: sections,
-        initialSection: initialSection,
-      ),
+  return pushAppRoute<void>(
+    context,
+    AppSettingsPage(
+      title: title,
+      subtitle: subtitle,
+      sections: sections,
+      initialSection: initialSection,
     ),
   );
 }

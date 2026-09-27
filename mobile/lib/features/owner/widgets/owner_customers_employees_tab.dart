@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../router.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../theme.dart';
@@ -6,7 +7,6 @@ import '../../../data/app_data_provider.dart';
 import '../../../data/salary_provider.dart';
 import '../../../data/models.dart';
 import '../../../widgets/app_page_header.dart';
-import '../../../widgets/app_page_route.dart';
 import '../../../widgets/app_page_switcher.dart';
 import '../../../widgets/app_settings_page.dart';
 import '../../../widgets/add_customer_page.dart';
@@ -402,12 +402,11 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
     // Keep the tab's own selection in step so the options sheet opened from
     // the list still has this client's bills loaded behind it.
     _selectCustomer(ref, cust);
-    Navigator.of(context).push(
-      AppSlidePageRoute(
-        page: OwnerCustomerDetailPage(
-          customerId: cust.id,
-          onStartBill: widget.onStartBill,
-        ),
+    pushAppRoute(
+      context,
+      OwnerCustomerDetailPage(
+        customerId: cust.id,
+        onStartBill: widget.onStartBill,
       ),
     );
   }
@@ -1695,8 +1694,9 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
     // Keep the desktop master-detail pane in sync, so returning from the
     // pushed page (or switching to a wider window) lands on the same person.
     setState(() => _selectedEmployee = emp);
-    Navigator.of(context).push(
-      AppSlidePageRoute(page: OwnerEmployeeDetailPage(employeeId: emp.id)),
+    pushAppRoute(
+      context,
+      OwnerEmployeeDetailPage(employeeId: emp.id),
     );
   }
 

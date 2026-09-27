@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 /// The push transition for every screen that opens on top of another.
 ///
@@ -48,4 +49,36 @@ class AppSlidePageRoute<T> extends PageRouteBuilder<T> {
             );
           },
         );
+}
+
+/// The same slide, as a [Page] for GoRouter's declarative stack.
+///
+/// [AppSlidePageRoute] above is the imperative Navigator.push form and is
+/// kept for anything that genuinely should not get its own history entry -
+/// but full screens should use pushAppRoute() in router.dart instead.
+class AppSlideTransitionPage<T> extends CustomTransitionPage<T> {
+  const AppSlideTransitionPage({required super.child, super.key})
+      : super(
+          transitionDuration: const Duration(milliseconds: 320),
+          reverseTransitionDuration: const Duration(milliseconds: 260),
+          transitionsBuilder: _slide,
+        );
+
+  static Widget _slide(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    final incoming = Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero).animate(
+      CurvedAnimation(parent: animation, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic),
+    );
+    final outgoing = Tween<Offset>(begin: Offset.zero, end: const Offset(-0.25, 0)).animate(
+      CurvedAnimation(parent: secondaryAnimation, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic),
+    );
+    return SlideTransition(
+      position: outgoing,
+      child: SlideTransition(position: incoming, child: child),
+    );
+  }
 }

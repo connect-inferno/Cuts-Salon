@@ -235,6 +235,24 @@ And the legitimate paths must still work:
 - [ ] **Deploy rules to every salon before the app.** A salon without them
       keeps the old behaviour, where any of the five above succeeds.
 
+### iOS back-swipe / browser back
+The bug: swiping back from mid-screen on iPhone showed the splash and
+"Restoring your session" instead of the previous screen. Sub-pages were
+pushed with Navigator.push, which never touches the URL, so Safari's
+gesture walked the browser history (/splash -> /login -> /dashboard)
+rather than the screens actually on screen.
+- [ ] **On a real iPhone**, open a client, swipe back from mid-screen. It
+      must return to the client list. No splash, no session restore.
+- [ ] Same from a staff member, and from any settings page (Team, Salon,
+      Billing) - they all go through the same helper
+- [ ] Two levels deep: back unwinds one screen at a time
+- [ ] The in-app back arrow still works and matches the gesture
+- [ ] Reload the browser while on a sub-page - it lands on the dashboard
+      rather than a blank screen (the pushed widget is not in the URL and
+      deliberately does not survive a reload)
+- [ ] Anything new that opens a full screen must use `pushAppRoute` from
+      router.dart, NOT Navigator.push, or it reintroduces this bug
+
 ### Clients
 - [ ] Add, edit, archive, restore
 - [ ] Archived clients stay out of the billing picker
