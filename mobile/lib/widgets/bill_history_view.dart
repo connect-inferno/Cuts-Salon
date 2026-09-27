@@ -68,6 +68,100 @@ bool _isToday(DateTime? d) {
   return d.year == now.year && d.month == now.month && d.day == now.day;
 }
 
+/// Pinned header for the bill history list.
+///
+/// The header used to sit outside the scroll view entirely, so the summary
+/// tiles, search box and filters ate a fixed slice of the screen no matter
+/// how far down the list you were. This scrolls it instead - but pinned, and
+/// collapsing rather than leaving: the two tiles shrink into a single-line
+/// strip and the search box and filter chips stay put, so the list gets most
+/// of the viewport without the figures or the controls going away.
+///
+/// A pinned header has to declare its extents before laying anything out, so
+/// the three heights below are fixed. Every widget measured by them is
+/// single-line (maxLines: 1 / ellipsis), which is what makes that safe -
+/// `bill_history_header_test.dart` pumps this at several widths and fails on
+/// any overflow if one of these drifts out of date.
+class _HistoryHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final Widget tiles;
+  final Widget compact;
+  final Widget controls;
+
+  const _HistoryHeaderDelegate({
+    required this.tiles,
+    required this.compact,
+    required this.controls,
+  });
+
+  static const double _tilesH = 106;
+  static const double _compactH = 36;
+  static const double _controlsH = 100; // search field + 12 gap + chip row
+  static const double _topPad = 14;
+  static const double _bottomPad = 12;
+
+  @override
+  double get maxExtent => _topPad + _tilesH + _controlsH + _bottomPad;
+
+  @override
+  double get minExtent => _topPad + _compactH + _controlsH + _bottomPad;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    // Derived from shrinkOffset rather than from a separate lerp so the
+    // content height and the box height can never disagree by a rounding
+    // error - which a Column reports as an overflow stripe.
+    final collapsibleH = (_tilesH - shrinkOffset).clamp(_compactH, _tilesH);
+    final t = ((_tilesH - collapsibleH) / (_tilesH - _compactH)).clamp(0.0, 1.0);
+
+    return Container(
+      color: AppTheme.bgSurface,
+      padding: const EdgeInsets.fromLTRB(16, _topPad, 16, _bottomPad),
+      child: Column(
+        children: [
+          SizedBox(
+            height: collapsibleH,
+            child: ClipRect(
+              child: Stack(
+                children: [
+                  // Deliberately no height on either: each lays out at its
+                  // own natural height against an unbounded vertical
+                  // constraint and is clipped by the box above. That means a
+                  // wrong constant here can only ever crop the tile, never
+                  // squeeze it into an overflow - and the test asserts it
+                  // isn't cropped either.
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: IgnorePointer(
+                      ignoring: t > 0.5,
+                      child: Opacity(opacity: 1 - t, child: tiles),
+                    ),
+                  ),
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: IgnorePointer(
+                      ignoring: t < 0.5,
+                      child: Opacity(opacity: t, child: compact),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SizedBox(height: _controlsH, child: controls),
+        ],
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(_HistoryHeaderDelegate old) =>
+      old.tiles != tiles || old.compact != compact || old.controls != controls;
+}
+
 class _BillHistoryViewState extends State<BillHistoryView> {
   final _searchController = TextEditingController();
   String _filter = 'All';
@@ -138,112 +232,214 @@ class _BillHistoryViewState extends State<BillHistoryView> {
     return Center(
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 680),
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _summaryTile(
-                          label: 'Billed today',
-                          value: _rupees(todayRevenue),
-                          detail: '${todayBills.length} bill${todayBills.length == 1 ? '' : 's'}',
-                          color: AppTheme.accentGreen,
-                          bg: AppTheme.accentGreenBg,
-                          icon: PhosphorIconsFill.trendUp,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _summaryTile(
-                          label: 'Outstanding',
-                          value: _rupees(outstanding),
-                          detail: outstanding > 0 ? 'Awaiting collection' : 'All collected',
-                          color: outstanding > 0 ? AppTheme.accentAmber : AppTheme.slateLight,
-                          bg: outstanding > 0 ? AppTheme.accentAmberBg : const Color(0xFFF1F5F9),
-                          icon: PhosphorIconsFill.handCoins,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: _searchController,
-                    onChanged: (_) => setState(() {}),
-                    style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
-                    decoration: InputDecoration(
-                      isDense: true,
-                      hintText: 'Search invoice number or client',
-                      hintStyle: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: AppTheme.textMuted,
-                      ),
-                      prefixIcon: const Icon(
-                        PhosphorIconsRegular.magnifyingGlass,
-                        size: 18,
-                        color: AppTheme.slateLight,
-                      ),
-                      suffixIcon: _searchController.text.isEmpty
-                          ? null
-                          : IconButton(
-                              icon: const Icon(PhosphorIconsBold.x, size: 15),
-                              color: AppTheme.slateLight,
-                              onPressed: () {
-                                _searchController.clear();
-                                setState(() {});
-                              },
-                            ),
-                      filled: true,
-                      fillColor: Colors.white,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 13),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: const BorderSide(color: AppTheme.borderSubtle),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: const BorderSide(color: AppTheme.borderSubtle),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: const BorderSide(color: AppTheme.primaryBlue, width: 1.4),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        for (final f in const ['All', 'Today', 'Unpaid', 'Paid'])
-                          Padding(
-                            padding: const EdgeInsets.only(right: 8.0),
-                            child: _filterChip(f),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
+        child: CustomScrollView(
+          slivers: [
+            SliverPersistentHeader(
+              pinned: true,
+              delegate: _HistoryHeaderDelegate(
+                tiles: _summaryTiles(
+                  todayRevenue: todayRevenue,
+                  todayCount: todayBills.length,
+                  outstanding: outstanding,
+                ),
+                compact: _compactSummary(
+                  todayRevenue: todayRevenue,
+                  outstanding: outstanding,
+                ),
+                controls: _searchAndFilters(),
               ),
             ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: bills.isEmpty
-                  ? _emptyState()
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 92),
-                      itemCount: bills.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 10),
-                      itemBuilder: (context, i) => _billCard(context, bills[i]),
-                    ),
-            ),
+            if (bills.isEmpty)
+              SliverFillRemaining(hasScrollBody: false, child: _emptyState())
+            else
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 92),
+                sliver: SliverList.separated(
+                  itemCount: bills.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (context, i) => _billCard(context, bills[i]),
+                ),
+              ),
           ],
         ),
       ),
+    );
+  }
+
+  /// The two headline tiles, shown while the header is fully expanded.
+  Widget _summaryTiles({
+    required double todayRevenue,
+    required int todayCount,
+    required double outstanding,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: _summaryTile(
+            label: 'Billed today',
+            value: _rupees(todayRevenue),
+            detail: '$todayCount bill${todayCount == 1 ? '' : 's'}',
+            color: AppTheme.accentGreen,
+            bg: AppTheme.accentGreenBg,
+            icon: PhosphorIconsFill.trendUp,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _summaryTile(
+            label: 'Outstanding',
+            value: _rupees(outstanding),
+            detail: outstanding > 0 ? 'Awaiting collection' : 'All collected',
+            color: outstanding > 0 ? AppTheme.accentAmber : AppTheme.slateLight,
+            bg: outstanding > 0 ? AppTheme.accentAmberBg : const Color(0xFFF1F5F9),
+            icon: PhosphorIconsFill.handCoins,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// What those tiles collapse into once the list is scrolled: the same two
+  /// figures on one line. Scrolling shrinks the header, it never removes it,
+  /// so today's takings and what is still owed stay on screen throughout.
+  Widget _compactSummary({
+    required double todayRevenue,
+    required double outstanding,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _compactStat(
+              icon: PhosphorIconsFill.trendUp,
+              color: AppTheme.accentGreen,
+              label: 'Today',
+              value: _rupees(todayRevenue),
+            ),
+          ),
+          Container(width: 1, height: 16, color: AppTheme.borderSubtle),
+          Expanded(
+            child: _compactStat(
+              icon: PhosphorIconsFill.handCoins,
+              color: outstanding > 0 ? AppTheme.accentAmber : AppTheme.slateLight,
+              label: 'Due',
+              value: _rupees(outstanding),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _compactStat({
+    required IconData icon,
+    required Color color,
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 13, color: color),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w700,
+            color: AppTheme.slateLight,
+          ),
+        ),
+        const SizedBox(width: 5),
+        Flexible(
+          child: Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.slateDark,
+              letterSpacing: -0.3,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Search box and filter chips. These stay pinned at every scroll offset -
+  /// they are how you drive the list, so losing them mid-scroll would mean
+  /// scrolling back to the top to change a filter.
+  Widget _searchAndFilters() {
+    return Column(
+      children: [
+        TextField(
+          controller: _searchController,
+          onChanged: (_) => setState(() {}),
+          style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: 'Search invoice number or client',
+            hintStyle: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: AppTheme.textMuted,
+            ),
+            prefixIcon: const Icon(
+              PhosphorIconsRegular.magnifyingGlass,
+              size: 18,
+              color: AppTheme.slateLight,
+            ),
+            suffixIcon: _searchController.text.isEmpty
+                ? null
+                : IconButton(
+                    icon: const Icon(PhosphorIconsBold.x, size: 15),
+                    color: AppTheme.slateLight,
+                    onPressed: () {
+                      _searchController.clear();
+                      setState(() {});
+                    },
+                  ),
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(vertical: 13),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: AppTheme.borderSubtle),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: AppTheme.borderSubtle),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: AppTheme.primaryBlue, width: 1.4),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final f in const ['All', 'Today', 'Unpaid', 'Paid'])
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: _filterChip(f),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
