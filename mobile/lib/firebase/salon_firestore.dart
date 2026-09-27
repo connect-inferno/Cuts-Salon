@@ -1039,13 +1039,21 @@ class SalonFirestore {
     if (existing.exists && existing.data()?['clockIn'] != null) {
       throw Exception('Already clocked in today');
     }
-    await ref.set({
-      'employeeId': employeeId,
-      'date': Timestamp.fromDate(DateTime(today.year, today.month, today.day)),
-      'clockIn': FieldValue.serverTimestamp(),
-      'clockOut': null,
-      'status': 'PRESENT',
-    });
+    // Two paths on purpose. If the owner has already confirmed the roster
+    // there is a status-only record for today, and a blanket set() would
+    // overwrite the status they chose - which the rules now refuse anyway,
+    // since staff may write their own clock times and nothing else.
+    if (existing.exists) {
+      await ref.update({'clockIn': FieldValue.serverTimestamp()});
+    } else {
+      await ref.set({
+        'employeeId': employeeId,
+        'date': Timestamp.fromDate(DateTime(today.year, today.month, today.day)),
+        'clockIn': FieldValue.serverTimestamp(),
+        'clockOut': null,
+        'status': 'PRESENT',
+      });
+    }
     return FSAttendanceRecord.fromFirestore(await ref.get());
   }
 

@@ -211,6 +211,25 @@ Quick sweep for the rest of the work. Both roles.
       date at load, so B keeps watching yesterday until it reloads. Known
       and accepted; reload to roll over.
 
+### Attendance integrity (rules)
+These are the access boundary, so test that they BLOCK, not just that they
+allow. Verified by calling the Firestore REST API with a real signed-in
+staff token - all five returned 403 PERMISSION_DENIED:
+- [ ] Staff back-dating themselves PRESENT for a past date
+- [ ] Staff inventing a clock-in time instead of a server timestamp
+- [ ] Staff setting `confirmed` on their own record
+- [ ] Staff rewriting the status on their own record
+- [ ] Staff walking their own clock-in backwards after the fact
+
+And the legitimate paths must still work:
+- [ ] Staff clock in, then clock out
+- [ ] Staff clock in on a day the owner has ALREADY rostered (this is an
+      update, not a create - the rule has a separate branch for it, and it
+      is the one most likely to regress)
+- [ ] Owner Mark All Present + Confirm Daily Roster
+- [ ] **Deploy rules to every salon before the app.** A salon without them
+      keeps the old behaviour, where any of the five above succeeds.
+
 ### Clients
 - [ ] Add, edit, archive, restore
 - [ ] Archived clients stay out of the billing picker

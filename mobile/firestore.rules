@@ -168,10 +168,79 @@ service cloud.firestore {
     // employee clocks only themselves in/out; the owner can also write any
     // record (manual corrections - matches REST's owner-only
     // /attendance/mark).
+    // Attendance decides what people get paid, so the honesty of the app is
+    // not enough here - these rules are the only thing an edited client
+    // cannot talk its way past. Before this, a crafted request could mark
+    // itself PRESENT for any date in the past and set any clock-in time it
+    // liked; the Dart code always sent today and a server timestamp, but
+    // nothing required it to.
+    //
+    // TIMEZONE, and why this is a window rather than "date == today":
+    // `date` is written as local midnight (DateTime(y, m, d) in
+    // salon_firestore.dart) and rules evaluate timestamps in UTC. In IST
+    // local midnight is 18:30 UTC the PREVIOUS day, so comparing
+    // date.day() to request.time.day() would reject every punch this salon
+    // ever made. A window absorbs any offset on earth (max +/-14h) while
+    // still making "mark me present for last month" impossible.
     match /attendanceRecords/{recordId} {
+      function datedNearNow() {
+        return 'date' in request.resource.data
+            && request.resource.data.date > request.time - duration.value(48, 'h')
+            && request.resource.data.date < request.time + duration.value(24, 'h');
+      }
+
+      // Confirmation is the owner's signal that a claimed day really
+      // happened, and payroll leans on it - so staff must never write it,
+      // on create or update.
+      function notSelfConfirming() {
+        return !('confirmed' in request.resource.data)
+            || request.resource.data.confirmed == false;
+      }
+
       allow read: if isActiveEmployee();
-      allow create: if isActiveEmployee() && (isOwner() || isSelf(request.resource.data.employeeId));
-      allow update: if isActiveEmployee() && (isOwner() || isSelf(resource.data.employeeId));
+
+      // clockIn == request.time forces FieldValue.serverTimestamp(): a
+      // server timestamp resolves to exactly request.time, and any literal
+      // the client invents does not. That is what stops someone claiming a
+      // 9am arrival at 11am.
+      allow create: if isActiveEmployee()
+        && datedNearNow()
+        && (
+          isOwner()
+          || (
+            isSelf(request.resource.data.employeeId)
+            && request.resource.data.clockIn == request.time
+            && notSelfConfirming()
+          )
+        );
+
+      // Staff may punch in once and punch out once, and touch nothing else.
+      // Not their status (that is the owner's call), not the date, and not
+      // confirmation.
+      //
+      // Two shapes because a day may already exist before anyone punches:
+      // confirming the roster writes a status-only record for every
+      // employee, so the first punch of that day is an update, not a create.
+      function punchingIn() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clockIn'])
+            && (!('clockIn' in resource.data) || resource.data.clockIn == null)
+            && request.resource.data.clockIn == request.time;
+      }
+
+      function punchingOut() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clockOut'])
+            && request.resource.data.clockOut == request.time;
+      }
+
+      allow update: if isActiveEmployee()
+        && (
+          isOwner()
+          || (isSelf(resource.data.employeeId) && (punchingIn() || punchingOut()))
+        );
+
+      // History is evidence. Nobody deletes it, the same way a bill cannot
+      // be deleted once raised.
+      allow delete: if false;
     }
 
     // Only generated/paid by the owner (matches salary.routes.ts).
