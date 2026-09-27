@@ -265,7 +265,10 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   // "where they were first registered" (empty when unknown) - nothing reads
   // it to decide what a branch can see. A branch's client figure comes from
   // its bills instead (see firestore_app_data.dart).
-  Future<void> addCustomer({
+  /// Returns the created client so a caller that opened the form mid-flow
+  /// (the billing customer picker) can select them straight away instead of
+  /// making the user find the name they just typed.
+  Future<Customer> addCustomer({
     required String name,
     required String phone,
     String? email,
@@ -288,6 +291,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     final created = customerFromFS(createdFS);
     final current = state.value;
     if (current != null) state = AsyncData(current.copyWith(customers: [created, ...current.customers]));
+    return created;
   }
 
   // firestore.rules blocks customer deletes on purpose ("customer history

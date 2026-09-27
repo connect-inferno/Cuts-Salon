@@ -589,16 +589,24 @@ class OwnerDashboardTab extends ConsumerWidget {
   }
 
   Widget _buildPaymentBreakdownCard(DashboardSummary dashboard) {
-    final total = dashboard.todayCash + dashboard.todayCard + dashboard.todayUpi;
-    final displayTotal = total > 0 ? total : dashboard.todaySales;
-
     final cash = dashboard.todayCash;
-    final card = dashboard.todayCard;
     final upi = dashboard.todayUpi;
+    // Card is no longer a method the salon offers, so the third channel is
+    // Pending: billed today but not handed over. It is deliberately kept out
+    // of "Total Collected" - it is money owed, not money taken.
+    final pending = dashboard.todayOutstanding;
 
-    final cashPct = displayTotal > 0 ? (cash / displayTotal * 100).round() : 0;
-    final cardPct = displayTotal > 0 ? (card / displayTotal * 100).round() : 0;
-    final upiPct = displayTotal > 0 ? (upi / displayTotal * 100).round() : 0;
+    final collected = cash + upi;
+    // Shares of everything billed today, so the three rows use one base and
+    // add up. Bills written before card was retired put their amountPaid in
+    // the CARD bucket, which no row reads any more - on a day that contains
+    // one, these percentages will sum to less than 100.
+    final billedTotal = collected + pending;
+
+    final cashPct = billedTotal > 0 ? (cash / billedTotal * 100).round() : 0;
+    final upiPct = billedTotal > 0 ? (upi / billedTotal * 100).round() : 0;
+    final pendingPct =
+        billedTotal > 0 ? (pending / billedTotal * 100).round() : 0;
 
     return Container(
       padding: const EdgeInsets.all(20.0),
@@ -635,7 +643,7 @@ class OwnerDashboardTab extends ConsumerWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Total Collected: ${_formatCurrency(displayTotal)}',
+                    'Total Collected: ${_formatCurrency(collected)}',
                     style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
@@ -673,15 +681,16 @@ class OwnerDashboardTab extends ConsumerWidget {
           ),
           const SizedBox(height: 14),
 
-          // 2. Card / POS Row
+          // 2. Pending Row - reads "outstanding", not "collected", because
+          // this is the one channel where nothing has been handed over.
           _buildPaymentChannelRow(
-            icon: PhosphorIconsBold.creditCard,
-            iconColor: const Color(0xFF3B82F6),
-            iconBg: const Color(0xFFEFF6FF),
-            label: 'Card / POS',
-            collectedText: '${_formatCurrency(card)} collected',
-            percent: cardPct,
-            barColor: const Color(0xFF3B82F6),
+            icon: PhosphorIconsBold.clockCountdown,
+            iconColor: const Color(0xFFD97706),
+            iconBg: const Color(0xFFFFFBEB),
+            label: 'Pending',
+            collectedText: '${_formatCurrency(pending)} outstanding',
+            percent: pendingPct,
+            barColor: const Color(0xFFD97706),
           ),
           const SizedBox(height: 14),
 

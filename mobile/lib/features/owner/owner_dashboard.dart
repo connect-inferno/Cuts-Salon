@@ -172,9 +172,9 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
           items: [
             AppDrawerItem(
               icon: PhosphorIconsRegular.package,
-              label: 'Inventory',
+              label: 'Services',
               badgeCount: lowStockCount,
-              onTap: () => go('Inventory', 'Stock, services and prices', const OwnerInventoryTab()),
+              onTap: () => go('Services', 'Service menu, stock and prices', const OwnerInventoryTab()),
             ),
             AppDrawerItem(
               icon: PhosphorIconsRegular.wallet,

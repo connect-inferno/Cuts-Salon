@@ -15,7 +15,7 @@ import '../../widgets/app_settings_page.dart';
 import '../../widgets/app_sub_page.dart';
 import '../../widgets/app_dialog.dart';
 import '../../widgets/async_state_views.dart';
-import '../../widgets/bill_history_view.dart';
+import '../../widgets/add_customer_page.dart';
 import '../../widgets/dues_view.dart';
 import '../../widgets/searchable_picker.dart';
 import '../../widgets/liquid_nav_bar.dart';
@@ -588,6 +588,292 @@ class _EmployeeDashboardTab extends ConsumerWidget {
     required this.onOpenBilling,
   });
 
+  /// Where this employee stands against their target for the current month.
+  ///
+  /// `state.salesTargets` is already scoped to the signed-in user by
+  /// `listSalesTargets(employeeId: selfId)`, and already loaded as part of
+  /// the AppData snapshot - so this card costs no extra Firestore read.
+  Widget _buildMonthlyTargetCard() {
+    final now = DateTime.now();
+    // Active targets covering today. endDate is what makes a target
+    // "this month"; one without dates is treated as current rather than
+    // hidden, since a target nobody can see is worse than one shown early.
+    final current = state.salesTargets.where((t) {
+      if (t.status != 'ACTIVE') return false;
+      final end = t.endDate;
+      final start = t.startDate;
+      if (end != null && end.isBefore(DateTime(now.year, now.month, now.day))) {
+        return false;
+      }
+      if (start != null && start.isAfter(now)) return false;
+      return true;
+    }).toList()
+      // Revenue first: it is the headline number when someone carries both.
+      ..sort((a, b) => a.type == 'PRODUCT_SALES_COUNT' ? 1 : -1);
+
+    if (current.isEmpty) return _emptyTargetCard();
+
+    return Column(
+      children: [
+        for (var i = 0; i < current.length && i < 2; i++) ...[
+          if (i > 0) const SizedBox(height: 10),
+          _targetCard(current[i], now),
+        ],
+      ],
+    );
+  }
+
+  Widget _emptyTargetCard() {
+    // Shown rather than hidden: every employee here is meant to have one, so
+    // a missing target is information, not a reason to render nothing.
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              PhosphorIconsRegular.target,
+              size: 18,
+              color: AppTheme.slateLight,
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Monthly Target',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.slateDark,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'No target set for this month yet.',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w500,
+                    color: AppTheme.slateLight,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _targetCard(SalesTarget target, DateTime now) {
+    final fraction = target.progressFraction;
+    final pct = (fraction * 100).round();
+    final done = fraction >= 1;
+
+    // Days left in the target window, falling back to the end of the current
+    // calendar month when the target carries no end date.
+    final end = target.endDate ?? DateTime(now.year, now.month + 1, 0);
+    final daysLeft = DateTime(end.year, end.month, end.day)
+        .difference(DateTime(now.year, now.month, now.day))
+        .inDays;
+
+    // Pacing, not just progress: 40% through the target with 80% of the month
+    // gone is behind, and 40% with half the month left is not. Without a
+    // start date there is no elapsed fraction to compare against, so the bar
+    // stays neutral rather than guessing.
+    final start = target.startDate;
+    double? expected;
+    if (start != null && end.isAfter(start)) {
+      final total = end.difference(start).inSeconds;
+      final elapsed = now.difference(start).inSeconds;
+      if (total > 0) expected = (elapsed / total).clamp(0.0, 1.0);
+    }
+    final behind = !done && expected != null && fraction < expected - 0.05;
+
+    final accent = done
+        ? AppTheme.accentGreen
+        : behind
+            ? AppTheme.accentAmber
+            : AppTheme.primaryBlue;
+    final accentBg = done
+        ? AppTheme.accentGreenBg
+        : behind
+            ? AppTheme.accentAmberBg
+            : AppTheme.primaryLight;
+
+    final remaining = (target.targetValue - target.progressValue).clamp(
+      0.0,
+      double.infinity,
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.borderSubtle),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.slateDark.withValues(alpha: 0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: accentBg,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  done ? PhosphorIconsFill.trophy : PhosphorIconsRegular.target,
+                  size: 18,
+                  color: accent,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Monthly Target',
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.slateDark,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      targetTypeLabel(target.type),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: AppTheme.slateLight,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: accentBg,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$pct%',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: accent,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Flexible(
+                child: Text(
+                  formatTargetValue(target.type, target.progressValue),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 21,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.slateDark,
+                    letterSpacing: -0.6,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 5),
+              Flexible(
+                child: Text(
+                  'of ${formatTargetValue(target.type, target.targetValue)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.slateLight,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: fraction,
+              minHeight: 8,
+              backgroundColor: const Color(0xFFF1F5F9),
+              valueColor: AlwaysStoppedAnimation<Color>(accent),
+            ),
+          ),
+          const SizedBox(height: 9),
+          Row(
+            children: [
+              Flexible(
+                child: Text(
+                  done
+                      ? 'Target reached'
+                      : '${formatTargetValue(target.type, remaining)} to go',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: done ? AppTheme.accentGreen : AppTheme.slateMedium,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              Text(
+                daysLeft <= 0
+                    ? 'Last day'
+                    : '$daysLeft day${daysLeft == 1 ? '' : 's'} left',
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.slateLight,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+
   Future<void> _toggleClock(BuildContext context, WidgetRef ref, bool isClockedIn) async {
     try {
       if (isClockedIn) {
@@ -773,6 +1059,12 @@ class _EmployeeDashboardTab extends ConsumerWidget {
               ),
             ],
           ),
+          const SizedBox(height: 14),
+
+          // 3b. Monthly target. The salon runs on monthly targets, so where
+          // someone stands against theirs belongs on the screen they open
+          // every morning, not only on the Target tab behind the menu.
+          _buildMonthlyTargetCard(),
           const SizedBox(height: 14),
 
           // 4. Shift Card (Clocked In / Clocked Out)
@@ -1726,13 +2018,8 @@ class _EmployeeBillingTab extends ConsumerStatefulWidget {
   ConsumerState<_EmployeeBillingTab> createState() => _EmployeeBillingTabState();
 }
 
-enum _EmpBillingSection { newBill, history }
 
 class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
-  // Billing is a section with two views, not just a form. Staff could
-  // create a bill but had nowhere to look one up afterwards - same gap the
-  // owner side had.
-  _EmpBillingSection _section = _EmpBillingSection.newBill;
   String? _selectedCustomerId;
   // Selections start empty and only ever hold ids the employee actually
   // tapped in the live catalog below. They used to be seeded with demo ids
@@ -1748,6 +2035,11 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
   // later.
   final _partPaymentController = TextEditingController();
   String _partPaymentMethod = 'CASH';
+  // Products & Retail is a disclosure, collapsed by default, matching the
+  // owner's POS: the catalog otherwise pushes payment and the total off the
+  // screen. Purely local UI state - the list comes from the AppData
+  // snapshot already loaded, so opening it costs no Firestore read.
+  bool _productsExpanded = false;
   bool _submitting = false;
 
   @override
@@ -1762,85 +2054,11 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
     return asyncData.when(
       loading: () => const AppLoadingView(),
       error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
-      data: (state) => Column(
-        children: [
-          Container(
-            color: Colors.white,
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: _buildSegmentedControl(),
-          ),
-          const Divider(height: 1, color: AppTheme.borderSubtle),
-          Expanded(
-            child: _section == _EmpBillingSection.history
-                // Scoped to this stylist's own bills - the same widget the
-                // owner's history uses, so a bill can never be formatted
-                // two different ways depending on who is looking.
-                ? BillHistoryView(state: state, onlyEmployeeId: widget.profile.id)
-                : _buildBody(context, state),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSegmentedControl() {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF1F5F9),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: [
-          for (final section in _EmpBillingSection.values)
-            Expanded(
-              child: InkWell(
-                onTap: () => setState(() => _section = section),
-                borderRadius: BorderRadius.circular(11),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  curve: Curves.easeOut,
-                  padding: const EdgeInsets.symmetric(vertical: 9),
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: _section == section ? Colors.white : Colors.transparent,
-                    borderRadius: BorderRadius.circular(11),
-                    boxShadow: _section == section
-                        ? [
-                            BoxShadow(
-                              color: const Color(0xFF0F172A).withValues(alpha: 0.06),
-                              blurRadius: 6,
-                              offset: const Offset(0, 2),
-                            ),
-                          ]
-                        : null,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        section == _EmpBillingSection.newBill
-                            ? PhosphorIconsBold.plusCircle
-                            : PhosphorIconsBold.clockCounterClockwise,
-                        size: 15,
-                        color: _section == section ? AppTheme.primaryBlue : AppTheme.slateLight,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        section == _EmpBillingSection.newBill ? 'New Bill' : 'History',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: _section == section ? AppTheme.primaryBlue : AppTheme.slateLight,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
+      // Billing is just the form for staff. The New Bill / History toggle
+      // and the stylist-scoped history behind it were removed at the
+      // owner's request; the page header supplies its own divider, so the
+      // form sits directly under it.
+      data: (state) => _buildBody(context, state),
     );
   }
 
@@ -1949,16 +2167,25 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
               // 2. Customer Card
               InkWell(
                 onTap: () async {
-                  if (state.customers.isNotEmpty) {
-                    final c = await showSearchablePicker<Customer>(
-                      context: context,
-                      title: 'Select Customer',
-                      items: state.customers,
-                      labelOf: (item) => item.name,
-                      subtitleOf: (item) => item.phone,
-                    );
-                    if (c != null) setState(() => _selectedCustomerId = c.id);
-                  }
+                  // Opened unconditionally. It used to be gated on the salon
+                  // already having clients, which with an "add new" action in
+                  // the sheet would leave the very first client unaddable -
+                  // no clients meant the sheet that creates one never opened.
+                  final c = await showSearchablePicker<Customer>(
+                    context: context,
+                    title: 'Select Customer',
+                    items: state.customers,
+                    labelOf: (item) => item.name,
+                    subtitleOf: (item) => item.phone,
+                    createLabel: 'Add new customer',
+                    onCreate: (ctx) => openAppSubPage<Customer>(
+                      ctx,
+                      title: 'Add Customer',
+                      subtitle: 'Save their details to start tracking visits',
+                      child: AddCustomerPage(branches: state.branches),
+                    ),
+                  );
+                  if (c != null) setState(() => _selectedCustomerId = c.id);
                 },
                 borderRadius: BorderRadius.circular(16),
                 child: Container(
@@ -2128,36 +2355,77 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
               ),
               const SizedBox(height: 18),
 
-              // 4. Products & Retail Section
-              Row(
-                children: [
-                  const Text(
-                    'Products & Retail',
-                    style: TextStyle(
-                      fontSize: 14.5,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF1F5F9),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      '$productItemCount Selected',
-                      style: const TextStyle(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF64748B),
+              // 4. Products & Retail Section - a collapsed disclosure, the
+              // same shape as the owner's. The "N Selected" badge stays in
+              // the header, so nothing already on the bill is hidden by
+              // closing it.
+              InkWell(
+                onTap: () => setState(
+                  () => _productsExpanded = !_productsExpanded,
+                ),
+                borderRadius: BorderRadius.circular(10),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      const Text(
+                        'Products & Retail',
+                        style: TextStyle(
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
+                        ),
                       ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: productItemCount > 0
+                              ? const Color(0xFFEEF2FF)
+                              : const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '$productItemCount Selected',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                            color: productItemCount > 0
+                                ? const Color(0xFF4F46E5)
+                                : const Color(0xFF64748B),
+                          ),
+                        ),
+                      ),
+                      const Spacer(),
+                      AnimatedRotation(
+                        turns: _productsExpanded ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 180),
+                        curve: Curves.easeOut,
+                        child: const Icon(
+                          PhosphorIconsBold.caretDown,
+                          size: 15,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (!_productsExpanded)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    allProducts.isEmpty
+                        ? 'No products in inventory yet.'
+                        : 'Tap to browse ${allProducts.length} product${allProducts.length == 1 ? '' : 's'}',
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF94A3B8),
                     ),
                   ),
-                  const Spacer(),
-                ],
-              ),
+                ),
+              if (_productsExpanded) ...[
               const SizedBox(height: 10),
 
               // Product List Container
@@ -2189,6 +2457,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                         ],
                       ),
               ),
+              ],
               const SizedBox(height: 18),
 
               // 5. Payment Method Section
@@ -2207,16 +2476,17 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
               ),
               const SizedBox(height: 10),
 
-              // Payment options row (Cash, UPI/QR, Card, Split/Later)
+              // Payment options row (Cash, UPI/QR, Pending). CARD was
+              // removed - the salon does not take card payments. Bills
+              // already stored with paymentMethod 'CARD' still read back
+              // fine; this only stops new ones being created.
               Row(
                 children: [
                   _buildPaymentCard('CASH', 'Cash', PhosphorIconsRegular.money),
                   const SizedBox(width: 8),
                   _buildPaymentCard('UPI', 'UPI / QR', PhosphorIconsRegular.qrCode),
                   const SizedBox(width: 8),
-                  _buildPaymentCard('CARD', 'Card', PhosphorIconsRegular.creditCard),
-                  const SizedBox(width: 8),
-                  _buildPaymentCard('PENDING', 'Pay Later', PhosphorIconsRegular.clockCountdown),
+                  _buildPaymentCard('PENDING', 'Pending', PhosphorIconsRegular.clockCountdown),
                 ],
               ),
 
@@ -2651,7 +2921,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                   style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF92400E)),
                 ),
                 const SizedBox(width: 8),
-                for (final m in ['CASH', 'UPI', 'CARD'])
+                for (final m in ['CASH', 'UPI'])
                   Padding(
                     padding: const EdgeInsets.only(right: 6),
                     child: GestureDetector(
@@ -2790,10 +3060,6 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
         _selectedProductQuantities.clear();
         _selectedCustomerId = null;
         _partPaymentController.clear();
-        // Land on History: the bill just written is the top row there, so
-        // saving visibly produces something instead of just emptying the
-        // form.
-        _section = _EmpBillingSection.history;
       });
 
       if (!context.mounted) return;
@@ -3532,6 +3798,20 @@ class _EmployeeSalaryTab extends ConsumerWidget {
   }
 }
 
+
+/// A SERVICE_VOLUME target is a rupee quota; PRODUCT_SALES_COUNT is a count
+/// of units. Kept at the top level because both the home screen card and the
+/// Target tab format targets, and a revenue figure printed without a currency
+/// symbol is a bug that has already happened once here.
+bool targetIsCurrency(String type) => type != 'PRODUCT_SALES_COUNT';
+
+String formatTargetValue(String type, double value) => targetIsCurrency(type)
+    ? '\u20B9${value.toStringAsFixed(0)}'
+    : value.toStringAsFixed(0);
+
+String targetTypeLabel(String type) =>
+    type == 'PRODUCT_SALES_COUNT' ? 'Product sales' : 'Service revenue';
+
 // ─── Sales Target tab ────────────────────────────────────────────────────────
 
 class _EmployeeTargetTab extends StatelessWidget {
@@ -3540,13 +3820,9 @@ class _EmployeeTargetTab extends StatelessWidget {
 
   const _EmployeeTargetTab({required this.profile, required this.state});
 
-  // SERVICE_VOLUME targets are rupee quotas; PRODUCT_SALES_COUNT is a unit
-  // count. The old card printed both as bare numbers, so a revenue target
-  // rendered as "50000" with no currency anywhere on the screen.
-  bool _isCurrency(String type) => type != 'PRODUCT_SALES_COUNT';
-
-  String _fmt(String type, double value) =>
-      _isCurrency(type) ? '₹${value.toStringAsFixed(0)}' : value.toStringAsFixed(0);
+  // Shared with the home screen's target card, so the two can never disagree
+  // about whether a target is rupees or a unit count - see formatTargetValue.
+  String _fmt(String type, double value) => formatTargetValue(type, value);
 
   @override
   Widget build(BuildContext context) {

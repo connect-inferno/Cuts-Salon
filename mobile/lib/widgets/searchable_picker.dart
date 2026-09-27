@@ -8,19 +8,32 @@ import '../theme.dart';
 /// employees) - a native dropdown forces scrolling through every record
 /// with no way to filter, which gets unusable past a handful of entries
 /// and is worse still on a small touchscreen.
+/// [onCreate] adds a "create one" action to the sheet. It is awaited with the
+/// sheet still open, so whatever it returns (a newly created record, or null
+/// if the user backed out) becomes the picker's own result - the caller gets
+/// the new item selected without having to search for what they just typed.
 Future<T?> showSearchablePicker<T>({
   required BuildContext context,
   required String title,
   required List<T> items,
   required String Function(T) labelOf,
   String Function(T)? subtitleOf,
+  Future<T?> Function(BuildContext)? onCreate,
+  String createLabel = 'Add new',
 }) {
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.white,
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-    builder: (ctx) => _SearchablePickerSheet<T>(title: title, items: items, labelOf: labelOf, subtitleOf: subtitleOf),
+    builder: (ctx) => _SearchablePickerSheet<T>(
+      title: title,
+      items: items,
+      labelOf: labelOf,
+      subtitleOf: subtitleOf,
+      onCreate: onCreate,
+      createLabel: createLabel,
+    ),
   );
 }
 
@@ -29,8 +42,17 @@ class _SearchablePickerSheet<T> extends StatefulWidget {
   final List<T> items;
   final String Function(T) labelOf;
   final String Function(T)? subtitleOf;
+  final Future<T?> Function(BuildContext)? onCreate;
+  final String createLabel;
 
-  const _SearchablePickerSheet({required this.title, required this.items, required this.labelOf, this.subtitleOf});
+  const _SearchablePickerSheet({
+    required this.title,
+    required this.items,
+    required this.labelOf,
+    this.subtitleOf,
+    this.onCreate,
+    this.createLabel = 'Add new',
+  });
 
   @override
   State<_SearchablePickerSheet<T>> createState() => _SearchablePickerSheetState<T>();
@@ -44,6 +66,59 @@ class _SearchablePickerSheetState<T> extends State<_SearchablePickerSheet<T>> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _create() async {
+    final created = await widget.onCreate!(context);
+    // Sheet stayed open behind the create flow; close it with the new record
+    // so the caller treats it exactly like a picked one. Backing out returns
+    // null, which leaves the picker open to carry on searching.
+    if (created != null && mounted) {
+      Navigator.pop(context, created);
+    }
+  }
+
+  Widget _buildCreateAction() {
+    return InkWell(
+      onTap: _create,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppTheme.primaryLight,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.primarySoft),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 30,
+              height: 30,
+              decoration: const BoxDecoration(
+                color: AppTheme.primaryBlue,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(PhosphorIconsBold.plus, size: 15, color: Colors.white),
+            ),
+            const SizedBox(width: 11),
+            Flexible(
+              child: Text(
+                widget.createLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.primaryDark,
+                ),
+              ),
+            ),
+            const Spacer(),
+            const Icon(PhosphorIconsBold.caretRight, size: 14, color: AppTheme.primaryBlue),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -90,10 +165,26 @@ class _SearchablePickerSheetState<T> extends State<_SearchablePickerSheet<T>> {
                   ),
                 ),
               ),
+              if (widget.onCreate != null) ...[
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                  child: _buildCreateAction(),
+                ),
+              ],
               const SizedBox(height: 8),
               Expanded(
                 child: filtered.isEmpty
-                    ? const Center(child: Text('No matches found.', style: TextStyle(color: AppTheme.slateLight)))
+                    ? Center(
+                        child: Text(
+                          // With a create action present, an empty list is a
+                          // prompt rather than a dead end.
+                          widget.onCreate == null
+                              ? 'No matches found.'
+                              : 'No matches - add them above.',
+                          style: const TextStyle(color: AppTheme.slateLight),
+                        ),
+                      )
                     : ListView.builder(
                         padding: const EdgeInsets.only(bottom: 12),
                         itemCount: filtered.length,
