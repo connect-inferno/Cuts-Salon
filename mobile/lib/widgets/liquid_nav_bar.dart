@@ -3,6 +3,8 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 
+import '../theme.dart';
+
 /// The floating bottom bar shared by the owner and employee dashboards,
 /// animated in the iOS 26 "liquid glass" idiom.
 ///
@@ -154,17 +156,28 @@ class _LiquidNavBarState extends State<LiquidNavBar> with SingleTickerProviderSt
     // button overhangs the bar by 18px, a plain five-slot bar by nothing.
     final topPadding = widget.onCenterTap != null ? 16.0 : 4.0;
 
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: EdgeInsets.only(left: 16, right: 16, bottom: 8, top: topPadding),
-        child: Stack(
-          clipBehavior: Clip.none,
-          alignment: Alignment.center,
-          children: [
-            _buildGlassBar(),
-            if (widget.onCenterTap != null) Positioned(top: -18, child: _buildCenterButton()),
-          ],
+    // Opaque, and painted all the way to the bottom of the screen.
+    //
+    // Both dashboards set extendBody, so the page scrolls underneath this
+    // whole footer - which meant live content was visible in the 8px gap
+    // below the capsule and in the safe-area strip under it, sliding past
+    // in a band the bar did not cover. Filling the footer with the scaffold
+    // background closes that band; the capsule still reads as floating,
+    // because what it now floats on is the same colour as the page.
+    return ColoredBox(
+      color: AppTheme.bgSurface,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.only(left: 16, right: 16, bottom: 8, top: topPadding),
+          child: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              _buildGlassBar(),
+              if (widget.onCenterTap != null) Positioned(top: -18, child: _buildCenterButton()),
+            ],
+          ),
         ),
       ),
     );
