@@ -972,7 +972,7 @@ class SalonFirestore {
   String attendanceDocId(String employeeId, DateTime date) =>
       '${employeeId}_${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
-  Future<FSAttendanceRecord> clockIn(String employeeId) async {
+  Future<FSAttendanceRecord> clockIn(String employeeId, {Map<String, dynamic> location = const {}}) async {
     final today = DateTime.now();
     final ref = db.collection('attendanceRecords').doc(attendanceDocId(employeeId, today));
     final existing = await ref.get();
@@ -984,7 +984,7 @@ class SalonFirestore {
     // overwrite the status they chose - which the rules now refuse anyway,
     // since staff may write their own clock times and nothing else.
     if (existing.exists) {
-      await ref.update({'clockIn': FieldValue.serverTimestamp()});
+      await ref.update({'clockIn': FieldValue.serverTimestamp(), ...location});
     } else {
       await ref.set({
         'employeeId': employeeId,
@@ -992,12 +992,13 @@ class SalonFirestore {
         'clockIn': FieldValue.serverTimestamp(),
         'clockOut': null,
         'status': 'PRESENT',
+        ...location,
       });
     }
     return FSAttendanceRecord.fromFirestore(await ref.get());
   }
 
-  Future<FSAttendanceRecord> clockOut(String employeeId) async {
+  Future<FSAttendanceRecord> clockOut(String employeeId, {Map<String, dynamic> location = const {}}) async {
     final today = DateTime.now();
     final ref = db.collection('attendanceRecords').doc(attendanceDocId(employeeId, today));
     final existing = await ref.get();
@@ -1007,7 +1008,7 @@ class SalonFirestore {
     if (existing.data()?['clockOut'] != null) {
       throw Exception('Already clocked out today');
     }
-    await ref.update({'clockOut': FieldValue.serverTimestamp()});
+    await ref.update({'clockOut': FieldValue.serverTimestamp(), ...location});
     return FSAttendanceRecord.fromFirestore(await ref.get());
   }
 

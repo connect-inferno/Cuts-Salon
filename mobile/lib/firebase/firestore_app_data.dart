@@ -45,6 +45,8 @@ Branch branchFromFS(FSBranch b, {required int employeeCount, required int custom
       employeeCount: employeeCount,
       customerCount: customerCount,
       monthlyRevenue: monthlyRevenue,
+      lat: b.lat,
+      lng: b.lng,
     );
 
 // canSeePay mirrors employee.service.ts's exact rule (owner, or your own
@@ -204,6 +206,9 @@ AttendanceRecord attendanceFromFS(FSAttendanceRecord a) => AttendanceRecord(
       status: a.status,
       confirmed: a.confirmed,
       confirmedBy: a.confirmedBy,
+      clockInLat: a.clockInLat,
+      clockInLng: a.clockInLng,
+      clockInLocationNote: a.clockInLocationNote,
     );
 
 SalonSettings settingsFromFS(FSSettings s) => SalonSettings(

@@ -4,6 +4,7 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../theme.dart';
 import '../../../data/app_data_provider.dart';
+import '../../../data/punch_location.dart';
 import '../../../data/salary_provider.dart';
 import '../../../data/models.dart';
 import '../../../widgets/app_page_header.dart';
@@ -4118,7 +4119,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                             itemBuilder: (context, idx) {
                               final rec = records[idx];
                               final emp = state.employeeById(rec.employeeId);
-                              return _buildLogTile(rec, emp);
+                              return _buildLogTile(rec, emp, branches: state.branches);
                             },
                           ),
                   ),
@@ -4131,7 +4132,28 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
     );
   }
 
-  Widget _buildLogTile(AttendanceRecord rec, EmployeeProfile? emp) {
+  /// How far this punch was from the branch it belongs to, in words.
+  ///
+  /// Null when there is nothing to say: no coordinates on the punch, or no
+  /// location set on the branch. Only surfaced when it is far enough to be
+  /// worth a second look - a number next to every single row would be
+  /// noise, and noise is what stops people reading a log.
+  String? _punchDistanceNote(AttendanceRecord rec, EmployeeProfile? emp, List<Branch> branches) {
+    if (rec.clockInLocationNote != null) return 'Location unavailable';
+    if (rec.clockInLat == null || rec.clockInLng == null) return null;
+
+    final branch = branches.where((b) => b.id == emp?.branchId && b.hasLocation);
+    if (branch.isEmpty) return null;
+
+    final metres = PunchLocationService.metresBetween(
+      rec.clockInLat!, rec.clockInLng!, branch.first.lat!, branch.first.lng!);
+    if (metres < 250) return null;
+    return metres < 1000
+        ? '${metres.round()} m from ${branch.first.name}'
+        : '${(metres / 1000).toStringAsFixed(1)} km from ${branch.first.name}';
+  }
+
+  Widget _buildLogTile(AttendanceRecord rec, EmployeeProfile? emp, {List<Branch> branches = const []}) {
     Color dotColor = const Color(0xFF10B981);
     Color badgeBg = const Color(0xFFECFDF5);
     Color badgeFg = const Color(0xFF059669);
@@ -4185,6 +4207,24 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                     // fact - and payroll will not deduct for an unconfirmed
                     // LATE. Saying so here is the whole point: confirmation
                     // that is invisible never gets done.
+                    if (_punchDistanceNote(rec, emp, branches) != null) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFFBEB),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          _punchDistanceNote(rec, emp, branches)!,
+                          style: const TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFFD97706),
+                          ),
+                        ),
+                      ),
+                    ],
                     if (!rec.confirmed) ...[
                       const SizedBox(width: 6),
                       Container(
@@ -4677,7 +4717,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                       else
                         ...recentAttendance.take(5).map((rec) {
                           final emp = state.employeeById(rec.employeeId);
-                          return _buildLogTile(rec, emp);
+                          return _buildLogTile(rec, emp, branches: state.branches);
                         }),
                     ],
                   ),

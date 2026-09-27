@@ -29,6 +29,13 @@ class Branch {
   final int customerCount;
   final double monthlyRevenue;
 
+  /// Where the branch is, for comparing against where a punch was made.
+  /// Null until an owner sets it by standing in the salon and saving.
+  final double? lat;
+  final double? lng;
+
+  bool get hasLocation => lat != null && lng != null;
+
   Branch({
     required this.id,
     required this.name,
@@ -40,6 +47,8 @@ class Branch {
     required this.employeeCount,
     required this.customerCount,
     required this.monthlyRevenue,
+    this.lat,
+    this.lng,
   });
 
   factory Branch.fromJson(Map<String, dynamic> json) => Branch(
@@ -515,6 +524,12 @@ class AttendanceRecord {
   final bool confirmed;
   final String? confirmedBy;
 
+  /// Where the clock-in was made, and a note when the device would not say.
+  /// Recorded for the owner to judge, not checked by anything.
+  final double? clockInLat;
+  final double? clockInLng;
+  final String? clockInLocationNote;
+
   AttendanceRecord({
     required this.id,
     required this.employeeId,
@@ -524,6 +539,9 @@ class AttendanceRecord {
     required this.status,
     this.confirmed = false,
     this.confirmedBy,
+    this.clockInLat,
+    this.clockInLng,
+    this.clockInLocationNote,
   });
 
   factory AttendanceRecord.fromJson(Map<String, dynamic> json) => AttendanceRecord(

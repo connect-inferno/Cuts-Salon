@@ -221,14 +221,26 @@ service cloud.firestore {
       // Two shapes because a day may already exist before anyone punches:
       // confirming the roster writes a status-only record for every
       // employee, so the first punch of that day is an update, not a create.
+      // The location fields ride along with the punch they belong to, and
+      // only with it - so a punch cannot be given a different location
+      // afterwards, once somebody notices it was recorded miles away.
+      //
+      // These rules do NOT check the coordinates. Rules cannot: they have no
+      // way to know whether the numbers describe where the device really
+      // was, and an edited client can send anything. The location is an
+      // audit trail for the owner to look at, not a gate. Enforcing it needs
+      // a Cloud Function - see the no-trusted-server note in CLAUDE.md.
       function punchingIn() {
-        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clockIn'])
+        return request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['clockIn', 'clockInLat', 'clockInLng', 'clockInLocationNote'])
             && (!('clockIn' in resource.data) || resource.data.clockIn == null)
             && request.resource.data.clockIn == request.time;
       }
 
       function punchingOut() {
-        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clockOut'])
+        return request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['clockOut', 'clockOutLat', 'clockOutLng', 'clockOutLocationNote'])
+            && (!('clockOut' in resource.data) || resource.data.clockOut == null)
             && request.resource.data.clockOut == request.time;
       }
 

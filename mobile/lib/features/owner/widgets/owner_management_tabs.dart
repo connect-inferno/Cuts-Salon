@@ -3,6 +3,7 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../theme.dart';
 import '../../../data/app_data_provider.dart';
+import '../../../data/punch_location.dart';
 import '../../../data/discount_requests_provider.dart';
 import '../../../data/models.dart';
 import '../../auth/auth_provider.dart';
@@ -96,6 +97,10 @@ class OwnerBranchTab extends StatelessWidget {
     final phoneController = TextEditingController(text: branch.phone ?? '');
     String? managerId = branch.managerId;
     bool active = branch.active;
+    double? lat = branch.lat;
+    double? lng = branch.lng;
+    bool locating = false;
+    String? locateNote;
 
     bool submitting = false;
     showDialog(
@@ -124,6 +129,64 @@ class OwnerBranchTab extends StatelessWidget {
                   ...branchEmployees.map((e) => DropdownMenuItem<String?>(value: e.id, child: Text(e.name))),
                 ],
                 onChanged: (val) => setDialogState(() => managerId = val),
+              ),
+              const SizedBox(height: 12),
+              // Captured by standing in the salon and tapping, never typed.
+              // It is what a staff punch gets compared against, so that a
+              // clock-in from across town is visible in the attendance log.
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: const Color(0xFFF9FAFB), borderRadius: BorderRadius.circular(12)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(PhosphorIconsRegular.mapPinArea, size: 16, color: AppTheme.slateLight),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text('Branch location',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                        ),
+                        TextButton(
+                          onPressed: locating
+                              ? null
+                              : () async {
+                                  setDialogState(() {
+                                    locating = true;
+                                    locateNote = null;
+                                  });
+                                  final here = await PunchLocationService.current();
+                                  setDialogState(() {
+                                    locating = false;
+                                    if (here.hasFix) {
+                                      lat = here.lat;
+                                      lng = here.lng;
+                                    } else {
+                                      locateNote = here.unavailable == 'denied'
+                                          ? 'Location permission refused.'
+                                          : 'Could not get a location just now.';
+                                    }
+                                  });
+                                },
+                          child: Text(locating ? 'Locating...' : 'Use my location',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      locateNote ??
+                          (lat != null && lng != null
+                              ? '${lat!.toStringAsFixed(5)}, ${lng!.toStringAsFixed(5)}'
+                              : 'Not set - staff punches will be recorded but not compared.'),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: locateNote != null ? AppTheme.accentRed : AppTheme.slateLight,
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 8),
               Container(
@@ -159,6 +222,8 @@ class OwnerBranchTab extends StatelessWidget {
                       phone: phoneController.text.trim(),
                       managerId: managerId,
                       active: active,
+                      lat: lat,
+                      lng: lng,
                     );
                 if (ctx.mounted) Navigator.pop(ctx);
                 if (context.mounted) {

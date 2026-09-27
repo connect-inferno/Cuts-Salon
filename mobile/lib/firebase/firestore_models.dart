@@ -36,6 +36,12 @@ class FSBranch {
   final String? managerId;
   final String? managerName;
 
+  /// Where this branch physically is, set by the owner standing in it.
+  /// Null until someone does that - every location feature degrades to
+  /// "recorded, nothing to compare against" rather than breaking.
+  final double? lat;
+  final double? lng;
+
   FSBranch({
     required this.id,
     required this.name,
@@ -44,6 +50,8 @@ class FSBranch {
     required this.active,
     this.managerId,
     this.managerName,
+    this.lat,
+    this.lng,
   });
 
   factory FSBranch.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -56,6 +64,8 @@ class FSBranch {
       active: d['active'] ?? true,
       managerId: d['managerId'],
       managerName: d['managerName'],
+      lat: (d['lat'] as num?)?.toDouble(),
+      lng: (d['lng'] as num?)?.toDouble(),
     );
   }
 
@@ -66,6 +76,8 @@ class FSBranch {
         'active': active,
         'managerId': managerId,
         'managerName': managerName,
+        'lat': lat,
+        'lng': lng,
       };
 }
 
@@ -474,6 +486,19 @@ class FSAttendanceRecord {
   final String? confirmedBy;
   final DateTime? confirmedAt;
 
+  /// Where each punch was made, and a note when the device would not say.
+  ///
+  /// Recorded for the owner to look at, NOT checked by anything: Firestore
+  /// rules cannot verify a coordinate, so a tampered client can send any
+  /// numbers it likes. The value is that a punch from across town is
+  /// visible - see data/punch_location.dart.
+  final double? clockInLat;
+  final double? clockInLng;
+  final String? clockInLocationNote;
+  final double? clockOutLat;
+  final double? clockOutLng;
+  final String? clockOutLocationNote;
+
   FSAttendanceRecord({
     required this.id,
     required this.employeeId,
@@ -484,6 +509,12 @@ class FSAttendanceRecord {
     this.confirmed = false,
     this.confirmedBy,
     this.confirmedAt,
+    this.clockInLat,
+    this.clockInLng,
+    this.clockInLocationNote,
+    this.clockOutLat,
+    this.clockOutLng,
+    this.clockOutLocationNote,
   });
 
   factory FSAttendanceRecord.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -498,6 +529,12 @@ class FSAttendanceRecord {
       confirmed: d['confirmed'] == true,
       confirmedBy: d['confirmedBy'],
       confirmedAt: _ts(d['confirmedAt']),
+      clockInLat: (d['clockInLat'] as num?)?.toDouble(),
+      clockInLng: (d['clockInLng'] as num?)?.toDouble(),
+      clockInLocationNote: d['clockInLocationNote'],
+      clockOutLat: (d['clockOutLat'] as num?)?.toDouble(),
+      clockOutLng: (d['clockOutLng'] as num?)?.toDouble(),
+      clockOutLocationNote: d['clockOutLocationNote'],
     );
   }
 
@@ -510,6 +547,12 @@ class FSAttendanceRecord {
         'confirmed': confirmed,
         'confirmedBy': confirmedBy,
         'confirmedAt': confirmedAt == null ? null : Timestamp.fromDate(confirmedAt!),
+        'clockInLat': clockInLat,
+        'clockInLng': clockInLng,
+        'clockInLocationNote': clockInLocationNote,
+        'clockOutLat': clockOutLat,
+        'clockOutLng': clockOutLng,
+        'clockOutLocationNote': clockOutLocationNote,
       };
 }
 

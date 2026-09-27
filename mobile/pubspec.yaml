@@ -41,6 +41,7 @@ dependencies:
   firebase_auth: ^5.3.3
   cloud_firestore: ^5.5.0
   phosphor_flutter: ^2.1.0
+  geolocator: ^14.1.1
 
 # Redirects phosphor_flutter to a local copy that bundles only the three icon
 # weights this app actually uses (Regular, Bold, Fill) instead of all six.

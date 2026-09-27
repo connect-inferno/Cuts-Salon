@@ -10,6 +10,7 @@ import '../firebase/firestore_models.dart';
 import '../firebase/salon_auth.dart';
 import '../firebase/salon_firestore.dart';
 import 'app_data.dart';
+import 'punch_location.dart';
 import 'discount_requests_provider.dart';
 import 'salary_provider.dart';
 import 'models.dart';
@@ -191,7 +192,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     if (current != null) state = AsyncData(current.copyWith(branches: [...current.branches, created]));
   }
 
-  Future<void> updateBranch(String id, {String? name, String? address, String? phone, String? managerId, bool? active}) async {
+  Future<void> updateBranch(String id, {String? name, String? address, String? phone, String? managerId, bool? active, double? lat, double? lng}) async {
     String? managerName;
     if (managerId != null) {
       final manager = await _fs.getEmployee(managerId);
@@ -205,6 +206,8 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       if (phone != null) 'phone': phone,
       if (managerId != null) 'managerId': managerId,
       if (active != null) 'active': active,
+      if (lat != null) 'lat': lat,
+      if (lng != null) 'lng': lng,
     });
     // managerName is already resolved above (needed for validation anyway),
     // so the change can be patched into the loaded list without a refetch.
@@ -221,6 +224,8 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
             address: address ?? b.address,
             phone: phone ?? b.phone,
             active: active ?? b.active,
+            lat: lat ?? b.lat,
+            lng: lng ?? b.lng,
             managerId: managerId ?? b.managerId,
             managerName: managerId != null ? managerName : b.managerName,
             employeeCount: b.employeeCount,
@@ -978,18 +983,23 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
 
   // --- Attendance ---
 
-  Future<void> clockIn({double? lat, double? lng}) async {
+  /// Where the punch happened rides along with it.
+  ///
+  /// [PunchLocationService] never throws and never blocks: a denied
+  /// permission or a phone with location off records a note instead of
+  /// coordinates, because an app that refuses to let someone clock in over
+  /// a permission prompt gets worked around, not complied with.
+  Future<void> clockIn() async {
     final auth = ref.read(authControllerProvider);
-    // FSAttendanceRecord tracks no lat/lng - dropped silently rather than
-    // expanding the Firestore schema for a field neither UI screen
-    // currently surfaces.
-    final recordFS = await _fs.clockIn(auth.userId!);
+    final where = await PunchLocationService.current();
+    final recordFS = await _fs.clockIn(auth.userId!, location: where.toFields('clockIn'));
     _patchAttendance(recordFS);
   }
 
-  Future<void> clockOut({double? lat, double? lng}) async {
+  Future<void> clockOut() async {
     final auth = ref.read(authControllerProvider);
-    final recordFS = await _fs.clockOut(auth.userId!);
+    final where = await PunchLocationService.current();
+    final recordFS = await _fs.clockOut(auth.userId!, location: where.toFields('clockOut'));
     _patchAttendance(recordFS);
   }
 

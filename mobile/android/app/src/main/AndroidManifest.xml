@@ -1,4 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Attendance records where a punch was made, so an owner can see a
+         clock-in that happened nowhere near the salon. Coarse is enough:
+         the check is "roughly at the branch", not turn-by-turn. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <application
         android:label="Stylux"
         android:name="${applicationName}"

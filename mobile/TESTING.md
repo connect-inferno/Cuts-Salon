@@ -253,6 +253,27 @@ rather than the screens actually on screen.
 - [ ] Anything new that opens a full screen must use `pushAppRoute` from
       router.dart, NOT Navigator.push, or it reintroduces this bug
 
+### Punch location (audit, NOT enforcement)
+Read this before testing: Firestore rules cannot check a coordinate. They
+have no way to know whether the numbers in a write describe where the
+device really was, and an edited client can send anything. This records
+where a punch happened so the owner can SEE one made from across town - it
+does not stop one. Real enforcement needs a Cloud Function.
+- [ ] Salon Settings -> Branches -> edit -> "Use my location" while standing
+      in the salon. It stores coordinates.
+- [ ] **Refuse the browser's location prompt.** The dialog says "Location
+      permission refused" and the branch saves without coordinates. It must
+      never block saving.
+- [ ] Staff clock in with location allowed -> owner's attendance log shows
+      no distance chip (under 250 m is not worth flagging)
+- [ ] Staff clock in from home -> the log shows "N km from <branch>"
+- [ ] **Staff clock in with location refused -> the punch still succeeds**,
+      and the log shows "Location unavailable". An app that refuses
+      attendance over a permission prompt gets worked around, not obeyed.
+- [ ] A branch with no location set -> punches record but no distance shown
+- [ ] Deploy rules before the app: staff cannot write the location fields
+      without them, so clock-in would fail with permission-denied
+
 ### Clients
 - [ ] Add, edit, archive, restore
 - [ ] Archived clients stay out of the billing picker
