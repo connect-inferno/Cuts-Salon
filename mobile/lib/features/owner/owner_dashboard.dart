@@ -473,25 +473,18 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
       body: SafeArea(
         bottom: !isMobile,
         child: isMobile
-            // Keeps every tab's content clear of the floating bar.
-            //
-            // The bar's surround is transparent now, so with extendBody the
-            // page runs underneath it - which left the last row of a
-            // scrolled tab sitting behind the capsule. Padding here rather
-            // than in each tab's scrollable: there are thirty-odd of those
-            // and every new one would have to remember. What shows around
-            // the bar is the scaffold background, which is the "transparent
-            // around it" the design wants.
-            ? Padding(
-                padding: const EdgeInsets.only(bottom: LiquidNavBar.barInset),
-                child: PageView(
-                  controller: _pageController,
-                  physics: const ClampingScrollPhysics(),
-                  onPageChanged: (index) {
-                    setState(() => _activeTab = OwnerTab.values[index]);
-                  },
-                  children: _buildPages(context, salonName, branches),
-                ),
+            // No bottom padding here on purpose: the page is meant to run
+            // under the glass bar and be visible through it. Each tab's own
+            // scrollable carries LiquidNavBar.barInset instead, so content
+            // passes beneath the capsule while scrolling but the last row
+            // still comes to rest clear of it.
+            ? PageView(
+                controller: _pageController,
+                physics: const ClampingScrollPhysics(),
+                onPageChanged: (index) {
+                  setState(() => _activeTab = OwnerTab.values[index]);
+                },
+                children: _buildPages(context, salonName, branches),
               )
             : Row(
                 children: [

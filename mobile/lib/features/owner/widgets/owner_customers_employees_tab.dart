@@ -4,6 +4,7 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../theme.dart';
 import '../../../data/app_data_provider.dart';
+import '../../../widgets/liquid_nav_bar.dart';
 import '../../../data/punch_location.dart';
 import '../../../data/salary_provider.dart';
 import '../../../data/models.dart';
@@ -486,7 +487,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
           constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 680),
           child: SingleChildScrollView(
             // Bottom padding ensures list is not cut off by floating bottom navbar
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 88),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, LiquidNavBar.barInset),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1885,7 +1886,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
     }).toList();
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12 + LiquidNavBar.barInset),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

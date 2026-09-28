@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../../../widgets/liquid_nav_bar.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/app_data_provider.dart';
@@ -157,9 +159,13 @@ class OwnerDashboardTab extends ConsumerWidget {
           onRefresh: () => ref.read(appDataProvider.notifier).refresh(),
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: EdgeInsets.symmetric(
-              horizontal: isWide ? 32.0 : 20.0,
-              vertical: 20.0,
+            // Bottom clears the floating nav bar: content scrolls under
+            // the glass, but the last card still comes to rest above it.
+            padding: EdgeInsets.fromLTRB(
+              isWide ? 32.0 : 20.0,
+              20.0,
+              isWide ? 32.0 : 20.0,
+              20.0 + LiquidNavBar.barInset,
             ),
             child: Center(
               child: ConstrainedBox(
