@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 
@@ -179,82 +178,94 @@ class _LiquidNavBarState extends State<LiquidNavBar> with SingleTickerProviderSt
     // beneath it - but it does mean scrollables need bottom padding that
     // clears the whole assembly, or their last row sits under the bar
     // forever. See barInset below, which is what that padding should use.
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: EdgeInsets.only(left: 16, right: 16, bottom: _bottomGap, top: topPadding),
-        child: Stack(
-          clipBehavior: Clip.none,
-          alignment: Alignment.center,
-          children: [
-            _buildGlassBar(),
-            if (widget.onCenterTap != null) Positioned(top: -18, child: _buildCenterButton()),
-          ],
+    // RepaintBoundary: the bar is composited over a scrolling page, and
+    // without its own layer Flutter repaints the whole thing - gradient,
+    // border, two shadows, five slots - on every frame the page moves. It
+    // only actually changes when a tab does.
+    return RepaintBoundary(
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.only(left: 16, right: 16, bottom: _bottomGap, top: topPadding),
+          child: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              _buildGlassBar(),
+              if (widget.onCenterTap != null) Positioned(top: -18, child: _buildCenterButton()),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildGlassBar() {
+    // No BackdropFilter here, deliberately.
+    //
+    // There was an 18px blur behind this so the bar would "read as glass".
+    // The fill in front of it is white at 0.96-0.99 alpha, so the blur was
+    // never actually visible - but it still forced a backdrop read, a blur
+    // and a composite on EVERY frame that anything moved underneath. Since
+    // the surround went transparent, that is every frame of every scroll,
+    // and on an iPhone it is the difference between a smooth list and a
+    // stuttering one. Paid in full, for an effect nobody could see.
+    //
+    // If the bar is ever made genuinely translucent the blur can come back,
+    // but then it is being paid for on purpose rather than by accident.
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
-      child: BackdropFilter(
-        // The blur is what makes the bar read as glass rather than as a flat
-        // white pill: the scaffold sets extendBody, so page content really
-        // does pass underneath it.
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: Container(
-          height: _barHeight,
-          padding: const EdgeInsets.symmetric(horizontal: 6),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            // Near-opaque with a real border. The page behind it is
-            // #F8F9FC and the bar used to be white at 82-92% with a *white*
-            // border, so the two washed into each other and the bar read as
-            // a strip of the page rather than as something floating over it.
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Colors.white.withValues(alpha: 0.99), Colors.white.withValues(alpha: 0.96)],
+      child: Container(
+        height: _barHeight,
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          // Near-opaque with a real border. The page behind it is
+          // #F8F9FC and the bar used to be white at 82-92% with a *white*
+          // border, so the two washed into each other and the bar read as
+          // a strip of the page rather than as something floating over it.
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Colors.white.withValues(alpha: 0.99), Colors.white.withValues(alpha: 0.96)],
+          ),
+          border: Border.all(color: const Color(0xFFE2E8F0), width: 1),
+          boxShadow: [
+            // The wide, darker cast is what lifts it off the page.
+            BoxShadow(
+              color: const Color(0xFF0F172A).withValues(alpha: 0.18),
+              blurRadius: 34,
+              spreadRadius: -4,
+              offset: const Offset(0, 14),
             ),
-            border: Border.all(color: const Color(0xFFE2E8F0), width: 1),
-            boxShadow: [
-              // The wide, darker cast is what lifts it off the page.
-              BoxShadow(
-                color: const Color(0xFF0F172A).withValues(alpha: 0.18),
-                blurRadius: 34,
-                spreadRadius: -4,
-                offset: const Offset(0, 14),
-              ),
-              BoxShadow(
-                color: const Color(0xFF0F172A).withValues(alpha: 0.07),
-                blurRadius: 8,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final slotWidth = constraints.maxWidth / widget.items.length;
-              return Stack(
-                children: [
-                  _buildFlowingCapsule(slotWidth),
-                  _buildSpecularHighlight(),
-                  Row(
-                    children: [
-                      for (var i = 0; i < widget.items.length; i++)
-                        Expanded(
-                          child:
-                              widget.items[i] == null
-                                  ? _buildCenterSlotLabel()
-                                  : _buildNavSlot(widget.items[i]!, i),
-                        ),
-                    ],
-                  ),
-                ],
-              );
-            },
-          ),
+            BoxShadow(
+              color: const Color(0xFF0F172A).withValues(alpha: 0.07),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final slotWidth = constraints.maxWidth / widget.items.length;
+            return Stack(
+              children: [
+                _buildFlowingCapsule(slotWidth),
+                _buildSpecularHighlight(),
+                Row(
+                  children: [
+                    for (var i = 0; i < widget.items.length; i++)
+                      Expanded(
+                        child:
+                            widget.items[i] == null
+                                ? _buildCenterSlotLabel()
+                                : _buildNavSlot(widget.items[i]!, i),
+                      ),
+                  ],
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
