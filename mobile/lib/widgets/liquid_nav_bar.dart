@@ -3,7 +3,6 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 
-import '../theme.dart';
 
 /// The floating bottom bar shared by the owner and employee dashboards,
 /// animated in the iOS 26 "liquid glass" idiom.
@@ -66,6 +65,15 @@ class LiquidNavBar extends StatefulWidget {
 
   static const int centerSlot = 2;
 
+  /// How much vertical space the bar occupies above the safe area.
+  ///
+  /// The footer is transparent, so page content scrolls underneath the
+  /// whole assembly. Any scrollable on a screen that shows this bar wants
+  /// this as bottom padding, or its last row is permanently parked behind
+  /// the capsule. Add MediaQuery's bottom padding to it on a device with a
+  /// home indicator.
+  static const double barInset = 88;
+
   const LiquidNavBar({
     super.key,
     required this.items,
@@ -91,6 +99,10 @@ class _LiquidNavBarState extends State<LiquidNavBar> with SingleTickerProviderSt
   // 78 left a visible dead band under the labels, and with 16px above and
   // 12px below the bar the whole assembly ate ~106px of a phone screen.
   static const double _barHeight = 62;
+
+  // How far the capsule sits off the bottom of the safe area. Bigger than
+  // the old 8 so the bar reads as floating rather than docked.
+  static const double _bottomGap = 22;
 
   // The selection indicator: a compact pill behind the icon.
   static const double _indicatorWidth = 54;
@@ -156,28 +168,28 @@ class _LiquidNavBarState extends State<LiquidNavBar> with SingleTickerProviderSt
     // button overhangs the bar by 18px, a plain five-slot bar by nothing.
     final topPadding = widget.onCenterTap != null ? 16.0 : 4.0;
 
-    // Opaque, and painted all the way to the bottom of the screen.
+    // Transparent around the capsule, so it floats over the page rather
+    // than sitting in a band of scaffold colour.
     //
-    // Both dashboards set extendBody, so the page scrolls underneath this
-    // whole footer - which meant live content was visible in the 8px gap
-    // below the capsule and in the safe-area strip under it, sliding past
-    // in a band the bar did not cover. Filling the footer with the scaffold
-    // background closes that band; the capsule still reads as floating,
-    // because what it now floats on is the same colour as the page.
-    return ColoredBox(
-      color: AppTheme.bgSurface,
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: EdgeInsets.only(left: 16, right: 16, bottom: 8, top: topPadding),
-          child: Stack(
-            clipBehavior: Clip.none,
-            alignment: Alignment.center,
-            children: [
-              _buildGlassBar(),
-              if (widget.onCenterTap != null) Positioned(top: -18, child: _buildCenterButton()),
-            ],
-          ),
+    // This footer used to be filled with AppTheme.bgSurface. Both dashboards
+    // set extendBody, so page content really does scroll underneath here,
+    // and the fill was there to stop it showing in the gap below the
+    // capsule. Letting it show is the point of a floating bar - the capsule
+    // is near-opaque white over a blur, so it stays legible whatever passes
+    // beneath it - but it does mean scrollables need bottom padding that
+    // clears the whole assembly, or their last row sits under the bar
+    // forever. See barInset below, which is what that padding should use.
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.only(left: 16, right: 16, bottom: _bottomGap, top: topPadding),
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
+          children: [
+            _buildGlassBar(),
+            if (widget.onCenterTap != null) Positioned(top: -18, child: _buildCenterButton()),
+          ],
         ),
       ),
     );
