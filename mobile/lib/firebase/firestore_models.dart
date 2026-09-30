@@ -759,6 +759,68 @@ class FSPayment {
       };
 }
 
+class FSPaymentRequest {
+  final String id;
+  final String billId;
+  final String customerId;
+  final String? customerName;
+  final String? invoiceNumber;
+  final double amount;
+  final String method;
+  final String requestedBy;
+  final String? requestedByName;
+  final String? note;
+  final String status;
+  final DateTime? createdAt;
+
+  FSPaymentRequest({
+    required this.id,
+    required this.billId,
+    required this.customerId,
+    this.customerName,
+    this.invoiceNumber,
+    required this.amount,
+    required this.method,
+    required this.requestedBy,
+    this.requestedByName,
+    this.note,
+    this.status = 'PENDING',
+    this.createdAt,
+  });
+
+  factory FSPaymentRequest.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final d = doc.data() ?? {};
+    return FSPaymentRequest(
+      id: doc.id,
+      billId: d['billId'] ?? '',
+      customerId: d['customerId'] ?? '',
+      customerName: d['customerName'],
+      invoiceNumber: d['invoiceNumber'],
+      amount: _num(d['amount']),
+      method: d['method'] ?? 'CASH',
+      requestedBy: d['requestedBy'] ?? '',
+      requestedByName: d['requestedByName'],
+      note: d['note'],
+      status: d['status'] ?? 'PENDING',
+      createdAt: _ts(d['createdAt']),
+    );
+  }
+
+  Map<String, dynamic> toFirestore({bool isCreate = false}) => {
+        'billId': billId,
+        'customerId': customerId,
+        'customerName': customerName,
+        'invoiceNumber': invoiceNumber,
+        'amount': amount,
+        'method': method,
+        'requestedBy': requestedBy,
+        'requestedByName': requestedByName,
+        'note': note,
+        'status': status,
+        if (isCreate) 'createdAt': FieldValue.serverTimestamp(),
+      };
+}
+
 class FSExpense {
   final String id;
   final String title;

@@ -387,6 +387,45 @@ class Expense {
       );
 }
 
+/// A staff member asking the owner to accept a settlement against an unpaid
+/// bill.
+///
+/// Staff can see who owes what - the dues list is derived from bills they can
+/// already read - but taking money off a balance is the owner's call, the
+/// same shape as a discount. The employee raises one of these; approving it
+/// is what writes the real payment.
+class PaymentRequest {
+  final String id;
+  final String billId;
+  final String customerId;
+  /// Denormalized so the owner's queue reads without joining two more
+  /// collections, and still reads after a client is archived.
+  final String? customerName;
+  final String? invoiceNumber;
+  final double amount;
+  final String method; // CASH | CARD | UPI
+  final String requestedBy;
+  final String? requestedByName;
+  final String? note;
+  final String status; // PENDING | APPROVED | REJECTED
+  final DateTime? createdAt;
+
+  PaymentRequest({
+    required this.id,
+    required this.billId,
+    required this.customerId,
+    this.customerName,
+    this.invoiceNumber,
+    required this.amount,
+    required this.method,
+    required this.requestedBy,
+    this.requestedByName,
+    this.note,
+    required this.status,
+    this.createdAt,
+  });
+}
+
 class DiscountRequest {
   final String id;
   final String requestedBy;

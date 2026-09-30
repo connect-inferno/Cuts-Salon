@@ -298,5 +298,25 @@ service cloud.firestore {
       allow read, create: if isActiveEmployee();
       allow update: if isOwner();
     }
+
+    // Settlement requests. Staff can see that a client owes money (the dues
+    // list is derived from bills, which they can already read) but must not
+    // record the collection themselves - money coming off a balance is the
+    // owner's call, the same shape as a discount. So staff raise a request
+    // here and the owner approves it, at which point the owner's client
+    // writes the real payment through /bills/{billId}/payments.
+    //
+    // create is pinned to PENDING and to the requester's own uid so a staff
+    // member cannot pre-approve their own request or file one under someone
+    // else's name; update stays owner-only, and nothing is ever deleted -
+    // a refused request is part of the record.
+    match /paymentRequests/{requestId} {
+      allow read: if isActiveEmployee();
+      allow create: if isActiveEmployee()
+                    && request.resource.data.status == 'PENDING'
+                    && request.resource.data.requestedBy == request.auth.uid;
+      allow update: if isOwner();
+      allow delete: if false;
+    }
   }
 }
