@@ -55,6 +55,15 @@ class AppSettingsPage extends StatefulWidget {
   State<AppSettingsPage> createState() => _AppSettingsPageState();
 }
 
+/// The description line under the tab strip is reserved at exactly this many
+/// lines so the strip's height never depends on which section is selected.
+/// Two is enough for every description in the app at phone width; anything
+/// longer is a description that should be shortened at the call site rather
+/// than allowed to move the page.
+const int _kDescriptionLines = 2;
+const double _kDescriptionFontSize = 11.5;
+const double _kDescriptionLineHeight = _kDescriptionFontSize * 1.35;
+
 class _AppSettingsPageState extends State<AppSettingsPage> {
   late int _active;
 
@@ -91,7 +100,12 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                     children: [
                       for (var i = 0; i < widget.sections.length; i++)
                         Padding(
-                          padding: const EdgeInsets.only(right: 8.0),
+                          // Trailing gap on the last pill too, so a strip
+                          // that scrolls does not come to rest with the final
+                          // pill flush against the edge of the screen.
+                          padding: EdgeInsets.only(
+                            right: i == widget.sections.length - 1 ? 14.0 : 8.0,
+                          ),
                           child: _buildTab(widget.sections[i], i),
                         ),
                     ],
@@ -99,13 +113,30 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
-                  child: Text(
-                    section.description,
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w500,
-                      color: AppTheme.slateLight,
-                      height: 1.35,
+                  // Fixed at two lines, always.
+                  //
+                  // This used to size to whatever the selected section's
+                  // description happened to need. Descriptions carry live
+                  // numbers ("₹12,450 billed but not collected, across 7
+                  // clients"), so one section wrapped to two lines and
+                  // another did not - and switching tabs moved the divider,
+                  // the content below it and the scroll position underneath
+                  // the finger that had just tapped. Reserving the taller of
+                  // the two makes the strip a fixed height whatever is
+                  // selected, so only the content below it changes.
+                  child: SizedBox(
+                    height: _kDescriptionLines * _kDescriptionLineHeight,
+                    width: double.infinity,
+                    child: Text(
+                      section.description,
+                      maxLines: _kDescriptionLines,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: _kDescriptionFontSize,
+                        fontWeight: FontWeight.w500,
+                        color: AppTheme.slateLight,
+                        height: 1.35,
+                      ),
                     ),
                   ),
                 ),

@@ -38,6 +38,21 @@ import 'owner_payroll_view.dart';
 /// AppData snapshot the directory has already loaded.
 enum FollowUp { none, dueSoon, overdue }
 
+const _kShortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/// "Added by Anjali on 12 Sep 2026", degrading to whichever half is known.
+/// Clients created before the creator stamp existed carry neither field, and
+/// the caller leaves the line out entirely rather than printing "Added by
+/// Unknown" over a record nobody did anything wrong with.
+String _addedByLine(Customer cust) {
+  final who = cust.createdByName;
+  final when = cust.createdAt;
+  final date = when == null ? null : '${when.day} ${_kShortMonths[when.month - 1]} ${when.year}';
+  if (who != null && date != null) return 'Added by $who on $date';
+  if (who != null) return 'Added by $who';
+  return 'Added on $date';
+}
+
 const int kFollowUpDays = 21;
 const int kFollowUpWarningDays = 2;
 
@@ -177,7 +192,10 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
   /// settings, so the gear means the same thing on every page.
   void _openClientSettings(BuildContext context, AppData state) {
     final archived = state.archivedCustomers.length;
-    final owing = state.bills.where((b) => !b.isFullyPaid).map((b) => b.customerId).toSet().length;
+    // Outstanding used to be a second section here. "Who owes us money" is a
+    // daily question, not a setting, and the directory already carries a
+    // Pending Payments button that opens the same DuesView - two doors onto
+    // one page, one of them behind a gear, is what made it hard to find.
 
     openAppSettings(
       context,
@@ -191,14 +209,6 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
               ? '$archived archived client${archived == 1 ? '' : 's'}. They are hidden from the directory and from billing until restored.'
               : 'No archived clients. Archiving hides a client everywhere without deleting their history.',
           builder: (_) => const OwnerArchivedClientsView(),
-        ),
-        AppSettingsSection(
-          icon: PhosphorIconsRegular.handCoins,
-          label: 'Outstanding',
-          description: owing > 0
-              ? '$owing client${owing == 1 ? '' : 's'} with an unpaid balance.'
-              : 'No client owes anything right now.',
-          builder: (_) => const DuesView(),
         ),
       ],
     );
@@ -250,18 +260,60 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
     bool archived,
     DateTime now,
   ) {
+    // The follow-up state colours the whole row, not just the badge at its
+    // end. A 7px dot at the far right of a long list is easy to miss while
+    // scrolling, and the two markers only mean something in contrast with
+    // the rows around them - a tinted band plus a left rule is what makes
+    // "three of these need chasing" readable at a glance.
+    final followUp = archived ? FollowUp.none : followUpFor(cust, now);
+    final rowTint = switch (followUp) {
+      FollowUp.overdue => _kOverdueBg,
+      FollowUp.dueSoon => _kDueSoonBg,
+      FollowUp.none => Colors.transparent,
+    };
+    final rowRule = switch (followUp) {
+      FollowUp.overdue => _kOverdueColor,
+      FollowUp.dueSoon => _kDueSoonColor,
+      FollowUp.none => Colors.transparent,
+    };
+
     return InkWell(
       onTap: archived ? null : () => _openCustomerDetail(context, ref, cust),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+      child: Container(
+        decoration: BoxDecoration(
+          color: rowTint,
+          // A 3px rule down the left edge, so the state survives being read
+          // in greyscale or by someone who cannot separate red from amber.
+          border: Border(left: BorderSide(color: rowRule, width: 3)),
+        ),
+        padding: EdgeInsets.fromLTRB(
+          // Keeps every avatar on the same vertical line whether or not the
+          // row carries a rule.
+          followUp == FollowUp.none ? 14 : 11,
+          13,
+          14,
+          13,
+        ),
         child: Row(
           children: [
             CircleAvatar(
               radius: 17,
-              backgroundColor: const Color(0xFFEEF2FF),
+              backgroundColor: switch (followUp) {
+                FollowUp.overdue => const Color(0xFFFEE2E2),
+                FollowUp.dueSoon => const Color(0xFFFEF3C7),
+                FollowUp.none => const Color(0xFFEEF2FF),
+              },
               child: Text(
                 _initials(cust.name),
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Color(0xFF4F46E5)),
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                  color: switch (followUp) {
+                    FollowUp.overdue => _kOverdueColor,
+                    FollowUp.dueSoon => _kDueSoonColor,
+                    FollowUp.none => const Color(0xFF4F46E5),
+                  },
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -1340,38 +1392,54 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
           // customers.outstandingBalance, so the strip agrees with the bill
           // list right below it even if the two ever drift apart.
           if (outstanding > 0) ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFFBEB),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFFDE68A)),
+            // Tappable: this strip is where an owner notices a balance, so
+            // it is also where settling it has to start. It opens DuesView
+            // pre-searched to this client rather than duplicating the
+            // record-a-payment flow, so there is still exactly one place
+            // that writes a settlement.
+            InkWell(
+              onTap: () => openAppSubPage(
+                context,
+                title: 'Clear Balance',
+                subtitle: '${cust.name} · ₹${outstanding.toStringAsFixed(0)} outstanding',
+                child: DuesView(initialQuery: cust.name),
               ),
-              child: Row(
-                children: [
-                  const Icon(PhosphorIconsFill.handCoins, size: 17, color: Color(0xFFB45309)),
-                  const SizedBox(width: 9),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Outstanding balance',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF92400E)),
-                        ),
-                        Text(
-                          '$unpaidCount unpaid bill${unpaidCount == 1 ? '' : 's'}',
-                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: Color(0xFFB45309)),
-                        ),
-                      ],
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFFBEB),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFFDE68A)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(PhosphorIconsFill.handCoins, size: 17, color: Color(0xFFB45309)),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Outstanding balance',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF92400E)),
+                          ),
+                          Text(
+                            '$unpaidCount unpaid bill${unpaidCount == 1 ? '' : 's'} · tap to clear',
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: Color(0xFFB45309)),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  Text(
-                    '₹${outstanding.toStringAsFixed(0)}',
-                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Color(0xFF78350F)),
-                  ),
-                ],
+                    Text(
+                      '₹${outstanding.toStringAsFixed(0)}',
+                      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Color(0xFF78350F)),
+                    ),
+                    const SizedBox(width: 6),
+                    const Icon(PhosphorIconsBold.caretRight, size: 13, color: Color(0xFFB45309)),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 12),
@@ -1411,6 +1479,32 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
               ),
             ],
           ),
+
+          // Provenance line. Who put this client on the books settles the
+          // "where did this record come from" question without opening an
+          // audit trail, and both fields are already on the loaded customer
+          // document - no extra read to show them.
+          if (cust.createdByName != null || cust.createdAt != null) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Icon(PhosphorIconsRegular.userPlus, size: 13, color: Color(0xFF94A3B8)),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    _addedByLine(cust),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF94A3B8),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 18),
 
           // Row 4: Visit History Subsection
@@ -1800,73 +1894,197 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
     );
   }
 
-  Widget _buildFilterChip(String label, String filterKey) {
+  /// One filter chip. The count rides in a pill inside the chip rather than
+  /// in brackets after the label: "All (4)" and "Present (0)" set at the same
+  /// weight made the number look like part of the name, and a bare zero read
+  /// as if the filter itself were broken.
+  Widget _buildFilterChip(String label, String filterKey, {int? count}) {
     final isSelected = _activeFilter == filterKey;
     return InkWell(
       onTap: () => setState(() => _activeFilter = filterKey),
       borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6.5),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        height: 34,
+        padding: EdgeInsets.only(left: 14, right: count == null ? 14 : 7),
+        alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF6366F1) : const Color(0xFFF1F5F9),
+          color: isSelected ? const Color(0xFF4F46E5) : Colors.white,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isSelected ? const Color(0xFF6366F1) : const Color(0xFFE2E8F0),
+            color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0),
           ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-            color: isSelected ? Colors.white : const Color(0xFF475467),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Same pill styling as _buildFilterChip, but keyed on the branch id (and on
-  // null for "every branch") instead of the role/presence filter.
-  Widget _buildBranchChip(String label, String? branchId) {
-    final isSelected = _branchFilterId == branchId;
-    return InkWell(
-      onTap: () => setState(() => _branchFilterId = branchId),
-      borderRadius: BorderRadius.circular(20),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6.5),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFEEF2FF) : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: isSelected ? const Color(0xFF6366F1) : const Color(0xFFE2E8F0)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              branchId == null ? PhosphorIconsRegular.buildings : PhosphorIconsRegular.storefront,
-              size: 12,
-              color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
-            ),
-            const SizedBox(width: 5),
             Text(
               label,
               style: TextStyle(
-                fontSize: 11.5,
+                fontSize: 12.5,
                 fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-                color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+                color: isSelected ? Colors.white : const Color(0xFF475467),
               ),
             ),
+            if (count != null) ...[
+              const SizedBox(width: 7),
+              Container(
+                constraints: const BoxConstraints(minWidth: 20),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? Colors.white.withValues(alpha: 0.22)
+                      : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: isSelected ? Colors.white : const Color(0xFF64748B),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
+  /// Branch scope, as a pill that opens a picker - the same control Home
+  /// uses, so "which branch" means and looks the same on both screens.
+  Widget _buildBranchSelectorPill(AppData state) {
+    final selected = state.branches.where((b) => b.id == _branchFilterId);
+    final label = selected.isNotEmpty ? selected.first.name : 'All branches';
+    final shown = _branchFilterId == null
+        ? state.employees.length
+        : state.employees.where((e) => e.branchId == _branchFilterId).length;
+
+    return InkWell(
+      onTap: () => _showBranchPicker(state),
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(PhosphorIconsFill.mapPin, size: 14, color: Color(0xFF4F46E5)),
+            const SizedBox(width: 7),
+            // Flexible, because this pill now shares its line with the Add
+            // Staff button: a long branch name has to give way rather than
+            // overflow the row.
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '$shown staff',
+              style: const TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF94A3B8),
+              ),
+            ),
+            const SizedBox(width: 5),
+            const Icon(PhosphorIconsBold.caretDown, size: 11, color: Color(0xFF94A3B8)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showBranchPicker(AppData state) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        Widget option(String label, String? branchId, int count) {
+          final isSelected = _branchFilterId == branchId;
+          return ListTile(
+            leading: Icon(
+              branchId == null ? PhosphorIconsRegular.buildings : PhosphorIconsRegular.storefront,
+              size: 19,
+              color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
+            ),
+            title: Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                color: const Color(0xFF0F172A),
+              ),
+            ),
+            subtitle: Text(
+              '$count staff',
+              style: const TextStyle(fontSize: 11.5, color: Color(0xFF94A3B8)),
+            ),
+            trailing: isSelected
+                ? const Icon(PhosphorIconsBold.check, size: 17, color: Color(0xFF4F46E5))
+                : null,
+            onTap: () {
+              setState(() => _branchFilterId = branchId);
+              Navigator.pop(ctx);
+            },
+          );
+        }
+
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 20, 20, 4),
+                child: Text(
+                  'Show staff from',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                ),
+              ),
+              option('All branches', null, state.employees.length),
+              for (final b in state.branches)
+                option(b.name, b.id, state.employees.where((e) => e.branchId == b.id).length),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildMobileStaffView(BuildContext context, WidgetRef ref, AppData state) {
-    final presentCount = state.employees.where((e) => _todayStatus(state, e.id) == 'PRESENT').length;
+    // One pass for all four chip counts - the roster rebuilds on every
+    // keystroke in the search box, so a separate .where().length per chip
+    // walks the staff list four extra times per character.
+    var presentCount = 0;
+    var stylistCount = 0;
+    var receptionCount = 0;
+    for (final e in state.employees) {
+      if (_todayStatus(state, e.id) == 'PRESENT') presentCount++;
+      final role = e.roleTitle.toLowerCase();
+      if (role.contains('stylist')) stylistCount++;
+      if (role.contains('reception')) receptionCount++;
+    }
 
     final q = _searchController.text.toLowerCase().trim();
     final filteredEmployees = state.employees.where((emp) {
@@ -1890,10 +2108,20 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 2. Title & + Add Staff
+          // 2. Branch scope + Add Staff, on one line.
+          //
+          // The branch pill used to sit on its own row under this one, which
+          // left a half-empty band of white between the header and the
+          // search box and read as two unrelated toolbars. They are both
+          // "what am I looking at / what can I add here", so they share a
+          // line: scope on the left, the action on the right.
           Row(
-            mainAxisAlignment: MainAxisAlignment.end,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
+              if (state.branches.length > 1)
+                Flexible(child: _buildBranchSelectorPill(state))
+              else
+                const SizedBox.shrink(),
               InkWell(
                 onTap: () => _openAddEmployee(context, state.branches),
                 borderRadius: BorderRadius.circular(22),
@@ -1972,37 +2200,17 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _buildFilterChip('All (${state.employees.length})', 'All'),
+                _buildFilterChip('All', 'All', count: state.employees.length),
                 const SizedBox(width: 8),
-                _buildFilterChip('Present ($presentCount)', 'Present'),
+                _buildFilterChip('Present', 'Present', count: presentCount),
                 const SizedBox(width: 8),
-                _buildFilterChip('Stylists', 'Stylist'),
+                _buildFilterChip('Stylists', 'Stylist', count: stylistCount),
                 const SizedBox(width: 8),
-                _buildFilterChip('Reception', 'Reception'),
+                _buildFilterChip('Reception', 'Reception', count: receptionCount),
               ],
             ),
           ),
 
-          // 4b. Branch chips - only worth the row once there's more than one
-          // branch to choose between.
-          if (state.branches.length > 1) ...[
-            const SizedBox(height: 8),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _buildBranchChip('All Branches (${state.employees.length})', null),
-                  for (final b in state.branches) ...[
-                    const SizedBox(width: 8),
-                    _buildBranchChip(
-                      '${b.name} (${state.employees.where((e) => e.branchId == b.id).length})',
-                      b.id,
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
           const SizedBox(height: 18),
 
           // 5. Team Roster - names only; tapping opens the full detail page.
@@ -2710,6 +2918,53 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
     );
   }
 
+  /// A date as a tappable field rather than a button: the label sits above
+  /// the value instead of sharing a line with it, so neither is ever the one
+  /// that gets truncated on a narrow screen.
+  Widget _dateField({
+    required String label,
+    required String value,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFCBD5E1)),
+        ),
+        child: Row(
+          children: [
+            const Icon(PhosphorIconsRegular.calendarBlank, size: 16, color: Color(0xFF94A3B8)),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF94A3B8)),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    value,
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showSetSalesTargetDialog(BuildContext context, WidgetRef ref, EmployeeProfile emp) {
     String type = 'SERVICE_VOLUME';
     final targetValueController = TextEditingController();
@@ -2743,29 +2998,67 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                 keyboardType: TextInputType.number,
                 decoration: appDialogFieldDecoration(label: type == 'SERVICE_VOLUME' ? 'Target Revenue (Rs.) *' : 'Target Units *', icon: PhosphorIconsRegular.trendUp),
               ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () async {
-                        final picked = await showDatePicker(context: ctx, initialDate: startDate, firstDate: DateTime(2020), lastDate: DateTime(2100));
-                        if (picked != null) setDialogState(() => startDate = picked);
-                      },
-                      child: Text('Start: ${_formatDate(startDate)}', style: const TextStyle(fontSize: 12)),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () async {
-                        final picked = await showDatePicker(context: ctx, initialDate: endDate, firstDate: startDate, lastDate: DateTime(2100));
-                        if (picked != null) setDialogState(() => endDate = picked);
-                      },
-                      child: Text('End: ${_formatDate(endDate)}', style: const TextStyle(fontSize: 12)),
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 12),
+              // Two date fields, laid out by how much room there actually is.
+              // Side-by-side OutlinedButtons reading "Start: 30 Sep 2026"
+              // wrapped onto two lines inside the button on a phone, which is
+              // what made this dialog look broken; below 320 logical pixels
+              // of dialog width they stack instead.
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final startField = _dateField(
+                    label: 'Start',
+                    value: _formatDate(startDate),
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: ctx,
+                        initialDate: startDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2100),
+                      );
+                      if (picked == null) return;
+                      setDialogState(() {
+                        startDate = picked;
+                        // Keeps the range valid without a second error
+                        // message: moving the start past the end drags the
+                        // end along rather than leaving an impossible window.
+                        if (!endDate.isAfter(startDate)) {
+                          endDate = startDate.add(const Duration(days: 30));
+                        }
+                      });
+                    },
+                  );
+                  final endField = _dateField(
+                    label: 'End',
+                    value: _formatDate(endDate),
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: ctx,
+                        initialDate: endDate.isAfter(startDate) ? endDate : startDate,
+                        firstDate: startDate,
+                        lastDate: DateTime(2100),
+                      );
+                      if (picked != null) setDialogState(() => endDate = picked);
+                    },
+                  );
+
+                  if (constraints.maxWidth < 320) {
+                    return Column(
+                      children: [
+                        startField,
+                        const SizedBox(height: 10),
+                        endField,
+                      ],
+                    );
+                  }
+                  return Row(
+                    children: [
+                      Expanded(child: startField),
+                      const SizedBox(width: 10),
+                      Expanded(child: endField),
+                    ],
+                  );
+                },
               ),
             ],
           ),

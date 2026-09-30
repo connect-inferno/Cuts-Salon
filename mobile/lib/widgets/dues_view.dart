@@ -41,8 +41,27 @@ class _ClientDue {
 /// on the bill that gets flipped - it's finalAmount minus everything
 /// collected (at the counter plus the payments ledger). This screen groups
 /// those leftovers by client and lets the owner record a settlement.
-class DuesView extends ConsumerWidget {
-  const DuesView({super.key});
+class DuesView extends ConsumerStatefulWidget {
+  /// Opens with the search box already narrowed to one client. The client
+  /// detail page uses it so "clear this balance" lands on that client's own
+  /// bills instead of the whole salon's list.
+  final String? initialQuery;
+
+  const DuesView({super.key, this.initialQuery});
+
+  @override
+  ConsumerState<DuesView> createState() => _DuesViewState();
+}
+
+class _DuesViewState extends ConsumerState<DuesView> {
+  late final TextEditingController _searchController =
+      TextEditingController(text: widget.initialQuery ?? '');
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   /// Derived from the loaded bills rather than from customers.outstandingBalance,
   /// because the owner needs to see *which* bills make up the total, not just
@@ -84,7 +103,7 @@ class DuesView extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final asyncData = ref.watch(appDataProvider);
     return asyncData.when(
       loading: () => const AppLoadingView(),
@@ -94,8 +113,21 @@ class DuesView extends ConsumerWidget {
   }
 
   Widget _buildContent(BuildContext context, WidgetRef ref, AppData state) {
-    final dues = _buildDues(state);
-    final grandTotal = dues.fold(0.0, (sum, d) => sum + d.total);
+    final allDues = _buildDues(state);
+    // The headline total stays the salon's whole outstanding balance even
+    // while a search is narrowing the list below it - filtering the number
+    // people use to answer "how much are we owed" would make the search box
+    // quietly change the answer.
+    final grandTotal = allDues.fold(0.0, (sum, d) => sum + d.total);
+
+    final q = _searchController.text.trim().toLowerCase();
+    final dues = q.isEmpty
+        ? allDues
+        : allDues
+            .where((d) =>
+                d.customer.name.toLowerCase().contains(q) ||
+                d.customer.phone.toLowerCase().contains(q))
+            .toList();
 
     return RefreshIndicator(
       onRefresh: () => ref.read(appDataProvider.notifier).refresh(),
@@ -105,10 +137,58 @@ class DuesView extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildTotalCard(grandTotal, dues),
-            const SizedBox(height: 18),
+            _buildTotalCard(grandTotal, allDues),
+            const SizedBox(height: 14),
 
-            if (dues.isEmpty)
+            // Search, whenever anyone owes anything. It was behind a
+            // "more than three clients" threshold, which meant the control
+            // appeared and disappeared as balances were settled - so it was
+            // never somewhere you could count on finding it. The only case it
+            // is still hidden is an empty ledger, where there is nothing to
+            // search.
+            if (allDues.isNotEmpty) ...[
+              TextField(
+                controller: _searchController,
+                onChanged: (_) => setState(() {}),
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                decoration: InputDecoration(
+                  hintText: 'Search client by name or phone...',
+                  hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                  prefixIcon: const Icon(PhosphorIconsRegular.magnifyingGlass, size: 18, color: Color(0xFF94A3B8)),
+                  suffixIcon: _searchController.text.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(PhosphorIconsRegular.xCircle, size: 18, color: Color(0xFF94A3B8)),
+                          tooltip: 'Clear search',
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() {});
+                          },
+                        ),
+                  filled: true,
+                  fillColor: Colors.white,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+
+            if (allDues.isNotEmpty && dues.isEmpty)
+              _buildNoMatchState()
+            else if (dues.isEmpty)
               _buildEmptyState()
             else
               ...dues.map((due) => Padding(
@@ -202,6 +282,36 @@ class DuesView extends ConsumerWidget {
           SizedBox(height: 4),
           Text(
             'Bills marked "LATER" at checkout will appear here.',
+            style: TextStyle(fontSize: 11.5, color: Color(0xFF94A3B8)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Search found nothing. Deliberately not the green "all settled" card -
+  /// that would read as "nobody owes us" when the truth is "nobody matching
+  /// what you typed owes us".
+  Widget _buildNoMatchState() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFF1F5F9)),
+      ),
+      child: const Column(
+        children: [
+          Icon(PhosphorIconsRegular.magnifyingGlass, size: 30, color: Color(0xFFCBD5E1)),
+          SizedBox(height: 10),
+          Text(
+            'No client matches that search',
+            style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+          ),
+          SizedBox(height: 4),
+          Text(
+            'Only clients with an unpaid balance appear here.',
             style: TextStyle(fontSize: 11.5, color: Color(0xFF94A3B8)),
           ),
         ],

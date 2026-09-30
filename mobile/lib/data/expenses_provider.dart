@@ -61,6 +61,17 @@ class ExpensesNotifier extends AutoDisposeAsyncNotifier<List<Expense>> {
     state = AsyncData([expenseFromFS(createdFS), ...latest]);
   }
 
+  /// Removes one expense. The local list is filtered rather than re-listed,
+  /// so correcting a typo costs one delete and no extra read of the other 499
+  /// documents - the same reason [add] prepends instead of refetching.
+  Future<void> remove(String id) async {
+    final fs = _fs;
+    if (fs == null) throw Exception('Not ready yet - try again in a moment');
+    await fs.deleteExpense(id);
+    final latest = state.value ?? const <Expense>[];
+    state = AsyncData(latest.where((e) => e.id != id).toList());
+  }
+
   Future<void> refresh() async {
     state = const AsyncLoading<List<Expense>>().copyWithPrevious(state);
     state = await AsyncValue.guard(() async {

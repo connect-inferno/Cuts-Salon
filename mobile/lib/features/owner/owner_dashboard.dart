@@ -8,11 +8,14 @@ import 'widgets/owner_dashboard_tab.dart';
 import 'widgets/owner_customers_employees_tab.dart';
 import 'widgets/owner_billing_inventory_expenses_tab.dart';
 import 'widgets/owner_management_tabs.dart';
+import 'widgets/owner_profile_view.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/app_page_switcher.dart';
 import '../../widgets/app_settings_page.dart';
 import '../../widgets/app_sub_page.dart';
 import '../../widgets/async_state_views.dart';
+import '../../widgets/csv_export.dart';
+import '../../data/models.dart';
 import '../../widgets/liquid_nav_bar.dart';
 
 const double kOwnerMobileBreakpoint = 900;
@@ -359,79 +362,21 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
     );
   }
 
+  /// The owner's own profile.
+  ///
+  /// This used to be a bottom sheet holding an avatar, the salon name, the
+  /// words "Owner Account" and a log-out button - none of it the owner's own
+  /// details, so tapping the account row in the drawer looked like it had
+  /// failed to open anything. It now opens the same sub-page shell every
+  /// other destination uses, filled from the employees/{uid} record already
+  /// in the loaded snapshot (no extra read) with the auth session as the
+  /// fallback for a salon whose owner has no employee document yet.
   void _showProfileMenu(BuildContext context, String salonName) {
-    final ownerName = ref.read(authControllerProvider).name;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 54,
-                  height: 54,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF1E1B4B),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Text(
-                      _ownerInitials(ownerName),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  salonName,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.slateDark,
-                  ),
-                ),
-                const Text(
-                  'Owner Account',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: AppTheme.slateLight,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      ref.read(authControllerProvider.notifier).logout();
-                    },
-                    icon: const Icon(PhosphorIconsRegular.signOut, color: AppTheme.accentRed),
-                    label: const Text('Log Out', style: TextStyle(color: AppTheme.accentRed, fontWeight: FontWeight.w700)),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFFFECDCA)),
-                      backgroundColor: AppTheme.accentRedBg,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+    openAppSubPage(
+      context,
+      title: 'My Profile',
+      subtitle: salonName,
+      child: const OwnerProfileView(),
     );
   }
 
@@ -514,6 +459,13 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
           subtitle: 'Today\'s clock-ins and shifts',
           child: const OwnerAttendanceTab(),
         ),
+        onOpenClients: () => _switchToTab(OwnerTab.clients),
+        onOpenReports: () => openAppSubPage(
+          context,
+          title: 'Reports',
+          subtitle: 'Revenue, retention and staff performance',
+          child: const OwnerReportsTab(),
+        ),
         onOpenNotifications: () => _openNotifications(context),
         onOpenProfile: () => _showProfileMenu(context, salonName),
         onOpenSettings: () => _openSalonSettings(context),
@@ -560,6 +512,8 @@ class OwnerReportsTab extends ConsumerStatefulWidget {
 class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
   String _activeSegment = 'Overview';
   String _timeframe = 'Last 6 Months';
+  /// null = every branch. Reports were salon-wide with no way to narrow them.
+  String? _branchId;
 
   @override
   Widget build(BuildContext context) {
@@ -571,29 +525,53 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
     );
   }
 
+  /// How far back the figures on this page go. The picker used to set a
+  /// label and nothing else - every number below was hardcoded to the last
+  /// six months whatever it said, so "Current Year" was a lie the UI told.
+  int get _monthsBack => switch (_timeframe) {
+        'Last 3 Months' => 3,
+        'Current Year' => DateTime.now().month,
+        _ => 6,
+      };
+
+  /// Bills in scope: the chosen branch, over the chosen window. Everything on
+  /// this page derives from this one list, so the branch pill and the
+  /// timeframe pill cannot disagree with each other.
+  List<Bill> _scopedBills(AppData state, DateTime from) => state.bills
+      .where((b) =>
+          b.createdAt != null &&
+          !b.createdAt!.isBefore(from) &&
+          (_branchId == null || b.branchId == _branchId))
+      .toList();
+
   Widget _buildContent(BuildContext context, AppData state) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isMobile = constraints.maxWidth < 768;
         final salonName = state.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Cuts Salon';
-        // Reports are always salon-wide, so naming one branch here (it used
-        // to print branches.first) read as a scope that was never applied.
-        final branchName = state.branches.length > 1
-            ? 'All Branches'
-            : (state.branches.isNotEmpty ? state.branches.first.name : 'Main Branch');
-        final pendingDiscountCount = state.pendingDiscountCount;
+        // Reports used to be salon-wide with no way to narrow them, so an
+        // owner running three branches could not answer "how did Vijay Nagar
+        // do" from this page at all.
+        final selectedBranch = state.branches.where((b) => b.id == _branchId);
+        final branchName = selectedBranch.isNotEmpty
+            ? selectedBranch.first.name
+            : (state.branches.length > 1
+                ? 'All branches'
+                : (state.branches.isNotEmpty ? state.branches.first.name : 'Main Branch'));
 
         final now = DateTime.now();
-        final months = List.generate(6, (i) {
-          final monthIndex = now.month - (5 - i);
+        final months = List.generate(_monthsBack, (i) {
+          final monthIndex = now.month - (_monthsBack - 1 - i);
           final yearOffset = ((monthIndex - 1) / 12).floor();
           final normalizedMonth = ((monthIndex - 1) % 12 + 12) % 12 + 1;
           return DateTime(now.year + yearOffset, normalizedMonth, 1);
         });
+        final windowStart = months.first;
+        final bills = _scopedBills(state, windowStart);
 
         final revenueByMonth = months
-            .map((m) => state.bills
-                .where((b) => b.createdAt != null && b.createdAt!.year == m.year && b.createdAt!.month == m.month)
+            .map((m) => bills
+                .where((b) => b.createdAt!.year == m.year && b.createdAt!.month == m.month)
                 .fold<double>(0, (s, b) => s + b.finalAmount))
             .toList();
         final monthLabels = months.map((m) => _kMonthAbbrevs[m.month - 1]).toList();
@@ -605,12 +583,12 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
         // metric here must come from state, or show an honest empty state.
         final List<double> chartValues = revenueByMonth;
 
-        final totalRevenue = state.bills.fold<double>(0, (s, b) => s + b.finalAmount);
-        final totalBillsCount = state.bills.length;
+        final totalRevenue = bills.fold<double>(0, (s, b) => s + b.finalAmount);
+        final totalBillsCount = bills.length;
         final atv = totalBillsCount > 0 ? (totalRevenue / totalBillsCount) : 0.0;
 
         final billsByCustomer = <String, int>{};
-        for (final b in state.bills) {
+        for (final b in bills) {
           billsByCustomer[b.customerId] = (billsByCustomer[b.customerId] ?? 0) + 1;
         }
         final customersWithBills = billsByCustomer.length;
@@ -623,7 +601,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
 
         // Categories popularity
         final categoryVolume = <String, int>{};
-        for (final bill in state.bills) {
+        for (final bill in bills) {
           for (final item in bill.items) {
             if (item.type != 'SERVICE') continue;
             final matches = state.services.where((s) => s.id == item.serviceId);
@@ -644,7 +622,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // 1. Pinned Salon Header
-              _buildReportSalonHeader(context, salonName, branchName, pendingDiscountCount),
+              _buildReportSalonHeader(context, salonName, branchName),
               const SizedBox(height: 16),
 
               // 2. Title & Timeframe Selector
@@ -706,9 +684,9 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                                 _timeframe.contains('6') ? 'Last 6' : _timeframe.contains('3') ? 'Last 3' : 'Current',
                                 style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
                               ),
-                              const Text(
-                                'Months',
-                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                              Text(
+                                _timeframe == 'Current Year' ? 'Year' : 'Months',
+                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
                               ),
                             ],
                           ),
@@ -720,9 +698,16 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
 
-              // 3. Segmented Tabs
+              // 2b. Branch scope. Same pill Home and Team use.
+              if (state.branches.length > 1) ...[
+                _buildReportBranchPill(state, branchName, bills.length),
+                const SizedBox(height: 14),
+              ],
+
+              // 3. Segmented Tabs. These used to set _activeSegment and
+              // nothing read it, so every tab showed the same four cards.
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -733,70 +718,83 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                     const SizedBox(width: 8),
                     _buildReportSegmentPill('Services'),
                     const SizedBox(width: 8),
-                    _buildReportSegmentPill('Staff Performance'),
+                    _buildReportSegmentPill('Staff'),
                   ],
                 ),
               ),
               const SizedBox(height: 16),
 
-              // 4. Revenue Trend Card
-              _buildRevenueTrendCard(
-                totalRevenue: totalRevenue,
-                chartValues: chartValues,
-                monthLabels: monthLabels,
-                latestMonthRevenue: latestMonthRevenue,
-                latestMonthName: latestMonthName,
-              ),
-              const SizedBox(height: 14),
-
-              // 5. Service Popularity (Top 5) Card
-              _buildServicePopularityCard(topCategories: topCategories),
-              const SizedBox(height: 14),
-
-              // 6. Key Metrics Row (3 cards side by side)
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildMetricTileCompact(
-                      icon: PhosphorIconsRegular.receipt,
-                      iconBg: const Color(0xFFEDE9FE),
-                      iconColor: const Color(0xFF6366F1),
-                      title: 'Avg Ticket',
-                      value: '₹${atv.toStringAsFixed(0)}',
-                      subtext: 'Across $totalBillsCount bill${totalBillsCount == 1 ? '' : 's'}',
-                      subtextColor: const Color(0xFF64748B),
+              if (_activeSegment == 'Overview') ...[
+                _buildRevenueTrendCard(
+                  totalRevenue: totalRevenue,
+                  chartValues: chartValues,
+                  monthLabels: monthLabels,
+                  latestMonthRevenue: latestMonthRevenue,
+                  latestMonthName: latestMonthName,
+                ),
+                const SizedBox(height: 14),
+                _buildServicePopularityCard(topCategories: topCategories),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildMetricTileCompact(
+                        icon: PhosphorIconsRegular.receipt,
+                        iconBg: const Color(0xFFEDE9FE),
+                        iconColor: const Color(0xFF6366F1),
+                        title: 'Avg Ticket',
+                        value: '₹${atv.toStringAsFixed(0)}',
+                        subtext: 'Across $totalBillsCount bill${totalBillsCount == 1 ? '' : 's'}',
+                        subtextColor: const Color(0xFF64748B),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _buildMetricTileCompact(
-                      icon: PhosphorIconsRegular.usersThree,
-                      iconBg: const Color(0xFFECFDF5),
-                      iconColor: const Color(0xFF10B981),
-                      title: 'Retention',
-                      value: '$retentionPct%',
-                      subtext: '$repeatCustomers of $customersWithBills returned',
-                      subtextColor: const Color(0xFF64748B),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildMetricTileCompact(
+                        icon: PhosphorIconsRegular.usersThree,
+                        iconBg: const Color(0xFFECFDF5),
+                        iconColor: const Color(0xFF10B981),
+                        title: 'Retention',
+                        value: '$retentionPct%',
+                        subtext: '$repeatCustomers of $customersWithBills returned',
+                        subtextColor: const Color(0xFF64748B),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _buildMetricTileCompact(
-                      icon: PhosphorIconsRegular.shieldCheck,
-                      iconBg: const Color(0xFFEFF6FF),
-                      iconColor: const Color(0xFF3B82F6),
-                      title: 'Attendance',
-                      value: '$attendanceRate%',
-                      subtext: 'This month, all staff',
-                      subtextColor: const Color(0xFF64748B),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildMetricTileCompact(
+                        icon: PhosphorIconsRegular.shieldCheck,
+                        iconBg: const Color(0xFFEFF6FF),
+                        iconColor: const Color(0xFF3B82F6),
+                        title: 'Attendance',
+                        value: '$attendanceRate%',
+                        subtext: 'This month, all staff',
+                        subtextColor: const Color(0xFF64748B),
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+              ] else if (_activeSegment == 'Revenue') ...[
+                _buildRevenueTrendCard(
+                  totalRevenue: totalRevenue,
+                  chartValues: chartValues,
+                  monthLabels: monthLabels,
+                  latestMonthRevenue: latestMonthRevenue,
+                  latestMonthName: latestMonthName,
+                ),
+                const SizedBox(height: 14),
+                _buildPaymentMixCard(bills),
+              ] else if (_activeSegment == 'Services') ...[
+                _buildServicePopularityCard(topCategories: topCategories),
+                const SizedBox(height: 14),
+                _buildTopServicesCard(state, bills),
+              ] else ...[
+                _buildStaffPerformanceCard(state, bills),
+              ],
               const SizedBox(height: 14),
 
               // 7. Export Detailed Audit Bar
-              _buildExportAuditBar(context),
+              _buildExportAuditBar(context, state, bills, windowStart),
 
               const SizedBox(height: 88), // floating navbar clearance
             ],
@@ -806,7 +804,323 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
     );
   }
 
-  Widget _buildReportSalonHeader(BuildContext context, String salonName, String branchName, int unreadCount) {
+  /// Branch scope for this page. Deliberately the same control as Home's and
+  /// Team's, so the pill means one thing everywhere in the app.
+  Widget _buildReportBranchPill(AppData state, String label, int billCount) {
+    return InkWell(
+      onTap: () => _showReportBranchPicker(state),
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(PhosphorIconsFill.mapPin, size: 14, color: Color(0xFF4F46E5)),
+            const SizedBox(width: 7),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '$billCount bill${billCount == 1 ? '' : 's'}',
+              style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF94A3B8)),
+            ),
+            const SizedBox(width: 5),
+            const Icon(PhosphorIconsBold.caretDown, size: 11, color: Color(0xFF94A3B8)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showReportBranchPicker(AppData state) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        Widget option(String label, String? branchId) {
+          final isSelected = _branchId == branchId;
+          return ListTile(
+            leading: Icon(
+              branchId == null ? PhosphorIconsRegular.buildings : PhosphorIconsRegular.storefront,
+              size: 19,
+              color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
+            ),
+            title: Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                color: const Color(0xFF0F172A),
+              ),
+            ),
+            trailing: isSelected ? const Icon(PhosphorIconsBold.check, size: 17, color: Color(0xFF4F46E5)) : null,
+            onTap: () {
+              setState(() => _branchId = branchId);
+              Navigator.pop(ctx);
+            },
+          );
+        }
+
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 20, 20, 4),
+                child: Text(
+                  'Report on',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                ),
+              ),
+              option('All branches', null),
+              for (final b in state.branches) option(b.name, b.id),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// How the money actually arrived. Collected, not billed - a part-paid bill
+  /// only contributes what was handed over, same rule the dashboard uses.
+  Widget _buildPaymentMixCard(List<Bill> bills) {
+    final byMethod = <String, double>{};
+    for (final b in bills) {
+      byMethod[b.paymentMethod] = (byMethod[b.paymentMethod] ?? 0) + b.amountPaid;
+    }
+    final outstanding = bills.fold<double>(0, (s, b) => s + b.amountDue);
+    final rows = byMethod.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final collected = rows.fold<double>(0, (s, e) => s + e.value);
+
+    return _reportCard(
+      title: 'Payment Mix',
+      subtitle: 'How takings were collected over this window',
+      child: rows.isEmpty
+          ? const Padding(
+              padding: EdgeInsets.symmetric(vertical: 18),
+              child: Text(
+                'No payments recorded in this window.',
+                style: TextStyle(fontSize: 12.5, color: Color(0xFF94A3B8)),
+              ),
+            )
+          : Column(
+              children: [
+                for (final e in rows) ...[
+                  _reportBarRow(
+                    label: e.key,
+                    value: '₹${e.value.toStringAsFixed(0)}',
+                    fraction: collected > 0 ? e.value / collected : 0,
+                    color: const Color(0xFF4F46E5),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                if (outstanding > 0)
+                  _reportBarRow(
+                    label: 'Still owed',
+                    value: '₹${outstanding.toStringAsFixed(0)}',
+                    fraction: collected + outstanding > 0 ? outstanding / (collected + outstanding) : 0,
+                    color: const Color(0xFFD97706),
+                  ),
+              ],
+            ),
+    );
+  }
+
+  /// Individual services rather than their categories - the popularity chart
+  /// above answers "which kind of work", this answers "which item on the menu".
+  Widget _buildTopServicesCard(AppData state, List<Bill> bills) {
+    final revenueByService = <String, double>{};
+    final countByService = <String, int>{};
+    for (final bill in bills) {
+      for (final item in bill.items) {
+        if (item.type != 'SERVICE') continue;
+        final name = item.serviceName ?? 'Unnamed service';
+        revenueByService[name] =
+            (revenueByService[name] ?? 0) + (item.unitPrice * item.quantity - item.discountAmount);
+        countByService[name] = (countByService[name] ?? 0) + item.quantity;
+      }
+    }
+    final rows = revenueByService.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final top = rows.take(8).toList();
+    final maxVal = top.isEmpty ? 1.0 : top.first.value;
+
+    return _reportCard(
+      title: 'Top Services',
+      subtitle: 'By revenue over this window',
+      child: top.isEmpty
+          ? const Padding(
+              padding: EdgeInsets.symmetric(vertical: 18),
+              child: Text(
+                'No services billed in this window.',
+                style: TextStyle(fontSize: 12.5, color: Color(0xFF94A3B8)),
+              ),
+            )
+          : Column(
+              children: [
+                for (final e in top) ...[
+                  _reportBarRow(
+                    label: e.key,
+                    value: '₹${e.value.toStringAsFixed(0)} · ${countByService[e.key]}×',
+                    fraction: maxVal > 0 ? e.value / maxVal : 0,
+                    color: const Color(0xFF6366F1),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+              ],
+            ),
+    );
+  }
+
+  /// Who brought the money in. Attributed per line item, because two stylists
+  /// can share one bill - splitting by the bill's own total would credit all
+  /// of it to whoever happened to be on the first line.
+  Widget _buildStaffPerformanceCard(AppData state, List<Bill> bills) {
+    final revenueByEmployee = <String, double>{};
+    final itemsByEmployee = <String, int>{};
+    final billsByEmployee = <String, Set<String>>{};
+    for (final bill in bills) {
+      for (final item in bill.items) {
+        if (item.employeeId.isEmpty) continue;
+        revenueByEmployee[item.employeeId] = (revenueByEmployee[item.employeeId] ?? 0) +
+            (item.unitPrice * item.quantity - item.discountAmount);
+        itemsByEmployee[item.employeeId] = (itemsByEmployee[item.employeeId] ?? 0) + item.quantity;
+        (billsByEmployee[item.employeeId] ??= <String>{}).add(bill.id);
+      }
+    }
+    final rows = revenueByEmployee.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final maxVal = rows.isEmpty ? 1.0 : rows.first.value;
+
+    return _reportCard(
+      title: 'Staff Performance',
+      subtitle: 'Revenue attributed per line item',
+      child: rows.isEmpty
+          ? const Padding(
+              padding: EdgeInsets.symmetric(vertical: 18),
+              child: Text(
+                'No billed work in this window.',
+                style: TextStyle(fontSize: 12.5, color: Color(0xFF94A3B8)),
+              ),
+            )
+          : Column(
+              children: [
+                for (final e in rows) ...[
+                  _reportBarRow(
+                    label: state.employeeById(e.key)?.name ?? 'Former staff',
+                    value: '₹${e.value.toStringAsFixed(0)} · ${billsByEmployee[e.key]!.length} bill${billsByEmployee[e.key]!.length == 1 ? '' : 's'}',
+                    fraction: maxVal > 0 ? e.value / maxVal : 0,
+                    color: const Color(0xFF10B981),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+              ],
+            ),
+    );
+  }
+
+  /// The card chrome the three segment cards above share, so they cannot
+  /// drift into three slightly different whites.
+  Widget _reportCard({required String title, required String subtitle, required Widget child}) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFF64748B)),
+          ),
+          const SizedBox(height: 16),
+          child,
+        ],
+      ),
+    );
+  }
+
+  /// A labelled horizontal bar. Horizontal rather than vertical because the
+  /// labels here are names ("Anjali Mehta", "Keratin Treatment") which do not
+  /// fit under a 28px column.
+  Widget _reportBarRow({
+    required String label,
+    required String value,
+    required double fraction,
+    required Color color,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              value,
+              style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF64748B)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 5),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: Container(
+            height: 7,
+            color: const Color(0xFFF1F5F9),
+            child: FractionallySizedBox(
+              alignment: Alignment.centerLeft,
+              // A zero-width bar reads as a rendering bug rather than as a
+              // small number, so every row keeps a visible sliver.
+              widthFactor: fraction.clamp(0.02, 1.0),
+              child: Container(color: color),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Salon name, scope, and the owner's avatar.
+  ///
+  /// The bell used to sit here too. Reports is opened from the drawer, never
+  /// as a tab, so it is not a place anyone lands on to triage notifications -
+  /// and the dot beside it was hardcoded, showing "unread" whether or not
+  /// anything was. Home and every tab still carry a working bell.
+  Widget _buildReportSalonHeader(BuildContext context, String salonName, String branchName) {
     final ownerName = ref.watch(authControllerProvider).name;
     return Row(
       children: [
@@ -865,49 +1179,6 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
             ],
           ),
         ),
-        InkWell(
-          onTap: () {
-            if (widget.onOpenNotifications != null) {
-              widget.onOpenNotifications!();
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('No new notifications'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            }
-          },
-          borderRadius: BorderRadius.circular(20),
-          child: Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                const Icon(PhosphorIconsRegular.bell, size: 18, color: Color(0xFF475467)),
-                Positioned(
-                  top: 7,
-                  right: 7,
-                  child: Container(
-                    width: 7,
-                    height: 7,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF6366F1),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
         Container(
           width: 36,
           height: 36,
@@ -1296,7 +1567,12 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
     );
   }
 
-  Widget _buildExportAuditBar(BuildContext context) {
+  Widget _buildExportAuditBar(
+    BuildContext context,
+    AppData state,
+    List<Bill> bills,
+    DateTime windowStart,
+  ) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1340,7 +1616,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                 ),
                 SizedBox(height: 2),
                 Text(
-                  'PDF & CSV formats ready',
+                  'One row per bill line, CSV',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w500,
@@ -1351,14 +1627,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
             ),
           ),
           InkWell(
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Preparing detailed audit export (PDF/CSV)...'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            },
+            onTap: () => _exportAudit(context, state, bills, windowStart),
             borderRadius: BorderRadius.circular(14),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6.5),
@@ -1368,7 +1637,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                 border: Border.all(color: const Color(0xFFE2E8F0)),
               ),
               child: const Text(
-                'Share',
+                'Export',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -1380,6 +1649,140 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
         ],
       ),
     );
+  }
+
+  /// Builds the audit CSV from the bills already on screen and hands it over.
+  ///
+  /// One row per bill *line*, not per bill: the questions this export exists
+  /// to answer (what did we sell, who performed it, what commission is owed)
+  /// are all line-level, and a per-bill row would force whoever opens it in
+  /// Excel to go back to the app for the breakdown. Everything comes from the
+  /// loaded snapshot, so exporting costs no Firestore read at all.
+  Future<void> _exportAudit(
+    BuildContext context,
+    AppData state,
+    List<Bill> bills,
+    DateTime windowStart,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final rows = <List<Object?>>[
+      [
+        'Invoice',
+        'Date',
+        'Branch',
+        'Client',
+        'Type',
+        'Item',
+        'Qty',
+        'Unit price',
+        'Line discount',
+        'Line total',
+        'Performed by',
+        'Commission',
+        'Bill total',
+        'Paid',
+        'Balance',
+        'Payment method',
+      ],
+    ];
+
+    final branchNames = {for (final b in state.branches) b.id: b.name};
+    // Newest first, matching how every list in the app is ordered.
+    final sorted = [...bills]
+      ..sort((a, b) => (b.createdAt ?? DateTime(2000)).compareTo(a.createdAt ?? DateTime(2000)));
+
+    for (final bill in sorted) {
+      final date = bill.createdAt;
+      final dateText = date == null
+          ? ''
+          : '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      if (bill.items.isEmpty) {
+        // A bill with no loaded lines still belongs in the audit - dropping
+        // it would make the CSV's totals disagree with the app's.
+        rows.add([
+          bill.invoiceNumber,
+          dateText,
+          branchNames[bill.branchId] ?? bill.branchId,
+          bill.customerName ?? '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          bill.finalAmount.toStringAsFixed(2),
+          bill.amountPaid.toStringAsFixed(2),
+          bill.amountDue.toStringAsFixed(2),
+          bill.paymentMethod,
+        ]);
+        continue;
+      }
+      for (final item in bill.items) {
+        rows.add([
+          bill.invoiceNumber,
+          dateText,
+          branchNames[bill.branchId] ?? bill.branchId,
+          bill.customerName ?? '',
+          item.type,
+          item.serviceName ?? item.productName ?? '',
+          item.quantity,
+          item.unitPrice.toStringAsFixed(2),
+          item.discountAmount.toStringAsFixed(2),
+          (item.unitPrice * item.quantity - item.discountAmount).toStringAsFixed(2),
+          item.employeeName ?? state.employeeById(item.employeeId)?.name ?? '',
+          item.calculatedCommission.toStringAsFixed(2),
+          bill.finalAmount.toStringAsFixed(2),
+          bill.amountPaid.toStringAsFixed(2),
+          bill.amountDue.toStringAsFixed(2),
+          bill.paymentMethod,
+        ]);
+      }
+    }
+
+    if (sorted.isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Nothing to export in this window.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final scope = _branchId == null
+        ? 'all-branches'
+        : (branchNames[_branchId] ?? _branchId!).toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+    final from = '${windowStart.year}-${windowStart.month.toString().padLeft(2, '0')}';
+    final filename = 'salon-audit-$scope-$from.csv';
+
+    try {
+      final result = await exportCsv(filename, toCsv(rows));
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            switch (result) {
+              CsvExportResult.downloaded =>
+                'Exported ${rows.length - 1} line${rows.length == 2 ? '' : 's'} to $filename',
+              CsvExportResult.copiedToClipboard =>
+                'Copied ${rows.length - 1} line${rows.length == 2 ? '' : 's'} as CSV - paste into a spreadsheet',
+            },
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Export failed: $e'),
+          backgroundColor: AppTheme.accentRed,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   void _showTimeframePicker(BuildContext context) {

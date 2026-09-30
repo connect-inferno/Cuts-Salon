@@ -17,6 +17,11 @@ class OwnerDashboardTab extends ConsumerWidget {
   // silently the moment the tab list was reordered.
   final VoidCallback onOpenBilling;
   final VoidCallback onOpenAttendance;
+  // Where the four metric cards go when tapped. Each one answers half a
+  // question ("4 bills today") and the page behind it answers the rest
+  // ("which four"), so a card that does nothing is a dead end.
+  final VoidCallback? onOpenClients;
+  final VoidCallback? onOpenReports;
   final VoidCallback? onOpenNotifications;
   final VoidCallback? onOpenProfile;
   final VoidCallback? onOpenSettings;
@@ -28,6 +33,8 @@ class OwnerDashboardTab extends ConsumerWidget {
     super.key,
     required this.onOpenBilling,
     required this.onOpenAttendance,
+    this.onOpenClients,
+    this.onOpenReports,
     this.onOpenNotifications,
     this.onOpenProfile,
     this.onOpenSettings,
@@ -183,11 +190,11 @@ class OwnerDashboardTab extends ConsumerWidget {
                     ],
 
                     // 2. Bento 2x2 Metric Cards
-                    _buildMetricGrid(dashboard),
+                    _buildMetricGrid(dashboard, state),
                     const SizedBox(height: 18),
 
                     // 3. Revenue Progress Card (Daily Target Overview)
-                    _buildRevenueProgressCard(dashboard),
+                    _buildRevenueProgressCard(context, ref, dashboard, state),
                     const SizedBox(height: 18),
 
                     // 4. Payment Breakdown Card
@@ -242,7 +249,7 @@ class OwnerDashboardTab extends ConsumerWidget {
     );
   }
 
-  Widget _buildMetricGrid(DashboardSummary dashboard) {
+  Widget _buildMetricGrid(DashboardSummary dashboard, AppData state) {
     final avgTicket = dashboard.todayBillCount > 0
         ? (dashboard.todaySales / dashboard.todayBillCount).round()
         : 0;
@@ -267,6 +274,7 @@ class OwnerDashboardTab extends ConsumerWidget {
                 badgeBgColor: const Color(0xFFEEF2FF),
                 title: "Today's Sales",
                 value: _formatCurrency(dashboard.todaySales),
+                onTap: onOpenBilling,
               ),
             ),
             // 2. This Week
@@ -281,6 +289,7 @@ class OwnerDashboardTab extends ConsumerWidget {
                 badgeBgColor: const Color(0xFFF5F3FF),
                 title: 'This Week',
                 value: _formatCurrency(dashboard.weekSales),
+                onTap: onOpenReports,
               ),
             ),
             // 3. Today's Customers
@@ -295,6 +304,7 @@ class OwnerDashboardTab extends ConsumerWidget {
                 badgeBgColor: const Color(0xFFEFF6FF),
                 title: "Today's Customers",
                 value: '${dashboard.todayCustomersCount}',
+                onTap: onOpenClients,
               ),
             ),
             // 4. Bills Today
@@ -309,6 +319,7 @@ class OwnerDashboardTab extends ConsumerWidget {
                 badgeBgColor: const Color(0xFFFEF3C7),
                 title: 'Bills Today',
                 value: '${dashboard.todayBillCount}',
+                onTap: onOpenBilling,
               ),
             ),
           ],
@@ -326,8 +337,9 @@ class OwnerDashboardTab extends ConsumerWidget {
     required Color badgeBgColor,
     required String title,
     required String value,
+    VoidCallback? onTap,
   }) {
-    return Container(
+    final card = Container(
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -401,13 +413,132 @@ class OwnerDashboardTab extends ConsumerWidget {
         ],
       ),
     );
+
+    if (onTap == null) return card;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: card,
+    );
   }
 
-  Widget _buildRevenueProgressCard(DashboardSummary dashboard) {
+  /// Sets (or clears) the salon's daily takings goal.
+  ///
+  /// This is one field on the `settings` document AppData already carries, so
+  /// saving it costs a single write and the card re-renders off the patched
+  /// snapshot - no reload, no extra read. Owner-only by firestore.rules,
+  /// which is the same gate every other settings write goes through.
+  void _showDailyTargetDialog(BuildContext context, WidgetRef ref, double current) {
+    final controller = TextEditingController(text: current > 0 ? current.round().toString() : '');
+    var saving = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text(
+            'Daily revenue target',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'What the salon aims to take in a day. Leave it empty to go '
+                'back to showing the running daily average instead.',
+                style: TextStyle(fontSize: 12.5, color: Color(0xFF64748B), height: 1.4),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                keyboardType: TextInputType.number,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Target (Rs.)',
+                  prefixIcon: Icon(PhosphorIconsRegular.target, size: 19),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      final raw = controller.text.trim();
+                      // Empty clears the target; anything else has to be a
+                      // number, so a typo cannot silently write 0 and make
+                      // the card claim the goal was met at the first rupee.
+                      final value = raw.isEmpty ? 0.0 : double.tryParse(raw);
+                      if (value == null || value < 0) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(
+                            content: Text('Enter a number, or leave it empty to clear the target.'),
+                            backgroundColor: AppTheme.accentRed,
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                        return;
+                      }
+                      setDialogState(() => saving = true);
+                      try {
+                        await ref
+                            .read(appDataProvider.notifier)
+                            .updateSettings({'dailyRevenueTarget': value});
+                        if (ctx.mounted) Navigator.pop(ctx);
+                      } catch (e) {
+                        setDialogState(() => saving = false);
+                        if (ctx.mounted) {
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            SnackBar(
+                              content: Text(e.toString()),
+                              backgroundColor: AppTheme.accentRed,
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        }
+                      }
+                    },
+              child: saving
+                  ? const SizedBox(
+                      height: 16,
+                      width: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRevenueProgressCard(
+    BuildContext context,
+    WidgetRef ref,
+    DashboardSummary dashboard,
+    AppData state,
+  ) {
     final actual = dashboard.todaySales;
-    final planned = dashboard.monthSales > 0
-        ? (dashboard.monthSales / (DateTime.now().day > 0 ? DateTime.now().day : 1)).roundToDouble()
-        : actual;
+    // The target the owner set, if they set one. Before this existed the
+    // "planned" figure was this month's takings divided by the days elapsed -
+    // a running average dressed up as a goal, which meant the card could
+    // never be beaten by much and there was nowhere to change it. An explicit
+    // target of 0 means "not set", and the old average is the fallback so the
+    // card still says something useful on day one.
+    final configured = state.settings?.dailyRevenueTarget ?? 0;
+    final isConfigured = configured > 0;
+    final planned = isConfigured
+        ? configured
+        : (dashboard.monthSales > 0
+            ? (dashboard.monthSales / (DateTime.now().day > 0 ? DateTime.now().day : 1)).roundToDouble()
+            : actual);
     final progress = planned > 0 ? (actual / planned).clamp(0.0, 1.0) : (actual > 0 ? 1.0 : 0.0);
     final percentage = (progress * 100).round();
     final remaining = (planned - actual).clamp(0.0, double.infinity);
@@ -447,7 +578,7 @@ class OwnerDashboardTab extends ConsumerWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Daily Target Overview',
+                    isConfigured ? 'Daily Target Overview' : 'Daily average so far this month',
                     style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
@@ -456,18 +587,36 @@ class OwnerDashboardTab extends ConsumerWidget {
                   ),
                 ],
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEEF2FF),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  actual >= planned && actual > 0 ? 'Target Met' : 'In Progress',
-                  style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFF4F46E5),
+              // The badge judges the day against `planned`, so the control
+              // that sets `planned` belongs next to it - "where do I change
+              // this" was otherwise unanswerable from the card making the
+              // claim.
+              InkWell(
+                onTap: () => _showDailyTargetDialog(context, ref, configured),
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(10, 4, 7, 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEEF2FF),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        !isConfigured
+                            ? 'Set target'
+                            : (actual >= planned && actual > 0 ? 'Target Met' : 'In Progress'),
+                        style: const TextStyle(
+                          fontFamily: 'Plus Jakarta Sans',
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF4F46E5),
+                        ),
+                      ),
+                      const SizedBox(width: 3),
+                      const Icon(PhosphorIconsBold.caretRight, size: 9, color: Color(0xFF4F46E5)),
+                    ],
                   ),
                 ),
               ),

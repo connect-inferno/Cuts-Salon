@@ -1599,6 +1599,12 @@ class SalonFirestore {
       notes: expense.notes,
     );
   }
+
+  /// Expenses are the one collection here that genuinely can be deleted: a
+  /// mistyped petty-cash entry is a data-entry error, not history worth
+  /// keeping, and firestore.rules already scopes the whole collection to the
+  /// owner. Bills stay immutable - see the rule above them for why.
+  Future<void> deleteExpense(String id) => db.collection('expenses').doc(id).delete();
 }
 
 /// Everything [SalonFirestore.createBill]'s transaction wrote.

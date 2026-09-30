@@ -166,6 +166,11 @@ class FSCustomer {
   final double outstandingBalance;
   final DateTime? lastVisitAt;
   final bool archived;
+  /// Who added this client, stamped once at create. Denormalizing the name
+  /// beside the uid keeps the directory readable after that staff member
+  /// leaves - see Customer.createdByName.
+  final String? createdById;
+  final String? createdByName;
 
   FSCustomer({
     required this.id,
@@ -182,6 +187,8 @@ class FSCustomer {
     this.outstandingBalance = 0,
     this.lastVisitAt,
     this.archived = false,
+    this.createdById,
+    this.createdByName,
   });
 
   factory FSCustomer.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -201,6 +208,8 @@ class FSCustomer {
       outstandingBalance: _num(d['outstandingBalance']),
       lastVisitAt: _ts(d['lastVisitAt']),
       archived: d['archived'] ?? false,
+      createdById: d['createdById'],
+      createdByName: d['createdByName'],
     );
   }
 
@@ -223,6 +232,11 @@ class FSCustomer {
         if (isCreate) 'visitCount': 0,
         if (isCreate) 'totalSpent': 0,
         if (isCreate) 'outstandingBalance': 0,
+        // Create-only: who added the client is a fact about the moment the
+        // record was made, so later edits (a rename, a VIP flag, the stat
+        // bumps inside createBill) must never rewrite it.
+        if (isCreate && createdById != null) 'createdById': createdById,
+        if (isCreate && createdByName != null) 'createdByName': createdByName,
       };
 }
 
@@ -840,6 +854,9 @@ class FSSettings {
   final bool gstEnabled;
   final double gstRate;
   final double lateAttendancePenalty;
+  /// The salon's own daily takings goal. 0 = never set; see
+  /// SalonSettings.dailyRevenueTarget for what the dashboard does then.
+  final double dailyRevenueTarget;
 
   FSSettings({
     required this.salonName,
@@ -848,6 +865,7 @@ class FSSettings {
     this.gstEnabled = false,
     required this.gstRate,
     required this.lateAttendancePenalty,
+    this.dailyRevenueTarget = 0,
   });
 
   factory FSSettings.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -858,14 +876,16 @@ class FSSettings {
       phone: d['phone'],
       address: d['address'],
       gstRate: rate,
-      // Salons provisioned before this toggle existed have no `gstEnabled`
-      // field, but plenty of them have a rate configured - defaulting those
-      // to false would silently stop them charging tax on every bill. An
-      // absent field therefore means "on iff a rate was set", which
-      // reproduces the old rate-only behaviour exactly. A new salon starts
-      // at rate 0, so it starts disabled, which is the intended default.
-      gstEnabled: d['gstEnabled'] ?? (rate > 0),
+      // GST is off unless the salon has explicitly switched it on. This used
+      // to read `?? (rate > 0)` so that salons provisioned before the toggle
+      // existed kept charging tax on an absent flag; that inferred an opt-in
+      // nobody made, so a salon could charge GST it had never agreed to.
+      // Consequence of the change: any salon that was relying on the inferred
+      // value needs `gstEnabled: true` written to its settings doc once (one
+      // Console edit per salon), or it silently stops charging tax.
+      gstEnabled: d['gstEnabled'] ?? false,
       lateAttendancePenalty: _num(d['lateAttendancePenalty']),
+      dailyRevenueTarget: _num(d['dailyRevenueTarget']),
     );
   }
 
@@ -876,5 +896,6 @@ class FSSettings {
         'gstEnabled': gstEnabled,
         'gstRate': gstRate,
         'lateAttendancePenalty': lateAttendancePenalty,
+        'dailyRevenueTarget': dailyRevenueTarget,
       };
 }

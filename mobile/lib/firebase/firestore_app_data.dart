@@ -84,6 +84,8 @@ Customer customerFromFS(FSCustomer c) => Customer(
       outstandingBalance: c.outstandingBalance,
       lastVisitAt: c.lastVisitAt,
       archived: c.archived,
+      createdById: c.createdById,
+      createdByName: c.createdByName,
     );
 
 ServiceCategory categoryFromFS(FSServiceCategory c) => ServiceCategory(id: c.id, name: c.name);
@@ -218,6 +220,7 @@ SalonSettings settingsFromFS(FSSettings s) => SalonSettings(
       gstEnabled: s.gstEnabled,
       gstRate: s.gstRate,
       lateAttendancePenalty: s.lateAttendancePenalty,
+      dailyRevenueTarget: s.dailyRevenueTarget,
     );
 
 // Assembles one AppData from Firestore, replicating every requester-based

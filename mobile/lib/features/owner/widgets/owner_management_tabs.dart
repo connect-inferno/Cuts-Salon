@@ -258,6 +258,63 @@ class OwnerBranchTab extends StatelessWidget {
     );
   }
 
+  /// One stat on a branch card: a quiet label line with its icon, then the
+  /// number on its own line at full box width.
+  Widget _branchStatBox({
+    required IconData icon,
+    required String label,
+    required String value,
+    Color? valueColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFF1F5F9)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 13, color: const Color(0xFF94A3B8)),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              maxLines: 1,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.3,
+                color: valueColor ?? const Color(0xFF0F172A),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildBody(BuildContext context, WidgetRef ref, AppData state) {
     final totalRevenue = state.branches.fold<double>(0, (sum, b) => sum + b.monthlyRevenue);
     final activeCount = state.branches.where((b) => b.active).length;
@@ -276,13 +333,17 @@ class OwnerBranchTab extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // No hardcoded newline: this page is opened inside Salon
+                    // Settings, which already draws a header, so a forced
+                    // two-line title stacked a second heading under the first
+                    // and pushed the Add Branch button out of line with it.
                     const Text(
-                      'Multi-Branch\nPerformance',
+                      'Multi-Branch Performance',
                       style: TextStyle(
                         fontWeight: FontWeight.w800,
-                        fontSize: 22,
-                        letterSpacing: -0.6,
-                        height: 1.15,
+                        fontSize: 19,
+                        letterSpacing: -0.4,
+                        height: 1.2,
                         color: Color(0xFF0F172A),
                       ),
                     ),
@@ -553,144 +614,43 @@ class OwnerBranchTab extends StatelessWidget {
                       ),
                       const SizedBox(height: 16),
 
-                      // Metrics 3-Item Row
+                      // Metrics 3-Item Row.
+                      //
+                      // Each box stacks its value over its label instead of
+                      // sitting the two beside an icon: at a third of a phone
+                      // width the horizontal version had about 40px for the
+                      // value, which is what turned "4 Stylists" into
+                      // "4 Styli..." and made the card look broken. The icon
+                      // moved onto the label line, where being clipped would
+                      // cost nothing, and the value now gets the full width.
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // Clients Box
                           Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF8FAFC),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: const Color(0xFFF1F5F9)),
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(5),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFEEF2FF),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Icon(PhosphorIconsRegular.users, size: 14, color: Color(0xFF4F46E5)),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          '${branch.customerCount}',
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w800,
-                                            color: Color(0xFF0F172A),
-                                          ),
-                                        ),
-                                        // "Served here", not "belong here" -
-                                        // the client directory is shared by
-                                        // every branch, so this counts
-                                        // distinct clients billed at this one.
-                                        const Text(
-                                          'Served',
-                                          style: TextStyle(
-                                            fontSize: 9,
-                                            fontWeight: FontWeight.w500,
-                                            color: Color(0xFF64748B),
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
+                            child: _branchStatBox(
+                              icon: PhosphorIconsRegular.users,
+                              // "Served here", not "belong here" - the client
+                              // directory is shared by every branch, so this
+                              // counts distinct clients billed at this one.
+                              label: 'Served',
+                              value: '${branch.customerCount}',
                             ),
                           ),
                           const SizedBox(width: 8),
-
-                          // Staff Box
                           Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF8FAFC),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: const Color(0xFFF1F5F9)),
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(5),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFEEF2FF),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Icon(PhosphorIconsRegular.identificationBadge, size: 14, color: Color(0xFF4F46E5)),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          '${branch.employeeCount} Stylists',
-                                          style: const TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w800,
-                                            color: Color(0xFF0F172A),
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        const Text(
-                                          'Staff',
-                                          style: TextStyle(
-                                            fontSize: 9,
-                                            fontWeight: FontWeight.w500,
-                                            color: Color(0xFF64748B),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
+                            child: _branchStatBox(
+                              icon: PhosphorIconsRegular.identificationBadge,
+                              label: 'Staff',
+                              value: '${branch.employeeCount}',
                             ),
                           ),
                           const SizedBox(width: 8),
-
-                          // Rev/Emp Box
                           Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF8FAFC),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: const Color(0xFFF1F5F9)),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _formatRupees(revenuePerEmployee),
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w800,
-                                      color: Color(0xFF4F46E5),
-                                    ),
-                                  ),
-                                  const Text(
-                                    'Rev/Emp',
-                                    style: TextStyle(
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w500,
-                                      color: Color(0xFF64748B),
-                                    ),
-                                  ),
-                                ],
-                              ),
+                            child: _branchStatBox(
+                              icon: PhosphorIconsRegular.trendUp,
+                              label: 'Rev/Emp',
+                              value: _formatRupees(revenuePerEmployee),
+                              valueColor: const Color(0xFF4F46E5),
                             ),
                           ),
                         ],

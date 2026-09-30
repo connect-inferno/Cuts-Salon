@@ -130,6 +130,12 @@ class Customer {
   // documents (and all their past bills) stay exactly where they were -
   // firestore.rules blocks customer deletes on purpose.
   final bool archived;
+  /// Who added this client. The name is denormalized alongside the uid on
+  /// purpose: the client directory renders hundreds of rows and looking each
+  /// creator up in employees would be a join the loaded snapshot cannot
+  /// always satisfy (staff who have since left are no longer in the list).
+  final String? createdById;
+  final String? createdByName;
 
   Customer({
     required this.id,
@@ -146,6 +152,8 @@ class Customer {
     this.outstandingBalance = 0,
     this.lastVisitAt,
     this.archived = false,
+    this.createdById,
+    this.createdByName,
   });
 
   factory Customer.fromJson(Map<String, dynamic> json) => Customer(
@@ -162,6 +170,8 @@ class Customer {
         totalSpent: _num(json['totalSpent']),
         outstandingBalance: _num(json['outstandingBalance']),
         lastVisitAt: _date(json['lastVisitAt']),
+        createdById: json['createdById'],
+        createdByName: json['createdByName'],
       );
 }
 
@@ -628,6 +638,10 @@ class SalonSettings {
   final bool gstEnabled;
   final double gstRate;
   final double lateAttendancePenalty;
+  /// What the salon aims to take in a day. 0 means "never set", which is
+  /// what makes the dashboard fall back to the running daily average rather
+  /// than showing a target of zero and a permanently met goal.
+  final double dailyRevenueTarget;
 
   SalonSettings({
     required this.salonName,
@@ -636,6 +650,7 @@ class SalonSettings {
     this.gstEnabled = false,
     required this.gstRate,
     required this.lateAttendancePenalty,
+    this.dailyRevenueTarget = 0,
   });
 
   /// The rate that actually applies to a bill. Every caller should use this
@@ -650,10 +665,11 @@ class SalonSettings {
       phone: json['phone'],
       address: json['address'],
       gstRate: rate,
-      // Same back-compat rule as FSSettings.fromFirestore - see the comment
-      // there for why an absent flag means "on iff a rate was set".
-      gstEnabled: json['gstEnabled'] ?? (rate > 0),
+      // Same default as FSSettings.fromFirestore - see the comment there for
+      // why an absent flag now means off rather than "on iff a rate was set".
+      gstEnabled: json['gstEnabled'] ?? false,
       lateAttendancePenalty: _num(json['lateAttendancePenalty']),
+      dailyRevenueTarget: _num(json['dailyRevenueTarget']),
     );
   }
 }

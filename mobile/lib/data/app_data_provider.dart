@@ -398,6 +398,12 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     if (await _fs.isCustomerPhoneTaken(phone)) {
       throw Exception('A customer with this phone number already exists');
     }
+    // Who added this client, resolved from the already-loaded snapshot -
+    // no extra read. Falls back to the signed-in display name when the
+    // employee list has not landed yet (staff open this straight off a cold
+    // start), so the stamp is never silently dropped.
+    final auth = ref.read(authControllerProvider);
+    final creator = state.value?.employeeById(auth.userId ?? '');
     final createdFS = await _fs.createCustomer(FSCustomer(
       id: '',
       name: name,
@@ -406,6 +412,8 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       gender: gender,
       isVip: isVip ?? false,
       branchId: registeredAtBranchId ?? '',
+      createdById: auth.userId,
+      createdByName: creator?.name ?? auth.name,
     ));
     final created = customerFromFS(createdFS);
     final current = state.value;
@@ -461,8 +469,27 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   // salon has more than listBills()'s page size in total.
   Future<List<Bill>> loadBillsForCustomer(String customerId) async {
     final billsFS = await _fs.listBillsForCustomer(customerId);
-    final itemsByBill = await Future.wait(billsFS.map((b) => _fs.listBillItems(b.id)));
-    return [for (var i = 0; i < billsFS.length; i++) billFromFS(billsFS[i], items: itemsByBill[i])];
+    // Items and payments are independent of each other, so they go out
+    // together rather than one after the other.
+    final itemsFuture = Future.wait(billsFS.map((b) => _fs.listBillItems(b.id)));
+    // Payments have to be folded in here, exactly as loadAppData does it.
+    // Without them a bill's amountPaid is only what was taken at the counter,
+    // so a later settlement was invisible on this path: the client detail
+    // page showed a ₹500 bill part-paid ₹300 as ₹300 still owed while the
+    // dues list - which does fold payments in - showed the correct ₹200. Two
+    // screens one tap apart disagreeing about what a client owes is worse
+    // than either number being wrong on its own.
+    final paymentsFuture = _fs.listPaymentsForBills(billsFS);
+    final itemsByBill = await itemsFuture;
+    final paymentsByBill = await paymentsFuture;
+    return [
+      for (var i = 0; i < billsFS.length; i++)
+        billFromFS(
+          billsFS[i],
+          items: itemsByBill[i],
+          payments: paymentsByBill[billsFS[i].id] ?? const [],
+        ),
+    ];
   }
 
   // --- Catalog ---

@@ -267,13 +267,10 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
           description: 'GST is added to every new bill once it is switched on.',
           builder: (_) => const OwnerTaxSettingsPage(),
         ),
-        AppSettingsSection(
-          icon: PhosphorIconsRegular.tag,
-          label: 'Services & Pricing',
-          description:
-              '${state.services.length} services and ${state.inventory.length} products. These are the prices a bill resolves against.',
-          builder: (_) => const OwnerInventoryTab(),
-        ),
+        // Services & Pricing used to sit here too. It is a top-level
+        // destination in the drawer ("Services"), so having it behind
+        // Billing's gear as well meant the same page had two homes and the
+        // catalog looked like a billing setting rather than the salon's menu.
         AppSettingsSection(
           icon: PhosphorIconsRegular.handCoins,
           label: 'Dues',
@@ -3603,7 +3600,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
-                      'Transactions',
+                      'History',
                       style: TextStyle(
                         fontSize: 14.5,
                         fontWeight: FontWeight.w800,
@@ -3611,7 +3608,8 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                       ),
                     ),
                     Text(
-                      '${visible.length} shown',
+                      '${visible.length} entr${visible.length == 1 ? 'y' : 'ies'}'
+                      '${_filter == 'All' ? '' : ' in $_filter'}',
                       style: const TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
@@ -3662,34 +3660,68 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                     ),
                   )
                 else
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.03),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Column(
-                      children: [
-                        for (int i = 0; i < visible.length; i++) ...[
-                          if (i > 0)
-                            const Divider(
-                              height: 1,
-                              thickness: 1,
-                              color: Color(0xFFF1F5F9),
+                  // Grouped by month with a subtotal on each header. A flat
+                  // reverse-chronological list answers "what did we spend on"
+                  // but not "what did we spend in August", which is the
+                  // question an expense history exists for - and with a few
+                  // hundred rows the month boundaries were invisible.
+                  for (final group in _groupByMonth(visible)) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              group.label,
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.3,
+                                color: Color(0xFF64748B),
+                              ),
                             ),
-                          _expenseRow(visible[i]),
+                          ),
+                          Text(
+                            '-₹${group.total.toStringAsFixed(0)}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
                         ],
-                      ],
+                      ),
                     ),
-                  ),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.03),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Column(
+                        children: [
+                          for (int i = 0; i < group.items.length; i++) ...[
+                            if (i > 0)
+                              const Divider(
+                                height: 1,
+                                thickness: 1,
+                                color: Color(0xFFF1F5F9),
+                              ),
+                            _expenseRow(context, ref, group.items[i]),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
               ],
             ),
           ),
@@ -3835,9 +3867,11 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
     );
   }
 
-  Widget _expenseRow(Expense exp) {
+  Widget _expenseRow(BuildContext context, WidgetRef ref, Expense exp) {
     final style = _styleFor(exp.category);
-    return Padding(
+    return InkWell(
+      onTap: () => _showExpenseDetail(context, ref, exp),
+      child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
         children: [
@@ -3877,6 +3911,22 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
+                // The note was captured at entry and then never shown
+                // anywhere, which made the field feel pointless to fill in.
+                if (exp.notes != null && exp.notes!.trim().isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    exp.notes!.trim(),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF64748B),
+                      fontWeight: FontWeight.w500,
+                      height: 1.3,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ],
             ),
           ),
@@ -3889,8 +3939,208 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
               color: AppTheme.accentRed,
             ),
           ),
+          const SizedBox(width: 4),
+          const Icon(PhosphorIconsBold.caretRight, size: 12, color: Color(0xFFCBD5E1)),
+        ],
+      ),
+      ),
+    );
+  }
+
+  /// One expense in full, with the one destructive action this collection
+  /// allows. Deleting is deliberately behind a confirm and a second screen:
+  /// the row it starts from is 60px tall in a long list, and an accidental
+  /// swipe-delete on a month of petty cash has no undo.
+  void _showExpenseDetail(BuildContext context, WidgetRef ref, Expense exp) {
+    final style = _styleFor(exp.category);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: style.bg,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(style.icon, size: 20, color: style.fg),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          exp.title,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                        Text(
+                          '${exp.category} · ${exp.date != null ? _formatDateTime(exp.date) : 'No date'}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF94A3B8),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    '-₹${exp.amount.toStringAsFixed(0)}',
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.accentRed,
+                    ),
+                  ),
+                ],
+              ),
+              if (exp.notes != null && exp.notes!.trim().isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFF1F5F9)),
+                  ),
+                  child: Text(
+                    exp.notes!.trim(),
+                    style: const TextStyle(fontSize: 12.5, height: 1.45, color: Color(0xFF475467)),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                height: 46,
+                child: OutlinedButton.icon(
+                  onPressed: () => _confirmDeleteExpense(context, ctx, ref, exp),
+                  icon: const Icon(PhosphorIconsRegular.trash, size: 18, color: AppTheme.accentRed),
+                  label: const Text(
+                    'Delete this expense',
+                    style: TextStyle(color: AppTheme.accentRed, fontWeight: FontWeight.w700),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFFFECDCA)),
+                    backgroundColor: AppTheme.accentRedBg,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _confirmDeleteExpense(
+    BuildContext context,
+    BuildContext sheetContext,
+    WidgetRef ref,
+    Expense exp,
+  ) {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Delete expense?',
+          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+        ),
+        content: Text(
+          '"${exp.title}" (₹${exp.amount.toStringAsFixed(0)}) will be removed from '
+          'the ledger. This cannot be undone.',
+          style: const TextStyle(fontSize: 13, height: 1.4, color: Color(0xFF64748B)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accentRed),
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              Navigator.pop(dialogCtx);
+              if (sheetContext.mounted) Navigator.pop(sheetContext);
+              try {
+                await ref.read(expensesProvider.notifier).remove(exp.id);
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text('Deleted "${exp.title}".'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              } catch (e) {
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text(e.toString()),
+                    backgroundColor: AppTheme.accentRed,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+            child: const Text('Delete'),
+          ),
         ],
       ),
     );
   }
+
+  /// Splits an already-newest-first list into month buckets, preserving that
+  /// order. listExpenses() orders by date descending, so one pass is enough -
+  /// no sort, and undated rows fall into their own bucket at the end rather
+  /// than being dropped from the history entirely.
+  List<_ExpenseMonth> _groupByMonth(List<Expense> expenses) {
+    final groups = <String, _ExpenseMonth>{};
+    final order = <String>[];
+    for (final e in expenses) {
+      final d = e.date;
+      final key = d == null ? 'undated' : '${d.year}-${d.month}';
+      final group = groups.putIfAbsent(key, () {
+        order.add(key);
+        return _ExpenseMonth(
+          label: d == null ? 'NO DATE' : '${_kExpenseMonths[d.month - 1]} ${d.year}'.toUpperCase(),
+        );
+      });
+      group.items.add(e);
+      group.total += e.amount;
+    }
+    return [for (final k in order) groups[k]!];
+  }
+}
+
+const _kExpenseMonths = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/// One month of expenses, as the history renders it.
+class _ExpenseMonth {
+  final String label;
+  final List<Expense> items = [];
+  double total = 0;
+
+  _ExpenseMonth({required this.label});
 }
