@@ -50,6 +50,12 @@ class AppData {
   /// from the list for staff - so badges work without either role holding
   /// documents they do not display.
   final int pendingDiscountCount;
+
+  /// Settlement requests awaiting the owner. Counted, not listed: the
+  /// documents load lazily when the queue is opened (see
+  /// data/payment_requests_provider.dart), but the badge has to be right
+  /// from the first frame. Always 0 for staff, who do not approve anything.
+  final int pendingPaymentRequestCount;
   final List<SalesTarget> salesTargets;
   final List<CommissionRecord> commissions;
   final List<AttendanceRecord> attendance;
@@ -67,6 +73,7 @@ class AppData {
     required this.bills,
     required this.discountRequests,
     this.pendingDiscountCount = 0,
+    this.pendingPaymentRequestCount = 0,
     required this.salesTargets,
     required this.commissions,
     required this.attendance,
@@ -137,6 +144,7 @@ class AppData {
     List<Bill>? bills,
     List<DiscountRequest>? discountRequests,
     int? pendingDiscountCount,
+    int? pendingPaymentRequestCount,
     List<SalesTarget>? salesTargets,
     List<CommissionRecord>? commissions,
     List<AttendanceRecord>? attendance,
@@ -154,6 +162,7 @@ class AppData {
       bills: bills ?? this.bills,
       discountRequests: discountRequests ?? this.discountRequests,
       pendingDiscountCount: pendingDiscountCount ?? this.pendingDiscountCount,
+      pendingPaymentRequestCount: pendingPaymentRequestCount ?? this.pendingPaymentRequestCount,
       salesTargets: salesTargets ?? this.salesTargets,
       commissions: commissions ?? this.commissions,
       attendance: attendance ?? this.attendance,
