@@ -257,6 +257,9 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
     // their Discounts tab needs them anyway.
     auth.isOwner ? Future.value(<FSDiscountRequest>[]) : fs.listDiscountRequests(requestedBy: selfId),
     auth.isOwner ? fs.countPendingDiscountRequests() : Future.value(-1),
+    // One aggregate query, owner only - staff neither approve these nor
+    // carry a badge for them, so they skip it entirely.
+    auth.isOwner ? fs.countPendingPaymentRequests() : Future.value(0),
     fs.listSalesTargets(employeeId: selfId),
     // Salary records are absent for the same reason as expenses, and more
     // urgently: the query is uncapped, so it grows every month forever.
@@ -275,9 +278,10 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
   final billsFS = results[7] as List<FSBill>;
   final discountRequestsFS = results[8] as List<FSDiscountRequest>;
   final pendingDiscountsCounted = results[9] as int;
-  final salesTargetsFS = results[10] as List<FSSalesTarget>;
-  final commissionsFS = results[11] as List<FSCommissionRecord>;
-  final attendanceFS = results[12] as List<FSAttendanceRecord>;
+  final pendingPaymentRequestsCounted = results[10] as int;
+  final salesTargetsFS = results[11] as List<FSSalesTarget>;
+  final commissionsFS = results[12] as List<FSCommissionRecord>;
+  final attendanceFS = results[13] as List<FSAttendanceRecord>;
 
   // -1 is the staff sentinel from the wait above: derive it from the list
   // they already hold rather than spending a second query on it.
@@ -363,6 +367,7 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
     inventory: inventoryFS.map(inventoryFromFS).toList(),
     bills: bills,
     discountRequests: discountRequestsFS.map(discountRequestFromFS).toList(),
+    pendingPaymentRequestCount: pendingPaymentRequestsCounted,
     pendingDiscountCount: pendingDiscountCount,
     salesTargets: salesTargetsFS.map(salesTargetFromFS).toList(),
     commissions: commissionsFS.map(commissionRecordFromFS).toList(),

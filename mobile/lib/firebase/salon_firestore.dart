@@ -1581,6 +1581,56 @@ class SalonFirestore {
     return FSDiscountRequest.fromFirestore(await ref.get());
   }
 
+  // --- Payment (settlement) requests ---
+
+  /// Badge count only, on the same reasoning as
+  /// [countPendingDiscountRequests]: an aggregate query costs a fraction of
+  /// reading the documents, and the owner's dashboard needs the number long
+  /// before anyone opens the queue.
+  Future<int> countPendingPaymentRequests() async {
+    try {
+      final snap = await db
+          .collection('paymentRequests')
+          .where('status', isEqualTo: 'PENDING')
+          .count()
+          .get();
+      return snap.count ?? 0;
+    } catch (e) {
+      debugPrint('[Stylux] pending payment-request count failed, badge will read 0: $e');
+      return 0;
+    }
+  }
+
+  Future<List<FSPaymentRequest>> listPaymentRequests({String? requestedBy, int limit = 200}) async {
+    Query<Map<String, dynamic>> q = db.collection('paymentRequests');
+    if (requestedBy != null) q = q.where('requestedBy', isEqualTo: requestedBy);
+    q = q.orderBy('createdAt', descending: true).limit(limit);
+    final snap = await q.get();
+    return snap.docs.map(FSPaymentRequest.fromFirestore).toList();
+  }
+
+  Future<FSPaymentRequest> createPaymentRequest(FSPaymentRequest request) async {
+    final ref = await db.collection('paymentRequests').add(request.toFirestore(isCreate: true));
+    return FSPaymentRequest.fromFirestore(await ref.get());
+  }
+
+  /// Marks a request decided. Deliberately does NOT write the payment: that
+  /// goes through recordPayment's transaction, which is the one place that
+  /// knows how to move the customer's outstanding balance with it. The
+  /// caller approves the money first and stamps the request second, so a
+  /// failure here leaves a PENDING request over a real payment (visible, and
+  /// re-resolvable) rather than an APPROVED request over no payment at all.
+  Future<FSPaymentRequest> resolvePaymentRequest(String id, {required bool approve}) async {
+    final ref = db.collection('paymentRequests').doc(id);
+    final doc = await ref.get();
+    if (!doc.exists) throw Exception('Payment request not found');
+    if (doc.data()?['status'] != 'PENDING') {
+      throw Exception('Only pending requests can be ${approve ? 'approved' : 'rejected'}');
+    }
+    await ref.update({'status': approve ? 'APPROVED' : 'REJECTED'});
+    return FSPaymentRequest.fromFirestore(await ref.get());
+  }
+
   // --- Expenses ---
 
   Future<List<FSExpense>> listExpenses({int limit = 500}) async {
