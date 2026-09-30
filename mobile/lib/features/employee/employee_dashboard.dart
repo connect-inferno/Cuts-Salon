@@ -17,6 +17,7 @@ import '../../widgets/app_dialog.dart';
 import '../../widgets/async_state_views.dart';
 import '../../widgets/add_customer_page.dart';
 import '../../widgets/dues_view.dart';
+import 'employee_payment_requests_view.dart';
 import '../../widgets/searchable_picker.dart';
 import '../../widgets/liquid_nav_bar.dart';
 
@@ -51,6 +52,14 @@ AttendanceRecord? _todayAttendance(AppData state, String employeeId) {
   final match = state.attendance.where((a) => a.employeeId == employeeId && a.date != null && _isSameDay(a.date!, today));
   return match.isEmpty ? null : match.first;
 }
+
+/// Month names, at the top level because the payout statements, the greeting
+/// line and the pay-period header all print them and three local copies had
+/// already started to drift.
+const kMonthFullNames = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
 
 String _targetTypeLabel(String type) {
   switch (type) {
@@ -205,9 +214,20 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
           icon: PhosphorIconsRegular.handCoins,
           label: 'Outstanding',
           description: owing > 0
-              ? '₹${outstanding.round()} still to collect, across $owing client${owing == 1 ? '' : 's'}.'
+              ? '₹${outstanding.round()} still to collect, across $owing client${owing == 1 ? '' : 's'}. '
+                  'Collecting one sends a request to your owner to approve.'
               : 'No client owes anything right now.',
-          builder: (_) => const DuesView(),
+          // requestOnly: staff raise a settlement request instead of
+          // recording the payment. firestore.rules enforces the same split,
+          // so this is the button telling the truth about what it can do.
+          builder: (_) => const DuesView(requestOnly: true),
+        ),
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.paperPlaneTilt,
+          label: 'My requests',
+          description:
+              'Settlement requests you have sent, and what your owner decided.',
+          builder: (_) => const EmployeePaymentRequestsView(),
         ),
       ],
     );
@@ -541,7 +561,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
       _page(
         key: const ValueKey('clients'),
         title: 'Clients',
-        subtitle: '${state.customers.length} on the books',
+        subtitle: 'The clients you have handled',
         actions: [
           AppPageAction(
             icon: PhosphorIconsRegular.bell,
@@ -554,7 +574,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
             onTap: () => _openClientSettings(context, state),
           ),
         ],
-        child: const _EmployeeCustomersTab(),
+        child: _EmployeeCustomersTab(profile: profile),
       ),
       _page(
         key: const ValueKey('earnings'),
@@ -619,7 +639,9 @@ class _EmployeeDashboardTab extends ConsumerWidget {
       children: [
         for (var i = 0; i < current.length && i < 2; i++) ...[
           if (i > 0) const SizedBox(height: 10),
-          _targetCard(current[i], now),
+          // The same card the Targets tab shows. `now` is no longer needed
+          // here: the card works out its own days-left from the target.
+          TargetHeroCard(target: current[i]),
         ],
       ],
     );
@@ -679,202 +701,6 @@ class _EmployeeDashboardTab extends ConsumerWidget {
       ),
     );
   }
-
-  Widget _targetCard(SalesTarget target, DateTime now) {
-    final fraction = target.progressFraction;
-    final pct = (fraction * 100).round();
-    final done = fraction >= 1;
-
-    // Days left in the target window, falling back to the end of the current
-    // calendar month when the target carries no end date.
-    final end = target.endDate ?? DateTime(now.year, now.month + 1, 0);
-    final daysLeft = DateTime(end.year, end.month, end.day)
-        .difference(DateTime(now.year, now.month, now.day))
-        .inDays;
-
-    // Pacing, not just progress: 40% through the target with 80% of the month
-    // gone is behind, and 40% with half the month left is not. Without a
-    // start date there is no elapsed fraction to compare against, so the bar
-    // stays neutral rather than guessing.
-    final start = target.startDate;
-    double? expected;
-    if (start != null && end.isAfter(start)) {
-      final total = end.difference(start).inSeconds;
-      final elapsed = now.difference(start).inSeconds;
-      if (total > 0) expected = (elapsed / total).clamp(0.0, 1.0);
-    }
-    final behind = !done && expected != null && fraction < expected - 0.05;
-
-    final accent = done
-        ? AppTheme.accentGreen
-        : behind
-            ? AppTheme.accentAmber
-            : AppTheme.primaryBlue;
-    final accentBg = done
-        ? AppTheme.accentGreenBg
-        : behind
-            ? AppTheme.accentAmberBg
-            : AppTheme.primaryLight;
-
-    final remaining = (target.targetValue - target.progressValue).clamp(
-      0.0,
-      double.infinity,
-    );
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.borderSubtle),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.slateDark.withValues(alpha: 0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: accentBg,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  done ? PhosphorIconsFill.trophy : PhosphorIconsRegular.target,
-                  size: 18,
-                  color: accent,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Monthly Target',
-                      style: TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w800,
-                        color: AppTheme.slateDark,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      targetTypeLabel(target.type),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                        color: AppTheme.slateLight,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                decoration: BoxDecoration(
-                  color: accentBg,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  '$pct%',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    color: accent,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Flexible(
-                child: Text(
-                  formatTargetValue(target.type, target.progressValue),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 21,
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.slateDark,
-                    letterSpacing: -0.6,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 5),
-              Flexible(
-                child: Text(
-                  'of ${formatTargetValue(target.type, target.targetValue)}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.slateLight,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: fraction,
-              minHeight: 8,
-              backgroundColor: const Color(0xFFF1F5F9),
-              valueColor: AlwaysStoppedAnimation<Color>(accent),
-            ),
-          ),
-          const SizedBox(height: 9),
-          Row(
-            children: [
-              Flexible(
-                child: Text(
-                  done
-                      ? 'Target reached'
-                      : '${formatTargetValue(target.type, remaining)} to go',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w700,
-                    color: done ? AppTheme.accentGreen : AppTheme.slateMedium,
-                  ),
-                ),
-              ),
-              const Spacer(),
-              Text(
-                daysLeft <= 0
-                    ? 'Last day'
-                    : '$daysLeft day${daysLeft == 1 ? '' : 's'} left',
-                style: const TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.slateLight,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
 
   Future<void> _toggleClock(BuildContext context, WidgetRef ref, bool isClockedIn) async {
     try {
@@ -1531,7 +1357,11 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 600),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            // stretch, not start. With start the clock card sized itself to
+            // the 120px circle inside it, so it sat about two thirds the
+            // width of the summary chips directly below - which read as a
+            // broken layout rather than as a deliberate shape.
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // Title removed: the page this sits in already names it.
 
@@ -1605,11 +1435,11 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
               // Month summary chips
               Row(
                 children: [
-                  _buildAttendChip('Present', '$presentDays days', AppTheme.accentGreen, AppTheme.accentGreenBg),
+                  _buildAttendChip('Present', _days(presentDays), AppTheme.accentGreen, AppTheme.accentGreenBg),
                   const SizedBox(width: 10),
-                  _buildAttendChip('Late', '$lateDays days', AppTheme.accentAmber, AppTheme.accentAmberBg),
+                  _buildAttendChip('Late', _days(lateDays), AppTheme.accentAmber, AppTheme.accentAmberBg),
                   const SizedBox(width: 10),
-                  _buildAttendChip('Absent', '$absentDays days', AppTheme.accentRed, AppTheme.accentRedBg),
+                  _buildAttendChip('Absent', _days(absentDays), AppTheme.accentRed, AppTheme.accentRedBg),
                 ],
               ),
 
@@ -1671,6 +1501,10 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
     );
   }
 
+  /// "1 day", not "1 days" - the chips sit side by side, so the wrong
+  /// plural on one of three is impossible not to read.
+  static String _days(int n) => '$n day${n == 1 ? '' : 's'}';
+
   Widget _buildAttendChip(String label, String value, Color fg, Color bg) {
     return Expanded(
       child: Container(
@@ -1691,7 +1525,9 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
 // ─── Customers tab ───────────────────────────────────────────────────────────
 
 class _EmployeeCustomersTab extends StatefulWidget {
-  const _EmployeeCustomersTab();
+  final EmployeeProfile profile;
+
+  const _EmployeeCustomersTab({required this.profile});
 
   @override
   State<_EmployeeCustomersTab> createState() => _EmployeeCustomersTabState();
@@ -1700,6 +1536,26 @@ class _EmployeeCustomersTab extends StatefulWidget {
 class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
   String _searchQuery = '';
   String _filter = 'All';
+
+  /// The bills this staff member worked on, grouped by client.
+  ///
+  /// Attribution is per line item, not per bill: two stylists can share one
+  /// bill, and whoever happens to be on the first line did not necessarily
+  /// do the rest of it. A bill counts as theirs if any line carries their id.
+  ///
+  /// Derived from the AppData snapshot that is already loaded, so scoping the
+  /// directory this way costs no Firestore read.
+  Map<String, List<Bill>> _myBillsByCustomer(AppData state) {
+    final byCustomer = <String, List<Bill>>{};
+    for (final bill in state.bills) {
+      if (!bill.items.any((i) => i.employeeId == widget.profile.id)) continue;
+      (byCustomer[bill.customerId] ??= []).add(bill);
+    }
+    for (final bills in byCustomer.values) {
+      bills.sort((a, b) => (b.createdAt ?? DateTime(2000)).compareTo(a.createdAt ?? DateTime(2000)));
+    }
+    return byCustomer;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1717,14 +1573,22 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
 
   Widget _buildBody(BuildContext context, AppData state) {
     final q = _searchQuery.toLowerCase().trim();
-    final vipCount = state.customers.where((c) => c.isVip).length;
-    final returningCount = state.customers.where((c) => c.visitCount > 1).length;
 
-    final filtered = state.customers.where((c) {
+    // Only the clients this staff member has actually worked on. The whole
+    // salon directory used to be listed here, which made "my clients" a list
+    // of people a stylist may never have met - and gave every staff member a
+    // roster of the salon's entire clientele.
+    final myBills = _myBillsByCustomer(state);
+    final mine = state.customers.where((c) => myBills.containsKey(c.id)).toList();
+    final returningCount = mine.where((c) => (myBills[c.id]?.length ?? 0) > 1).length;
+
+    final filtered = mine.where((c) {
       final matches = q.isEmpty || c.name.toLowerCase().contains(q) || c.phone.contains(q);
       if (!matches) return false;
-      if (_filter == 'VIP') return c.isVip;
-      if (_filter == 'Returning') return c.visitCount > 1;
+
+      // "Returning" means returning *to this stylist* now, which is the
+      // only sense of it this page can honestly claim.
+      if (_filter == 'Returning') return (myBills[c.id]?.length ?? 0) > 1;
       return true;
     }).toList()
       ..sort((a, b) => (b.lastVisitAt ?? DateTime(0)).compareTo(a.lastVisitAt ?? DateTime(0)));
@@ -1743,16 +1607,8 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
                 icon: PhosphorIconsRegular.usersThree,
                 iconBg: const Color(0xFFEEF2FF),
                 iconColor: const Color(0xFF4F46E5),
-                label: 'Total',
-                value: '${state.customers.length}',
-              ),
-              const SizedBox(width: 8),
-              _summaryTile(
-                icon: PhosphorIconsFill.star,
-                iconBg: const Color(0xFFFEF3C7),
-                iconColor: const Color(0xFFD97706),
-                label: 'VIP',
-                value: '$vipCount',
+                label: 'Handled',
+                value: '${mine.length}',
               ),
               const SizedBox(width: 8),
               _summaryTile(
@@ -1791,9 +1647,7 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _filterChip('All', state.customers.length),
-                const SizedBox(width: 8),
-                _filterChip('VIP', vipCount),
+                _filterChip('All', mine.length),
                 const SizedBox(width: 8),
                 _filterChip('Returning', returningCount),
               ],
@@ -1814,12 +1668,13 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
                   Icon(PhosphorIconsRegular.usersThree, size: 34, color: Color(0xFFCBD5E1)),
                   SizedBox(height: 10),
                   Text(
-                    'No clients found.',
+                    'No clients yet.',
                     style: TextStyle(color: Color(0xFF64748B), fontSize: 13, fontWeight: FontWeight.w600),
                   ),
                   SizedBox(height: 3),
                   Text(
-                    'Try a different name, phone or filter.',
+                    'Clients you bill appear here, with the visits you handled.',
+                    textAlign: TextAlign.center,
                     style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11.5),
                   ),
                 ],
@@ -1840,7 +1695,7 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
                 children: [
                   for (int i = 0; i < filtered.length; i++) ...[
                     if (i > 0) const Divider(height: 1, thickness: 1, color: Color(0xFFF1F5F9)),
-                    _clientRow(filtered[i], i),
+                    _clientRow(context, filtered[i], i, myBills[filtered[i].id] ?? const []),
                   ],
                 ],
               ),
@@ -1915,13 +1770,24 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
     );
   }
 
-  Widget _clientRow(Customer c, int idx) {
+  Widget _clientRow(BuildContext context, Customer c, int idx, List<Bill> myBills) {
     const avatarBgs = [Color(0xFFEEF2FF), Color(0xFFFEF3C7), Color(0xFFF5F3FF), Color(0xFFCCFBF1), Color(0xFFFCE7F3)];
     const avatarFgs = [Color(0xFF4F46E5), Color(0xFFD97706), Color(0xFF7C3AED), Color(0xFF0D9488), Color(0xFFDB2777)];
     final bg = avatarBgs[idx % avatarBgs.length];
     final fg = avatarFgs[idx % avatarFgs.length];
 
-    return Padding(
+    return InkWell(
+      onTap: () => openAppSubPage(
+        context,
+        title: c.name,
+        subtitle: '${myBills.length} visit${myBills.length == 1 ? '' : 's'} you handled',
+        child: _MyClientHistoryView(
+          customer: c,
+          bills: myBills,
+          employeeId: widget.profile.id,
+        ),
+      ),
+      child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
         children: [
@@ -1949,20 +1815,9 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    if (c.isVip) ...[
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFEF3C7),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: const Text(
-                          'VIP',
-                          style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w800, color: Color(0xFFD97706)),
-                        ),
-                      ),
-                    ],
+                    // The VIP chip used to sit here. It is an owner-side
+                    // flag nobody on the floor sets or acts on, and on a row
+                    // this narrow it crowded out the name it was attached to.
                   ],
                 ),
                 const SizedBox(height: 3),
@@ -1979,7 +1834,7 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
                     const SizedBox(width: 4),
                     Flexible(
                       child: Text(
-                        c.lastVisitAt == null ? 'Never' : _formatDate(c.lastVisitAt),
+                        _lastHandled(myBills),
                         style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -1993,17 +1848,202 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
+              // This stylist's own billings for the client, not the
+              // customer document's salon-wide totalSpent/visitCount - on a
+              // page scoped to "clients I handled" the salon figure would be
+              // claiming credit for someone else's work.
               Text(
-                '₹${c.totalSpent.toStringAsFixed(0)}',
+                '₹${_myRevenueFor(myBills).toStringAsFixed(0)}',
                 style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: Color(0xFF0F172A)),
               ),
               const SizedBox(height: 2),
               Text(
-                '${c.visitCount} visit${c.visitCount == 1 ? '' : 's'}',
+                '${myBills.length} visit${myBills.length == 1 ? '' : 's'}',
                 style: const TextStyle(fontSize: 10.5, color: Color(0xFF94A3B8), fontWeight: FontWeight.w600),
               ),
             ],
           ),
+        ],
+      ),
+      ),
+    );
+  }
+
+  double _myRevenueFor(List<Bill> bills) => bills.fold<double>(
+        0,
+        (sum, b) =>
+            sum +
+            b.items
+                .where((i) => i.employeeId == widget.profile.id)
+                .fold<double>(0, (s, i) => s + (i.unitPrice * i.quantity - i.discountAmount)),
+      );
+
+  /// The last visit shown on the row is the last one *this* stylist handled.
+  String _lastHandled(List<Bill> bills) =>
+      bills.isEmpty || bills.first.createdAt == null ? 'Never' : _formatDate(bills.first.createdAt);
+}
+
+/// One client's visits, as far as this staff member is concerned.
+///
+/// Only the bills carrying one of their line items, and within each bill only
+/// the lines they performed - a shared bill shows the stylist their own half,
+/// not the colleague's. Everything comes from the loaded snapshot.
+class _MyClientHistoryView extends StatelessWidget {
+  final Customer customer;
+  final List<Bill> bills;
+  final String employeeId;
+
+  const _MyClientHistoryView({
+    required this.customer,
+    required this.bills,
+    required this.employeeId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final myTotal = bills.fold<double>(
+      0,
+      (sum, b) =>
+          sum +
+          b.items
+              .where((i) => i.employeeId == employeeId)
+              .fold<double>(0, (s, i) => s + (i.unitPrice * i.quantity - i.discountAmount)),
+    );
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEEF2FF),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE0E7FF)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'BILLED BY YOU',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.6,
+                    color: Color(0xFF4F46E5),
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '\u20B9${myTotal.toStringAsFixed(0)}',
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.6,
+                    color: Color(0xFF1E1B4B),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Across ${bills.length} visit${bills.length == 1 ? '' : 's'} · ${customer.phone}',
+                  style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Visits you handled',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF64748B)),
+          ),
+          const SizedBox(height: 10),
+          for (final bill in bills) ...[
+            _billCard(bill),
+            const SizedBox(height: 10),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _billCard(Bill bill) {
+    final mine = bill.items.where((i) => i.employeeId == employeeId).toList();
+    final myTotal = mine.fold<double>(
+      0,
+      (s, i) => s + (i.unitPrice * i.quantity - i.discountAmount),
+    );
+    // A bill can carry another stylist's lines too; saying so is what stops
+    // the per-line figure below reading like a wrong bill total.
+    final shared = mine.length != bill.items.length;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      bill.invoiceNumber,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _formatDate(bill.createdAt),
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '\u20B9${myTotal.toStringAsFixed(0)}',
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          for (final item in mine)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  const Icon(PhosphorIconsRegular.dotOutline, size: 13, color: Color(0xFFCBD5E1)),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      item.serviceName ?? item.productName ?? 'Item',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 11.5, color: Color(0xFF475467), fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  Text(
+                    '\u20B9${(item.unitPrice * item.quantity - item.discountAmount).toStringAsFixed(0)}',
+                    style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B), fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+            ),
+          if (shared) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Shared bill \u2014 \u20B9${bill.finalAmount.toStringAsFixed(0)} in total, including a colleague\'s lines.',
+              style: const TextStyle(fontSize: 10.5, color: Color(0xFF94A3B8), fontStyle: FontStyle.italic),
+            ),
+          ],
         ],
       ),
     );
@@ -2056,10 +2096,10 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
     return asyncData.when(
       loading: () => const AppLoadingView(),
       error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
-      // Billing is just the form for staff. The New Bill / History toggle
-      // and the stylist-scoped history behind it were removed at the
-      // owner's request; the page header supplies its own divider, so the
-      // form sits directly under it.
+      // Billing is the form and nothing else for staff. A bill history here
+      // would be a second place to look for the same records - a staff
+      // member's history is the clients they handled, so it lives on the
+      // Clients page beside the client it belongs to.
       data: (state) => _buildBody(context, state),
     );
   }
@@ -2123,13 +2163,17 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
     final itemCount = serviceCount + productItemCount;
     final canSubmit = selectedCustomer != null && itemCount > 0;
 
-    return Stack(
-      children: [
-        SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, LiquidNavBar.barInset),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+    // No Stack. The total and its button used to be Positioned at a fixed
+    // 90px off the bottom, floating over whatever happened to be scrolled
+    // under them - so on a short catalog they sat on top of the last service
+    // row, and the 220px of blank padding that compensated for them left a
+    // hole at the end of the page. They are the last thing on the page now:
+    // you scroll to the total, which is also the order the task happens in.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, LiquidNavBar.barInset),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
               const SizedBox(height: 16),
 
               // 1. Header (NO BACK BUTTON - per requirement)
@@ -2544,22 +2588,14 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                 ),
               ),
 
-              // Padding for bottom bar + navbar
-              const SizedBox(height: 220),
-            ],
-          ),
-        ),
+              const SizedBox(height: 16),
 
-        // Sticky Bottom Total Bar
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 90, // Above floating navbar
-          child: Container(
+              // Total + submit, in the flow.
+              Container(
             padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
                   color: const Color(0xFF0F172A).withValues(alpha: 0.08),
@@ -2637,8 +2673,11 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
               ],
             ),
           ),
-        ),
-      ],
+
+              // Clears the floating nav bar, which the page scrolls under.
+              const SizedBox(height: 24),
+        ],
+      ),
     );
   }
 
@@ -3593,8 +3632,8 @@ class _EmployeeSalaryTab extends ConsumerWidget {
           // 4. Payout History Section
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: const [
-              Column(
+            children: [
+              const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
@@ -3607,7 +3646,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                   ),
                   SizedBox(height: 2),
                   Text(
-                    'Past finalized statements & tax slips',
+                    'Past finalized statements',
                     style: TextStyle(
                       fontSize: 11,
                       color: Color(0xFF64748B),
@@ -3615,14 +3654,30 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                   ),
                 ],
               ),
-              Text(
-                'View All',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF4F46E5),
+              // "View All" was a plain Text that did nothing. The card below
+              // it shows six months at most, so on any staff member who has
+              // been here longer than that the rest was simply unreachable.
+              if (payouts.length > 6)
+                InkWell(
+                  onTap: () => openAppSubPage(
+                    context,
+                    title: 'Payout History',
+                    subtitle: '${payouts.length} statement${payouts.length == 1 ? '' : 's'}',
+                    child: _AllPayoutsView(payouts: payouts),
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    child: Text(
+                      'View All',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF4F46E5),
+                      ),
+                    ),
+                  ),
                 ),
-              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -3643,11 +3698,25 @@ class _EmployeeSalaryTab extends ConsumerWidget {
               ],
             ),
             child: payouts.isEmpty
+                // A one-line grey sentence in a full-width card read as a
+                // rendering failure rather than as "nothing here yet".
                 ? const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 10),
-                    child: Text(
-                      'No payouts recorded yet.',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8), fontWeight: FontWeight.w500),
+                    padding: EdgeInsets.symmetric(vertical: 22),
+                    child: Column(
+                      children: [
+                        Icon(PhosphorIconsRegular.receipt, size: 28, color: Color(0xFFCBD5E1)),
+                        SizedBox(height: 10),
+                        Text(
+                          'No payouts recorded yet',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                        ),
+                        SizedBox(height: 3),
+                        Text(
+                          'Statements appear here once your owner finalises a month.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 11.5, color: Color(0xFF94A3B8)),
+                        ),
+                      ],
                     ),
                   )
                 : Column(
@@ -3655,8 +3724,8 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                       for (int i = 0; i < payouts.length && i < 6; i++) ...[
                         if (i > 0) const Divider(color: Color(0xFFF1F5F9), height: 18),
                         _buildPayoutRow(
-                          '${monthFullNames[payouts[i].month - 1]}\n${payouts[i].year}',
-                          payouts[i].status == 'PAID' ? 'Paid' : 'Draft - not yet paid',
+                          '${monthFullNames[payouts[i].month - 1]} ${payouts[i].year}',
+                          payouts[i].status,
                           '₹${payouts[i].totalPaid.toStringAsFixed(0)}',
                         ),
                       ],
@@ -3719,18 +3788,30 @@ class _EmployeeSalaryTab extends ConsumerWidget {
     );
   }
 
-  Widget _buildPayoutRow(String period, String subtitle, String amount) {
+  /// One month's statement.
+  ///
+  /// The badge now reads the record's real status. It used to be hardcoded
+  /// to a green "PAID" while the line underneath said "Draft - not yet paid",
+  /// so a statement that had not been paid claimed on its own row that it
+  /// had. The period is one line too: it carried a \n and sat in a Row beside
+  /// the badge, which pushed the badge off its baseline.
+  Widget _buildPayoutRow(String period, String status, String amount) {
+    final paid = status == 'PAID';
     return Row(
       children: [
         Container(
           width: 36,
           height: 36,
           decoration: BoxDecoration(
-            color: const Color(0xFFF1F5F9),
+            color: paid ? const Color(0xFFECFDF5) : const Color(0xFFF1F5F9),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: const Center(
-            child: Icon(PhosphorIconsRegular.receipt, size: 18, color: Color(0xFF64748B)),
+          child: Center(
+            child: Icon(
+              paid ? PhosphorIconsRegular.checkCircle : PhosphorIconsRegular.hourglass,
+              size: 18,
+              color: paid ? const Color(0xFF10B981) : const Color(0xFF64748B),
+            ),
           ),
         ),
         const SizedBox(width: 12),
@@ -3740,27 +3821,31 @@ class _EmployeeSalaryTab extends ConsumerWidget {
             children: [
               Row(
                 children: [
-                  Text(
-                    period,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF0F172A),
+                  Flexible(
+                    child: Text(
+                      period,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0F172A),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 6),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFECFDF5),
+                      color: paid ? const Color(0xFFECFDF5) : const Color(0xFFF1F5F9),
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: const Text(
-                      'PAID',
+                    child: Text(
+                      paid ? 'PAID' : 'DRAFT',
                       style: TextStyle(
                         fontSize: 8.5,
                         fontWeight: FontWeight.w800,
-                        color: Color(0xFF10B981),
+                        color: paid ? const Color(0xFF10B981) : const Color(0xFF64748B),
                       ),
                     ),
                   ),
@@ -3768,15 +3853,13 @@ class _EmployeeSalaryTab extends ConsumerWidget {
               ),
               const SizedBox(height: 2),
               Text(
-                subtitle,
-                style: const TextStyle(
-                  fontSize: 10.5,
-                  color: Color(0xFF64748B),
-                ),
+                paid ? 'Settled' : 'Not yet paid',
+                style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B)),
               ),
             ],
           ),
         ),
+        const SizedBox(width: 8),
         Text(
           amount,
           style: const TextStyle(
@@ -3785,15 +3868,135 @@ class _EmployeeSalaryTab extends ConsumerWidget {
             color: Color(0xFF0F172A),
           ),
         ),
-        const SizedBox(width: 8),
-        Container(
-          width: 28,
-          height: 28,
-          decoration: const BoxDecoration(
-            color: Color(0xFFF1F5F9),
-            shape: BoxShape.circle,
+        // The download button that used to sit here downloaded nothing -
+        // there is no statement file to fetch, only the figures already on
+        // this row.
+      ],
+    );
+  }
+}
+
+/// Every payout statement, not just the six the Earnings card has room for.
+///
+/// Reads nothing of its own: salary records are already loaded by the
+/// salary provider that the Earnings tab watches, and this is handed the
+/// same list.
+class _AllPayoutsView extends StatelessWidget {
+  final List<SalaryRecord> payouts;
+
+  const _AllPayoutsView({required this.payouts});
+
+  @override
+  Widget build(BuildContext context) {
+    final total = payouts
+        .where((r) => r.status == 'PAID')
+        .fold<double>(0, (sum, r) => sum + r.totalPaid);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEEF2FF),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE0E7FF)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'PAID OUT TO DATE',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.6,
+                    color: Color(0xFF4F46E5),
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '\u20B9${total.toStringAsFixed(0)}',
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.6,
+                    color: Color(0xFF1E1B4B),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Across ${payouts.length} statement${payouts.length == 1 ? '' : 's'}. Drafts are not counted.',
+                  style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                ),
+              ],
+            ),
           ),
-          child: const Icon(PhosphorIconsRegular.downloadSimple, size: 14, color: Color(0xFF64748B)),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFF1F5F9)),
+            ),
+            child: Column(
+              children: [
+                for (int i = 0; i < payouts.length; i++) ...[
+                  if (i > 0) const Divider(color: Color(0xFFF1F5F9), height: 18),
+                  _payoutRow(payouts[i]),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _payoutRow(SalaryRecord r) {
+    final paid = r.status == 'PAID';
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${kMonthFullNames[r.month - 1]} ${r.year}',
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Base \u20B9${r.baseSalary.toStringAsFixed(0)} · '
+                'Commission \u20B9${r.commissionEarned.toStringAsFixed(0)}'
+                '${r.deductions > 0 ? ' · Deductions \u20B9${r.deductions.toStringAsFixed(0)}' : ''}',
+                style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B)),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 10),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              '\u20B9${r.totalPaid.toStringAsFixed(0)}',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              paid ? 'Paid' : 'Draft',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: paid ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -3814,96 +4017,22 @@ String formatTargetValue(String type, double value) => targetIsCurrency(type)
 String targetTypeLabel(String type) =>
     type == 'PRODUCT_SALES_COUNT' ? 'Product sales' : 'Service revenue';
 
-// ─── Sales Target tab ────────────────────────────────────────────────────────
+/// The sales-target card, as the Targets tab draws it.
+///
+/// Lifted out of _EmployeeTargetTab so Home can show the same card. Home used
+/// to draw its own smaller white version of the same numbers, so the one
+/// target an employee has appeared twice in the app in two different shapes -
+/// and the home version was the one that dropped the pacing and the days
+/// left, which is the half that tells you whether to worry.
+class TargetHeroCard extends StatelessWidget {
+  final SalesTarget target;
 
-class _EmployeeTargetTab extends StatelessWidget {
-  final EmployeeProfile profile;
-  final AppData state;
+  const TargetHeroCard({super.key, required this.target});
 
-  const _EmployeeTargetTab({required this.profile, required this.state});
-
-  // Shared with the home screen's target card, so the two can never disagree
-  // about whether a target is rupees or a unit count - see formatTargetValue.
   String _fmt(String type, double value) => formatTargetValue(type, value);
 
   @override
   Widget build(BuildContext context) {
-    final targets = [...state.salesTargets]
-      ..sort((a, b) => (b.startDate ?? DateTime(0)).compareTo(a.startDate ?? DateTime(0)));
-    final active = targets.where((t) => t.status == 'ACTIVE').toList();
-    final achieved = targets.where((t) => t.status == 'ACHIEVED').length;
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32 + LiquidNavBar.barInset),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 600),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Title removed: the page this sits in already names it.
-
-              if (active.isNotEmpty) ...[
-                _buildHeroTarget(active.first),
-                const SizedBox(height: 18),
-              ],
-
-              if (targets.isEmpty)
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  padding: const EdgeInsets.all(32.0),
-                  child: const Center(
-                    child: Column(
-                      children: [
-                        Icon(PhosphorIconsRegular.flag, size: 38, color: Color(0xFFCBD5E1)),
-                        SizedBox(height: 12),
-                        Text(
-                          'No sales targets set yet.',
-                          style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w600, fontSize: 13),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          'Your manager can set one from the Employees tab.',
-                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11.5),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              else ...[
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'All Targets',
-                      style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
-                    ),
-                    Text(
-                      '$achieved of ${targets.length} achieved',
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF94A3B8)),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                for (int i = 0; i < targets.length; i++) ...[
-                  if (i > 0) const SizedBox(height: 12),
-                  _buildTargetCard(targets[i]),
-                ],
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // The one target actually in play gets the hero treatment - it's the number
-  // the employee is working against today.
-  Widget _buildHeroTarget(SalesTarget target) {
     final pct = (target.progressFraction * 100).clamp(0, 999);
     final remaining = (target.targetValue - target.progressValue).clamp(0.0, double.infinity);
     final daysLeft = target.endDate == null ? null : target.endDate!.difference(DateTime.now()).inDays;
@@ -4028,7 +4157,97 @@ class _EmployeeTargetTab extends StatelessWidget {
       ),
     );
   }
+}
 
+// ─── Sales Target tab ────────────────────────────────────────────────────────
+
+class _EmployeeTargetTab extends StatelessWidget {
+  final EmployeeProfile profile;
+  final AppData state;
+
+  const _EmployeeTargetTab({required this.profile, required this.state});
+
+  // Shared with the home screen's target card, so the two can never disagree
+  // about whether a target is rupees or a unit count - see formatTargetValue.
+  String _fmt(String type, double value) => formatTargetValue(type, value);
+
+  @override
+  Widget build(BuildContext context) {
+    final targets = [...state.salesTargets]
+      ..sort((a, b) => (b.startDate ?? DateTime(0)).compareTo(a.startDate ?? DateTime(0)));
+    final active = targets.where((t) => t.status == 'ACTIVE').toList();
+    final achieved = targets.where((t) => t.status == 'ACHIEVED').length;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32 + LiquidNavBar.barInset),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 600),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Title removed: the page this sits in already names it.
+
+              if (active.isNotEmpty) ...[
+                TargetHeroCard(target: active.first),
+                const SizedBox(height: 18),
+              ],
+
+              if (targets.isEmpty)
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  padding: const EdgeInsets.all(32.0),
+                  child: const Center(
+                    child: Column(
+                      children: [
+                        Icon(PhosphorIconsRegular.flag, size: 38, color: Color(0xFFCBD5E1)),
+                        SizedBox(height: 12),
+                        Text(
+                          'No sales targets set yet.',
+                          style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w600, fontSize: 13),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          'Your manager can set one from the Employees tab.',
+                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11.5),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'All Targets',
+                      style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                    ),
+                    Text(
+                      '$achieved of ${targets.length} achieved',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF94A3B8)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                for (int i = 0; i < targets.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 12),
+                  _buildTargetCard(targets[i]),
+                ],
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // The one target actually in play gets the hero treatment - it's the number
+  // the employee is working against today.
   Widget _buildTargetCard(SalesTarget target) {
     Color statusColor = AppTheme.primaryBlue;
     Color statusBg = AppTheme.primaryLight;
