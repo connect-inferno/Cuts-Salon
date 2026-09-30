@@ -3,6 +3,7 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../theme.dart';
 import '../data/app_data_provider.dart';
+import '../data/payment_requests_provider.dart';
 import '../data/models.dart';
 import 'async_state_views.dart';
 import 'app_dialog.dart';
@@ -47,7 +48,14 @@ class DuesView extends ConsumerStatefulWidget {
   /// bills instead of the whole salon's list.
   final String? initialQuery;
 
-  const DuesView({super.key, this.initialQuery});
+  /// Staff mode: the action raises a settlement request for the owner to
+  /// approve instead of writing the payment. firestore.rules enforces the
+  /// same split (see /paymentRequests), so this is the honest label for a
+  /// button that could not have recorded a payment anyway - not the
+  /// protection itself.
+  final bool requestOnly;
+
+  const DuesView({super.key, this.initialQuery, this.requestOnly = false});
 
   @override
   ConsumerState<DuesView> createState() => _DuesViewState();
@@ -465,21 +473,189 @@ class _DuesViewState extends ConsumerState<DuesView> {
           ),
           const SizedBox(width: 8),
           InkWell(
-            onTap: () => _showRecordPaymentDialog(context, ref, bill),
+            onTap: () => widget.requestOnly
+                ? _showRequestSettlementDialog(context, ref, bill)
+                : _showRecordPaymentDialog(context, ref, bill),
             borderRadius: BorderRadius.circular(9),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: const Color(0xFF4F46E5),
+                color: widget.requestOnly ? const Color(0xFF0F172A) : const Color(0xFF4F46E5),
                 borderRadius: BorderRadius.circular(9),
               ),
-              child: const Text(
-                'Collect',
-                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Colors.white),
+              child: Text(
+                widget.requestOnly ? 'Request' : 'Collect',
+                style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Colors.white),
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Staff-side counterpart of [_showRecordPaymentDialog]: same amount and
+  /// method fields, but it writes a request the owner decides on rather than
+  /// a payment. The client's balance does not move until that happens, which
+  /// is the whole point - so the dialog says so rather than letting the
+  /// staff member walk away thinking it is settled.
+  void _showRequestSettlementDialog(BuildContext context, WidgetRef ref, Bill bill) {
+    final amountController = TextEditingController(text: bill.amountDue.toStringAsFixed(0));
+    final noteController = TextEditingController();
+    String method = 'CASH';
+    bool submitting = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AppDialog(
+          icon: PhosphorIconsRegular.paperPlaneTilt,
+          title: 'Request Settlement',
+          subtitle: '${bill.customerName ?? 'Client'} • ${bill.invoiceNumber}',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Outstanding',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
+                    ),
+                    Text(
+                      _rupees(bill.amountDue),
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFFB45309)),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: amountController,
+                keyboardType: TextInputType.number,
+                onChanged: (_) => setDialogState(() {}),
+                decoration: appDialogFieldDecoration(
+                  label: 'Amount collected *',
+                  icon: PhosphorIconsRegular.currencyInr,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'COLLECTED BY',
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.6, color: Color(0xFF64748B)),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: ['CASH', 'UPI', 'CARD'].map((m) {
+                  final isSel = method == m;
+                  return Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: InkWell(
+                        onTap: () => setDialogState(() => method = m),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 9),
+                          decoration: BoxDecoration(
+                            color: isSel ? const Color(0xFFEEF2FF) : Colors.white,
+                            border: Border.all(
+                              color: isSel ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0),
+                              width: isSel ? 1.6 : 1,
+                            ),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Center(
+                            child: Text(
+                              m,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: isSel ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: noteController,
+                decoration: appDialogFieldDecoration(
+                  label: 'Note for the owner',
+                  icon: PhosphorIconsRegular.note,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(11),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFFBEB),
+                  borderRadius: BorderRadius.circular(11),
+                  border: Border.all(color: const Color(0xFFFDE68A)),
+                ),
+                child: const Text(
+                  'The balance stays open until your owner approves this. '
+                  'It will show in their pending requests.',
+                  style: TextStyle(fontSize: 11, height: 1.35, color: Color(0xFF92400E)),
+                ),
+              ),
+            ],
+          ),
+          actions: AppDialogActions(
+            submitLabel: 'Send Request',
+            submitting: submitting,
+            onCancel: () => Navigator.pop(ctx),
+            onSubmit: () async {
+              final amount = double.tryParse(amountController.text.trim()) ?? 0;
+              if (amount <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Enter an amount greater than zero.'), backgroundColor: AppTheme.accentRed),
+                );
+                return;
+              }
+              setDialogState(() => submitting = true);
+              try {
+                await ref.read(paymentRequestsProvider.notifier).request(
+                      billId: bill.id,
+                      customerId: bill.customerId,
+                      customerName: bill.customerName,
+                      invoiceNumber: bill.invoiceNumber,
+                      amount: amount,
+                      method: method,
+                      note: noteController.text.trim().isEmpty ? null : noteController.text.trim(),
+                    );
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Sent to your owner: ${_rupees(amount)} against ${bill.invoiceNumber}.'),
+                      backgroundColor: AppTheme.accentGreen,
+                    ),
+                  );
+                }
+              } catch (e) {
+                setDialogState(() => submitting = false);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed),
+                  );
+                }
+              }
+            },
+          ),
+        ),
       ),
     );
   }

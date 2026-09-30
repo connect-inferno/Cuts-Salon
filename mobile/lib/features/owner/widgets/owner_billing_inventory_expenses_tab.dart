@@ -13,6 +13,7 @@ import '../../../widgets/bill_history_view.dart';
 import '../../../widgets/add_customer_page.dart';
 import '../../../widgets/app_sub_page.dart';
 import '../../../widgets/dues_view.dart';
+import 'owner_payment_requests_view.dart';
 import '../../../widgets/app_settings_page.dart';
 import 'owner_management_tabs.dart';
 import 'owner_tax_settings.dart';
@@ -280,6 +281,19 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                   : 'Every bill has been collected in full.',
           builder: (_) => const DuesView(),
         ),
+        // Settlement requests. Staff cannot record a payment themselves
+        // (firestore.rules scopes /paymentRequests to create-only for them),
+        // so this is where the money they collected at the counter actually
+        // lands on the bill.
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.paperPlaneTilt,
+          label: 'Requests',
+          description: state.pendingPaymentRequestCount > 0
+              ? '${state.pendingPaymentRequestCount} settlement request${state.pendingPaymentRequestCount == 1 ? '' : 's'} from your staff waiting on you.'
+              : 'No settlement requests waiting. Staff raise one when they collect an unpaid balance.',
+          badgeCount: state.pendingPaymentRequestCount,
+          builder: (_) => const OwnerPaymentRequestsView(),
+        ),
         AppSettingsSection(
           icon: PhosphorIconsRegular.sealPercent,
           label: 'Discounts',
@@ -325,7 +339,10 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
             actions: [
               appSettingsAction(
                 tooltip: 'Billing settings',
-                badgeCount: state.pendingDiscountCount,
+                // Both kinds of request live behind this gear, so the badge
+                // has to count both or one of them is invisible until
+                // somebody happens to look.
+                badgeCount: state.pendingDiscountCount + state.pendingPaymentRequestCount,
                 onTap: () => _openBillingSettings(context, state),
               ),
             ],
