@@ -623,9 +623,25 @@ class OwnerBranchTab extends StatelessWidget {
                       // "4 Styli..." and made the card look broken. The icon
                       // moved onto the label line, where being clipped would
                       // cost nothing, and the value now gets the full width.
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
+                      // IntrinsicHeight is what makes the stretch legal.
+                      //
+                      // A Row's cross axis is vertical, and this Row sits in
+                      // a Column inside a SingleChildScrollView, so it is
+                      // handed maxHeight: infinity. CrossAxisAlignment.stretch
+                      // then tries to size the three boxes to that infinite
+                      // height, which throws during layout and takes the whole
+                      // Branches tab down with it. main.dart logs Flutter
+                      // errors without presenting them, so this surfaced as a
+                      // silently blank tab - the header, the pills and the
+                      // "3 branches" line rendered, and everything below them
+                      // was empty - rather than as a red error overlay.
+                      //
+                      // IntrinsicHeight bounds the cross axis to the tallest
+                      // box, which is the equal heights the stretch wanted.
+                      IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
                           Expanded(
                             child: _branchStatBox(
                               icon: PhosphorIconsRegular.users,
@@ -653,7 +669,8 @@ class OwnerBranchTab extends StatelessWidget {
                               valueColor: const Color(0xFF4F46E5),
                             ),
                           ),
-                        ],
+                          ],
+                        ),
                       ),
                     ],
                   ),

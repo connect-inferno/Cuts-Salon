@@ -19,6 +19,7 @@ import '../../../widgets/async_state_views.dart';
 import '../../../widgets/app_dialog.dart';
 import '../../auth/auth_provider.dart';
 import 'add_employee_page.dart';
+import 'owner_shift_card.dart';
 import 'owner_archived_clients.dart';
 import 'owner_management_tabs.dart';
 import 'owner_payroll_view.dart';
@@ -4331,6 +4332,49 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
   // roster kept rendering every edit as though it had been written.
   final Map<String, String> _pendingRosterEdits = {};
   bool _submittingRoster = false;
+  // Separate from _submittingRoster: punching your own shift and confirming
+  // everyone's roster are different writes, and one being in flight should
+  // not grey out the other.
+  bool _submittingOwnPunch = false;
+
+  /// The owner's own record for today, or null if they have not punched.
+  ///
+  /// An owner is an employees/{uid} document like anyone else, so this is the
+  /// same lookup the roster does for a stylist - just scoped to whoever is
+  /// signed in.
+  AttendanceRecord? _ownRecordToday(AppData state, String? userId, DateTime now) {
+    if (userId == null) return null;
+    final match = state.attendance.where(
+      (a) => a.employeeId == userId && a.date != null && _isSameDay(a.date!, now),
+    );
+    return match.isEmpty ? null : match.first;
+  }
+
+  Future<void> _punch(WidgetRef ref, {required bool out}) async {
+    setState(() => _submittingOwnPunch = true);
+    try {
+      final notifier = ref.read(appDataProvider.notifier);
+      if (out) {
+        await notifier.clockOut();
+      } else {
+        await notifier.clockIn();
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(out ? 'Clocked out.' : 'Clocked in.'),
+          backgroundColor: AppTheme.accentGreen,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed),
+      );
+    } finally {
+      if (mounted) setState(() => _submittingOwnPunch = false);
+    }
+  }
 
   String _statusFor(AppData state, String employeeId) {
     // An unsaved edit shows through, because that's what the owner is
@@ -4753,6 +4797,24 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 16),
+
+                // The owner's own shift, above the roster they mark for
+                // everyone else. They already appear in that roster and can
+                // be given a status letter there, but a letter records no
+                // hours - so an owner who worked a full day had no clock-in
+                // time anywhere in the app while every stylist did.
+                OwnerShiftCard(
+                  today: _ownRecordToday(
+                    state,
+                    ref.read(authControllerProvider).userId,
+                    today,
+                  ),
+                  submitting: _submittingOwnPunch,
+                  now: today,
+                  onClockIn: () => _punch(ref, out: false),
+                  onClockOut: () => _punch(ref, out: true),
                 ),
                 const SizedBox(height: 16),
 

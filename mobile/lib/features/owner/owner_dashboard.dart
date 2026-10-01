@@ -5,6 +5,8 @@ import '../../theme.dart';
 import '../../data/app_data_provider.dart';
 import '../auth/auth_provider.dart';
 import 'widgets/owner_dashboard_tab.dart';
+import 'widgets/client_retention_report.dart';
+import 'widgets/payment_method_report.dart';
 import 'widgets/owner_customers_employees_tab.dart';
 import 'widgets/owner_billing_inventory_expenses_tab.dart';
 import 'widgets/owner_management_tabs.dart';
@@ -173,6 +175,17 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
         AppDrawerSection(
           title: 'Operations',
           items: [
+            // First in Operations because it is the first thing done each
+            // day. It was reachable only from Home's quick action and from
+            // Team -> gear -> Attendance, neither of which is where someone
+            // looks for a daily job - and the owner's own shift lives at the
+            // top of this screen, so they had no obvious route to their own
+            // clock-in at all.
+            AppDrawerItem(
+              icon: PhosphorIconsRegular.calendarCheck,
+              label: 'Attendance',
+              onTap: () => go('Attendance', "Your shift, and today's roster", const OwnerAttendanceTab()),
+            ),
             AppDrawerItem(
               icon: PhosphorIconsRegular.package,
               label: 'Services',
@@ -719,6 +732,8 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                     _buildReportSegmentPill('Services'),
                     const SizedBox(width: 8),
                     _buildReportSegmentPill('Staff'),
+                    const SizedBox(width: 8),
+                    _buildReportSegmentPill('Clients'),
                   ],
                 ),
               ),
@@ -783,13 +798,35 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                   latestMonthName: latestMonthName,
                 ),
                 const SizedBox(height: 14),
-                _buildPaymentMixCard(bills),
+                // Replaces a bar list that labelled its rows with the raw
+                // stored values - CASH, UPI, PENDING - drew every bar the
+                // same colour, and dropped a method entirely when it had no
+                // bills, so "no card takings this month" and "card is not a
+                // thing here" looked identical.
+                PaymentMethodReport(
+                  bills: bills,
+                  formatCurrency: _formatReportCurrency,
+                ),
               ] else if (_activeSegment == 'Services') ...[
                 _buildServicePopularityCard(topCategories: topCategories),
                 const SizedBox(height: 14),
                 _buildTopServicesCard(state, bills),
-              ] else ...[
+              ] else if (_activeSegment == 'Staff') ...[
                 _buildStaffPerformanceCard(state, bills),
+              ] else ...[
+                // Retention comes off the customer documents, not off the
+                // bills list: that list is capped, so counting visits from it
+                // would undercount anyone whose visits fell outside the
+                // window that happened to be loaded. visitCount and
+                // lastVisitAt are denormalized by every bill, so they are
+                // complete - and already in this snapshot, costing no read.
+                //
+                // The flip side is that these are lifetime figures and do not
+                // narrow with the timeframe pill above. The cards say so.
+                ClientRetentionReport(
+                  customers: state.customers,
+                  now: DateTime.now(),
+                ),
               ],
               const SizedBox(height: 14),
 
@@ -895,49 +932,6 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
 
   /// How the money actually arrived. Collected, not billed - a part-paid bill
   /// only contributes what was handed over, same rule the dashboard uses.
-  Widget _buildPaymentMixCard(List<Bill> bills) {
-    final byMethod = <String, double>{};
-    for (final b in bills) {
-      byMethod[b.paymentMethod] = (byMethod[b.paymentMethod] ?? 0) + b.amountPaid;
-    }
-    final outstanding = bills.fold<double>(0, (s, b) => s + b.amountDue);
-    final rows = byMethod.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
-    final collected = rows.fold<double>(0, (s, e) => s + e.value);
-
-    return _reportCard(
-      title: 'Payment Mix',
-      subtitle: 'How takings were collected over this window',
-      child: rows.isEmpty
-          ? const Padding(
-              padding: EdgeInsets.symmetric(vertical: 18),
-              child: Text(
-                'No payments recorded in this window.',
-                style: TextStyle(fontSize: 12.5, color: Color(0xFF94A3B8)),
-              ),
-            )
-          : Column(
-              children: [
-                for (final e in rows) ...[
-                  _reportBarRow(
-                    label: e.key,
-                    value: '₹${e.value.toStringAsFixed(0)}',
-                    fraction: collected > 0 ? e.value / collected : 0,
-                    color: const Color(0xFF4F46E5),
-                  ),
-                  const SizedBox(height: 10),
-                ],
-                if (outstanding > 0)
-                  _reportBarRow(
-                    label: 'Still owed',
-                    value: '₹${outstanding.toStringAsFixed(0)}',
-                    fraction: collected + outstanding > 0 ? outstanding / (collected + outstanding) : 0,
-                    color: const Color(0xFFD97706),
-                  ),
-              ],
-            ),
-    );
-  }
-
   /// Individual services rather than their categories - the popularity chart
   /// above answers "which kind of work", this answers "which item on the menu".
   Widget _buildTopServicesCard(AppData state, List<Bill> bills) {
@@ -1069,6 +1063,18 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
   /// A labelled horizontal bar. Horizontal rather than vertical because the
   /// labels here are names ("Anjali Mehta", "Keratin Treatment") which do not
   /// fit under a 28px column.
+  /// Indian digit grouping, the same shape the revenue headline on this page
+  /// already uses. Lifted into a method so the payment card and that headline
+  /// cannot drift into formatting the same rupee figure two ways.
+  String _formatReportCurrency(double amount) {
+    final whole = amount.round().toString();
+    final grouped = whole.replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (m) => '${m[1]},',
+    );
+    return '\u20B9$grouped';
+  }
+
   Widget _reportBarRow({
     required String label,
     required String value,

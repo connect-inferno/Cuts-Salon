@@ -173,27 +173,6 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
     );
   }
 
-  void _openBillingSettings(BuildContext context, EmployeeProfile profile, AppData state) {
-    final pending = _myPendingDiscounts(profile, state);
-
-    openAppSettings(
-      context,
-      title: 'Billing Settings',
-      subtitle: 'Everything that feeds into a bill',
-      sections: [
-        AppSettingsSection(
-          icon: PhosphorIconsRegular.sealPercent,
-          label: 'Discounts',
-          description: pending > 0
-              ? '$pending request${pending == 1 ? '' : 's'} waiting on the owner.'
-              : 'Ask the owner to approve a discount on a bill.',
-          badgeCount: pending,
-          builder: (_) => _EmployeeDiscountRequestsTab(profile: profile, state: state),
-        ),
-      ],
-    );
-  }
-
   /// Client-side money, from the counter's point of view.
   ///
   /// firestore.rules lets an active employee create a payment
@@ -228,29 +207,6 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
           description:
               'Settlement requests you have sent, and what your owner decided.',
           builder: (_) => const EmployeePaymentRequestsView(),
-        ),
-      ],
-    );
-  }
-
-  void _openEarningsSettings(BuildContext context, EmployeeProfile profile, AppData state) {
-    final target = state.salesTargets
-        .where((t) => t.employeeId == profile.id)
-        .cast<SalesTarget?>()
-        .firstWhere((t) => t != null, orElse: () => null);
-
-    openAppSettings(
-      context,
-      title: 'Earnings Settings',
-      subtitle: 'How your pay is worked out',
-      sections: [
-        AppSettingsSection(
-          icon: PhosphorIconsRegular.chartLineUp,
-          label: 'Targets',
-          description: target == null
-              ? 'Your manager has not set a sales target yet.'
-              : '${(target.progressFraction * 100).toStringAsFixed(0)}% of your current target reached.',
-          builder: (_) => _EmployeeTargetTab(profile: profile, state: state),
         ),
       ],
     );
@@ -549,13 +505,8 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
         subtitle: myBillsToday > 0
             ? '$myBillsToday bill${myBillsToday == 1 ? '' : 's'} by you today'
             : 'No bills by you yet today',
-        actions: [
-          appSettingsAction(
-            tooltip: 'Billing settings',
-            badgeCount: pending,
-            onTap: () => _openBillingSettings(context, profile, state),
-          ),
-        ],
+        // No gear: its one section, Discount Requests, is reached from the
+        // drawer and from the bell on Clients, so nothing is stranded.
         child: _EmployeeBillingTab(profile: profile),
       ),
       _page(
@@ -582,12 +533,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
         subtitle: pendingCommission > 0
             ? '₹${pendingCommission.round()} commission pending'
             : 'No commission pending',
-        actions: [
-          appSettingsAction(
-            tooltip: 'Earnings settings',
-            onTap: () => _openEarningsSettings(context, profile, state),
-          ),
-        ],
+        // No gear: its one section, Targets, is reached from the drawer.
         child: _EmployeeSalaryTab(profile: profile, state: state),
       ),
     ];
@@ -3731,55 +3677,6 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                       ],
                     ],
                   ),
-          ),
-          const SizedBox(height: 14),
-
-          // 5. TDS & Direct Bank Settlement Card
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEEF2FF),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(PhosphorIconsRegular.shieldCheck, size: 18, color: Color(0xFF4F46E5)),
-                ),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'TDS & Direct Bank Settlement',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF0F172A),
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'Payouts are credited directly to HDFC Bank (•••• 4920) on the 1st of every month after applicable tax deductions.',
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          color: Color(0xFF64748B),
-                          height: 1.3,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
           ),
 
           const SizedBox(height: 88),
