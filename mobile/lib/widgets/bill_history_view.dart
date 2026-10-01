@@ -19,6 +19,9 @@ class BillHistoryView extends StatefulWidget {
   /// Opens a bill's customer, when the host page can navigate there.
   final void Function(Customer customer)? onOpenCustomer;
 
+  /// Opens the reports page.
+  final VoidCallback? onOpenReports;
+
   /// When set, only bills this employee worked on are listed, and the
   /// summary tiles count only those. Staff see their own counter, the owner
   /// sees the salon's - same widget, so the two can never drift into
@@ -29,6 +32,7 @@ class BillHistoryView extends StatefulWidget {
     super.key,
     required this.state,
     this.onOpenCustomer,
+    this.onOpenReports,
     this.onlyEmployeeId,
   });
 
@@ -83,83 +87,31 @@ bool _isToday(DateTime? d) {
 /// `bill_history_header_test.dart` pumps this at several widths and fails on
 /// any overflow if one of these drifts out of date.
 class _HistoryHeaderDelegate extends SliverPersistentHeaderDelegate {
-  final Widget tiles;
-  final Widget compact;
   final Widget controls;
 
-  const _HistoryHeaderDelegate({
-    required this.tiles,
-    required this.compact,
-    required this.controls,
-  });
+  const _HistoryHeaderDelegate({required this.controls});
 
-  static const double _tilesH = 106;
-  static const double _compactH = 36;
   static const double _controlsH = 100; // search field + 12 gap + chip row
   static const double _topPad = 14;
   static const double _bottomPad = 12;
 
   @override
-  double get maxExtent => _topPad + _tilesH + _controlsH + _bottomPad;
+  double get maxExtent => _topPad + _controlsH + _bottomPad;
 
   @override
-  double get minExtent => _topPad + _compactH + _controlsH + _bottomPad;
+  double get minExtent => _topPad + _controlsH + _bottomPad;
 
   @override
   Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
-    // Derived from shrinkOffset rather than from a separate lerp so the
-    // content height and the box height can never disagree by a rounding
-    // error - which a Column reports as an overflow stripe.
-    final collapsibleH = (_tilesH - shrinkOffset).clamp(_compactH, _tilesH);
-    final t = ((_tilesH - collapsibleH) / (_tilesH - _compactH)).clamp(0.0, 1.0);
-
     return Container(
       color: AppTheme.bgSurface,
       padding: const EdgeInsets.fromLTRB(16, _topPad, 16, _bottomPad),
-      child: Column(
-        children: [
-          SizedBox(
-            height: collapsibleH,
-            child: ClipRect(
-              child: Stack(
-                children: [
-                  // Deliberately no height on either: each lays out at its
-                  // own natural height against an unbounded vertical
-                  // constraint and is clipped by the box above. That means a
-                  // wrong constant here can only ever crop the tile, never
-                  // squeeze it into an overflow - and the test asserts it
-                  // isn't cropped either.
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    child: IgnorePointer(
-                      ignoring: t > 0.5,
-                      child: Opacity(opacity: 1 - t, child: tiles),
-                    ),
-                  ),
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    child: IgnorePointer(
-                      ignoring: t < 0.5,
-                      child: Opacity(opacity: t, child: compact),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          SizedBox(height: _controlsH, child: controls),
-        ],
-      ),
+      child: controls,
     );
   }
 
   @override
-  bool shouldRebuild(_HistoryHeaderDelegate old) =>
-      old.tiles != tiles || old.compact != compact || old.controls != controls;
+  bool shouldRebuild(_HistoryHeaderDelegate old) => old.controls != controls;
 }
 
 class _BillHistoryViewState extends State<BillHistoryView> {
@@ -226,26 +178,47 @@ class _BillHistoryViewState extends State<BillHistoryView> {
 
     final scoped = _scopedBills;
     final todayBills = scoped.where((b) => _isToday(b.createdAt)).toList();
-    final todayRevenue = todayBills.fold<double>(0, (s, b) => s + b.finalAmount);
-    final outstanding = scoped.fold<double>(0, (s, b) => s + b.amountDue);
+
+    // Payment-method breakdown from today's bills only.
+    // Collected amounts (amountPaid per method) rather than billed totals,
+    // so PENDING bills contribute only what was handed over up front.
+    double todayCash = 0, todayUpi = 0, todayCard = 0;
+    for (final b in todayBills) {
+      switch (b.paymentMethod) {
+        case 'CASH':
+          todayCash += b.amountPaid;
+          break;
+        case 'UPI':
+          todayUpi += b.amountPaid;
+          break;
+        case 'CARD':
+          todayCard += b.amountPaid;
+          break;
+        case 'PENDING':
+          // Part-payment method is stored separately; for simplicity count
+          // any amount paid on a PENDING bill as cash here.
+          todayCash += b.amountPaid;
+          break;
+      }
+    }
 
     return Center(
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 680),
         child: CustomScrollView(
           slivers: [
+            // Today's Collections table — scrolls away with the list so it
+            // doesn't compete for space with the pinned search header.
+            SliverToBoxAdapter(
+              child: _todayCollectionsTable(
+                cash: todayCash,
+                upi: todayUpi,
+                card: todayCard,
+              ),
+            ),
             SliverPersistentHeader(
               pinned: true,
               delegate: _HistoryHeaderDelegate(
-                tiles: _summaryTiles(
-                  todayRevenue: todayRevenue,
-                  todayCount: todayBills.length,
-                  outstanding: outstanding,
-                ),
-                compact: _compactSummary(
-                  todayRevenue: todayRevenue,
-                  outstanding: outstanding,
-                ),
                 controls: _searchAndFilters(),
               ),
             ),
@@ -266,113 +239,359 @@ class _BillHistoryViewState extends State<BillHistoryView> {
     );
   }
 
-  /// The two headline tiles, shown while the header is fully expanded.
-  Widget _summaryTiles({
-    required double todayRevenue,
-    required int todayCount,
-    required double outstanding,
+  // ── Today's Collections table ─────────────────────────────────────────────
+
+  Widget _todayCollectionsTable({
+    required double cash,
+    required double upi,
+    required double card,
   }) {
-    return Row(
-      children: [
-        Expanded(
-          child: _summaryTile(
-            label: 'Billed today',
-            value: _rupees(todayRevenue),
-            detail: '$todayCount bill${todayCount == 1 ? '' : 's'}',
-            color: AppTheme.accentGreen,
-            bg: AppTheme.accentGreenBg,
-            icon: PhosphorIconsFill.trendUp,
+    final total = cash + upi + card;
+    int pct(double v) => total > 0 ? (v / total * 100).round() : 0;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF4F46E5).withValues(alpha: 0.07),
+              blurRadius: 16,
+              offset: const Offset(0, 5),
+            ),
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 3,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: Row(
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      PhosphorIconsBold.currencyInr,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Today's Collections",
+                        style: TextStyle(
+                          fontFamily: 'Plus Jakarta Sans',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      Text(
+                        'Cash · UPI · Card received today',
+                        style: TextStyle(
+                          fontFamily: 'Plus Jakarta Sans',
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF94A3B8),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // Column headers
+            Container(
+              color: const Color(0xFFF8F9FC),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: const Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      'METHOD',
+                      style: TextStyle(
+                        fontFamily: 'Plus Jakarta Sans',
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF94A3B8),
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 2,
+                    child: Text(
+                      'COLLECTED',
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        fontFamily: 'Plus Jakarta Sans',
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF94A3B8),
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 2,
+                    child: Text(
+                      'SHARE',
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        fontFamily: 'Plus Jakarta Sans',
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF94A3B8),
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Cash
+            _collectionRow(
+              icon: PhosphorIconsBold.money,
+              iconColor: const Color(0xFF10B981),
+              iconBg: const Color(0xFFECFDF5),
+              label: 'Cash',
+              amount: cash,
+              share: pct(cash),
+              accentColor: const Color(0xFF10B981),
+              divider: true,
+            ),
+
+            // UPI
+            _collectionRow(
+              icon: PhosphorIconsBold.qrCode,
+              iconColor: const Color(0xFF8B5CF6),
+              iconBg: const Color(0xFFF5F3FF),
+              label: 'UPI / QR',
+              amount: upi,
+              share: pct(upi),
+              accentColor: const Color(0xFF8B5CF6),
+              divider: true,
+            ),
+
+            // Card
+            _collectionRow(
+              icon: PhosphorIconsBold.creditCard,
+              iconColor: const Color(0xFF0EA5E9),
+              iconBg: const Color(0xFFE0F2FE),
+              label: 'Card',
+              amount: card,
+              share: pct(card),
+              accentColor: const Color(0xFF0EA5E9),
+              divider: false,
+            ),
+
+            // Total row
+            Container(
+              margin: const EdgeInsets.fromLTRB(14, 4, 14, 14),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFEEF2FF), Color(0xFFF5F3FF)],
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  const Expanded(
+                    flex: 3,
+                    child: Text(
+                      'Total Collected',
+                      style: TextStyle(
+                        fontFamily: 'Plus Jakarta Sans',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF3730A3),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 2,
+                    child: Text(
+                      _rupees(total),
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        fontFamily: 'Plus Jakarta Sans',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF3730A3),
+                        letterSpacing: -0.4,
+                      ),
+                    ),
+                  ),
+                  const Expanded(
+                    flex: 2,
+                    child: Text(
+                      '100%',
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        fontFamily: 'Plus Jakarta Sans',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF6366F1),
+                      ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              if (widget.onOpenReports != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                  child: InkWell(
+                    onTap: widget.onOpenReports,
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8F9FC),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFE2E8F0), width: 1.2),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text(
+                            'View All Reports',
+                            style: TextStyle(
+                              fontFamily: 'Plus Jakarta Sans',
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF4F46E5),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          const Icon(PhosphorIconsBold.arrowRight, size: 14, color: Color(0xFF4F46E5)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _summaryTile(
-            label: 'Outstanding',
-            value: _rupees(outstanding),
-            detail: outstanding > 0 ? 'Awaiting collection' : 'All collected',
-            color: outstanding > 0 ? AppTheme.accentAmber : AppTheme.slateLight,
-            bg: outstanding > 0 ? AppTheme.accentAmberBg : const Color(0xFFF1F5F9),
-            icon: PhosphorIconsFill.handCoins,
-          ),
-        ),
-      ],
-    );
-  }
+      );
+    }
 
-  /// What those tiles collapse into once the list is scrolled: the same two
-  /// figures on one line. Scrolling shrinks the header, it never removes it,
-  /// so today's takings and what is still owed stay on screen throughout.
-  Widget _compactSummary({
-    required double todayRevenue,
-    required double outstanding,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.borderSubtle),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _compactStat(
-              icon: PhosphorIconsFill.trendUp,
-              color: AppTheme.accentGreen,
-              label: 'Today',
-              value: _rupees(todayRevenue),
-            ),
-          ),
-          Container(width: 1, height: 16, color: AppTheme.borderSubtle),
-          Expanded(
-            child: _compactStat(
-              icon: PhosphorIconsFill.handCoins,
-              color: outstanding > 0 ? AppTheme.accentAmber : AppTheme.slateLight,
-              label: 'Due',
-              value: _rupees(outstanding),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _compactStat({
+  Widget _collectionRow({
     required IconData icon,
-    required Color color,
+    required Color iconColor,
+    required Color iconBg,
+    required Color accentColor,
     required String label,
-    required String value,
+    required double amount,
+    required int share,
+    required bool divider,
   }) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    return Column(
       children: [
-        Icon(icon, size: 13, color: color),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 10.5,
-            fontWeight: FontWeight.w700,
-            color: AppTheme.slateLight,
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: Row(
+                  children: [
+                    Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        color: iconBg,
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: Icon(icon, color: iconColor, size: 15),
+                    ),
+                    const SizedBox(width: 9),
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        fontFamily: 'Plus Jakarta Sans',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                flex: 2,
+                child: Text(
+                  _rupees(amount),
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    fontFamily: 'Plus Jakarta Sans',
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    color: amount > 0
+                        ? const Color(0xFF0F172A)
+                        : const Color(0xFFCBD5E1),
+                    letterSpacing: -0.3,
+                  ),
+                ),
+              ),
+              Expanded(
+                flex: 2,
+                child: Text(
+                  '$share%',
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    fontFamily: 'Plus Jakarta Sans',
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: amount > 0 ? accentColor : const Color(0xFFCBD5E1),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-        const SizedBox(width: 5),
-        Flexible(
-          child: Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 13.5,
-              fontWeight: FontWeight.w800,
-              color: AppTheme.slateDark,
-              letterSpacing: -0.3,
-            ),
+        if (divider)
+          const Divider(
+            height: 1,
+            indent: 16,
+            endIndent: 16,
+            color: Color(0xFFF1F5F9),
           ),
-        ),
       ],
     );
   }
+
+
 
   /// Search box and filter chips. These stay pinned at every scroll offset -
   /// they are how you drive the list, so losing them mid-scroll would mean
@@ -440,74 +659,6 @@ class _BillHistoryViewState extends State<BillHistoryView> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _summaryTile({
-    required String label,
-    required String value,
-    required String detail,
-    required Color color,
-    required Color bg,
-    required IconData icon,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.borderSubtle),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(9)),
-                child: Icon(icon, size: 14, color: color),
-              ),
-              const SizedBox(width: 7),
-              Expanded(
-                child: Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.slateLight,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 9),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 19,
-              fontWeight: FontWeight.w800,
-              color: AppTheme.slateDark,
-              letterSpacing: -0.6,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 1),
-          Text(
-            detail,
-            style: const TextStyle(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w500,
-              color: AppTheme.textMuted,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ),
     );
   }
 

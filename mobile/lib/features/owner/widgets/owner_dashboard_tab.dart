@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../widgets/liquid_nav_bar.dart';
@@ -115,7 +117,7 @@ class OwnerDashboardTab extends ConsumerWidget {
       loading: () => const AppLoadingView(),
       error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
       data: (state) => Container(
-        color: AppTheme.bgSurface,
+        color: const Color(0xFFF4F6FB),
         child: Column(
           children: [
             // The same header every other page wears. This page used to
@@ -163,47 +165,46 @@ class OwnerDashboardTab extends ConsumerWidget {
         final isWide = constraints.maxWidth >= 900;
 
         return RefreshIndicator(
+          color: AppTheme.primaryBlue,
           onRefresh: () => ref.read(appDataProvider.notifier).refresh(),
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
-            // Bottom clears the floating nav bar: content scrolls under
-            // the glass, but the last card still comes to rest above it.
-            padding: EdgeInsets.fromLTRB(
-              isWide ? 32.0 : 20.0,
-              20.0,
-              isWide ? 32.0 : 20.0,
-              20.0 + LiquidNavBar.barInset,
-            ),
+            padding: EdgeInsets.only(bottom: 20.0 + LiquidNavBar.barInset),
             child: Center(
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: isWide ? 1160 : 540),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Branch scope, only where there is a choice to make.
-                    // This is content, not a setting: it changes which
-                    // numbers the cards below show, so it stays one tap
-                    // away rather than moving behind the gear.
-                    if (state.branches.length > 1) ...[
-                      _buildBranchPill(state),
-                      const SizedBox(height: 14),
-                    ],
+                    // 1. Hero gradient banner with today's revenue
+                    _buildHeroBanner(context, ref, dashboard, state),
 
-                    // 2. Bento 2x2 Metric Cards
-                    _buildMetricGrid(dashboard, state),
-                    const SizedBox(height: 18),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: isWide ? 32.0 : 16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 20),
 
-                    // 3. Revenue Progress Card (Daily Target Overview)
-                    _buildRevenueProgressCard(context, ref, dashboard, state),
-                    const SizedBox(height: 18),
 
-                    // 4. Payment Breakdown Card
-                    _buildPaymentBreakdownCard(dashboard),
-                    const SizedBox(height: 18),
+                          // 2. Metric Cards grid
+                          _buildMetricGrid(dashboard, state),
+                          const SizedBox(height: 20),
 
-                    // 5. Quick Actions
-                    _buildQuickActionsCard(),
-                    const SizedBox(height: 88), // clearance for the floating nav bar
+                          // 3. Revenue Progress Card
+                          _buildRevenueProgressCard(context, ref, dashboard, state),
+                          const SizedBox(height: 20),
+
+                          // 4. Payment Breakdown Card
+                          _buildPaymentBreakdownCard(dashboard),
+                          const SizedBox(height: 20),
+
+                          // 5. Quick Actions
+                          _buildQuickActionsCard(),
+                          const SizedBox(height: 88),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -211,6 +212,128 @@ class OwnerDashboardTab extends ConsumerWidget {
           ),
         );
       },
+    );
+  }
+
+
+  // ─── Hero Banner ────────────────────────────────────────────────────────────
+
+  Widget _buildHeroBanner(
+    BuildContext context,
+    WidgetRef ref,
+    DashboardSummary dashboard,
+    AppData state,
+  ) {
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFF3730A3), Color(0xFF4F46E5), Color(0xFF6D28D9)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Stack(
+        children: [
+          // Decorative circles for depth
+          Positioned(
+            top: -28,
+            right: -28,
+            child: Container(
+              width: 150,
+              height: 150,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.07),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: -18,
+            left: -18,
+            child: Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.05),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 8,
+            right: 80,
+            child: Container(
+              width: 55,
+              height: 55,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.04),
+              ),
+            ),
+          ),
+          // Content
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 22, 20, 26),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (state.branches.length > 1) ...[
+                  _buildBranchPill(state),
+                  const SizedBox(height: 18),
+                ],
+                Text(
+                  "TODAY'S REVENUE",
+                  style: TextStyle(
+                    fontFamily: 'Plus Jakarta Sans',
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white.withValues(alpha: 0.65),
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _formatCurrency(dashboard.todaySales),
+                  style: const TextStyle(
+                    fontFamily: 'Plus Jakarta Sans',
+                    fontSize: 38,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                    letterSpacing: -1.2,
+                    height: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(30),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(PhosphorIconsBold.calendarBlank, size: 12, color: Colors.white.withValues(alpha: 0.85)),
+                      const SizedBox(width: 6),
+                      Text(
+                        'This week  ${_formatCurrency(dashboard.weekSales)}',
+                        style: TextStyle(
+                          fontFamily: 'Plus Jakarta Sans',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white.withValues(alpha: 0.92),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -222,27 +345,28 @@ class OwnerDashboardTab extends ConsumerWidget {
       onTap: onSelectBranch,
       borderRadius: BorderRadius.circular(20),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: Colors.white.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppTheme.borderSubtle),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(PhosphorIconsFill.mapPin, size: 14, color: AppTheme.primaryBlue),
-            const SizedBox(width: 7),
+            const Icon(PhosphorIconsFill.mapPin, size: 13, color: Colors.white),
+            const SizedBox(width: 6),
             Text(
               label,
               style: const TextStyle(
+                fontFamily: 'Plus Jakarta Sans',
                 fontSize: 12.5,
                 fontWeight: FontWeight.w700,
-                color: AppTheme.slateDark,
+                color: Colors.white,
               ),
             ),
             const SizedBox(width: 5),
-            const Icon(PhosphorIconsBold.caretDown, size: 11, color: AppTheme.slateLight),
+            Icon(PhosphorIconsBold.caretDown, size: 11, color: Colors.white.withValues(alpha: 0.7)),
           ],
         ),
       ),
@@ -262,64 +386,76 @@ class OwnerDashboardTab extends ConsumerWidget {
           spacing: 12,
           runSpacing: 12,
           children: [
-            // 1. Today's Sales
-            SizedBox(
-              width: cardWidth,
-              child: _buildMetricCard(
-                icon: PhosphorIconsBold.trendUp,
-                iconColor: const Color(0xFF4F46E5),
-                iconBg: const Color(0xFFEEF2FF),
-                badgeText: 'Today',
-                badgeTextColor: const Color(0xFF4F46E5),
-                badgeBgColor: const Color(0xFFEEF2FF),
-                title: "Today's Sales",
-                value: _formatCurrency(dashboard.todaySales),
-                onTap: onOpenBilling,
-              ),
-            ),
-            // 2. This Week
-            SizedBox(
-              width: cardWidth,
-              child: _buildMetricCard(
-                icon: PhosphorIconsBold.calendarBlank,
-                iconColor: const Color(0xFF9333EA),
-                iconBg: const Color(0xFFF3E8FF),
-                badgeText: '7 Days',
-                badgeTextColor: const Color(0xFF7C3AED),
-                badgeBgColor: const Color(0xFFF5F3FF),
-                title: 'This Week',
-                value: _formatCurrency(dashboard.weekSales),
-                onTap: onOpenReports,
-              ),
-            ),
-            // 3. Today's Customers
+            // 1. Today's Customers
             SizedBox(
               width: cardWidth,
               child: _buildMetricCard(
                 icon: PhosphorIconsBold.users,
-                iconColor: const Color(0xFF0D9488),
-                iconBg: const Color(0xFFE6FFFA),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF0D9488), Color(0xFF14B8A6)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                accentColor: const Color(0xFF0D9488),
+                accentBg: const Color(0xFFE6FFFA),
                 badgeText: '${dashboard.todayCustomersCount} Visited',
-                badgeTextColor: const Color(0xFF2563EB),
-                badgeBgColor: const Color(0xFFEFF6FF),
-                title: "Today's Customers",
+                title: "Today's Clients",
                 value: '${dashboard.todayCustomersCount}',
                 onTap: onOpenClients,
               ),
             ),
-            // 4. Bills Today
+            // 2. Bills Today
             SizedBox(
               width: cardWidth,
               child: _buildMetricCard(
                 icon: PhosphorIconsBold.receipt,
-                iconColor: const Color(0xFFD97706),
-                iconBg: const Color(0xFFFFFBEB),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFD97706), Color(0xFFF59E0B)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                accentColor: const Color(0xFFD97706),
+                accentBg: const Color(0xFFFFFBEB),
                 badgeText: avgTicket > 0 ? 'Avg ₹$avgTicket' : '0 Bills',
-                badgeTextColor: const Color(0xFFB45309),
-                badgeBgColor: const Color(0xFFFEF3C7),
                 title: 'Bills Today',
                 value: '${dashboard.todayBillCount}',
                 onTap: onOpenBilling,
+              ),
+            ),
+            // 3. Attendance
+            SizedBox(
+              width: cardWidth,
+              child: _buildMetricCard(
+                icon: PhosphorIconsBold.identificationCard,
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF7C3AED), Color(0xFF8B5CF6)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                accentColor: const Color(0xFF7C3AED),
+                accentBg: const Color(0xFFF5F3FF),
+                badgeText: 'Staff In',
+                title: 'Attendance',
+                value: '${dashboard.todayAttendanceCount}',
+                onTap: onOpenAttendance,
+              ),
+            ),
+            // 4. Low Stock
+            SizedBox(
+              width: cardWidth,
+              child: _buildMetricCard(
+                icon: PhosphorIconsBold.warningCircle,
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFDC2626), Color(0xFFEF4444)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                accentColor: const Color(0xFFDC2626),
+                accentBg: const Color(0xFFFEF2F2),
+                badgeText: dashboard.lowStockItemCount > 0 ? 'Low Stock' : 'All Good',
+                title: 'Low Stock',
+                value: '${dashboard.lowStockItemCount}',
+                onTap: onOpenReports,
               ),
             ),
           ],
@@ -330,59 +466,70 @@ class OwnerDashboardTab extends ConsumerWidget {
 
   Widget _buildMetricCard({
     required IconData icon,
-    required Color iconColor,
-    required Color iconBg,
+    required LinearGradient gradient,
+    required Color accentColor,
+    required Color accentBg,
     required String badgeText,
-    required Color badgeTextColor,
-    required Color badgeBgColor,
     required String title,
     required String value,
     VoidCallback? onTap,
   }) {
     final card = Container(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE2E8F0), width: 1),
+        borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: accentColor.withValues(alpha: 0.10),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 4,
+            offset: const Offset(0, 1),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Top Row: Icon + Badge
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 38,
-                height: 38,
+                width: 42,
+                height: 42,
                 decoration: BoxDecoration(
-                  color: iconBg,
-                  borderRadius: BorderRadius.circular(12),
+                  gradient: gradient,
+                  borderRadius: BorderRadius.circular(13),
+                  boxShadow: [
+                    BoxShadow(
+                      color: accentColor.withValues(alpha: 0.35),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
                 ),
-                child: Icon(icon, color: iconColor, size: 19),
+                child: Icon(icon, color: Colors.white, size: 20),
               ),
               Flexible(
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: badgeBgColor,
+                    color: accentBg,
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
                     badgeText,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontFamily: 'Plus Jakarta Sans',
-                      fontSize: 10.5,
+                    style: TextStyle(
+                      fontFamily: 'Plus Jakarta Sans',
+                      fontSize: 10,
                       fontWeight: FontWeight.w700,
-                      color: badgeTextColor,
+                      color: accentColor,
                     ),
                   ),
                 ),
@@ -390,24 +537,24 @@ class OwnerDashboardTab extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 14),
-          // Subtitle / Label
           Text(
             title,
-            style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
-              fontSize: 12.5,
+            style: const TextStyle(
+              fontFamily: 'Plus Jakarta Sans',
+              fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: const Color(0xFF64748B),
+              color: Color(0xFF64748B),
             ),
           ),
-          const SizedBox(height: 4),
-          // Large Bold Value
+          const SizedBox(height: 3),
           Text(
             value,
-            style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
-              fontSize: 24,
+            style: TextStyle(
+              fontFamily: 'Plus Jakarta Sans',
+              fontSize: 26,
               fontWeight: FontWeight.w800,
-              color: const Color(0xFF0F172A),
-              letterSpacing: -0.6,
+              color: accentColor,
+              letterSpacing: -0.8,
             ),
           ),
         ],
@@ -415,10 +562,13 @@ class OwnerDashboardTab extends ConsumerWidget {
     );
 
     if (onTap == null) return card;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: card,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: card,
+      ),
     );
   }
 
@@ -543,17 +693,23 @@ class OwnerDashboardTab extends ConsumerWidget {
     final percentage = (progress * 100).round();
     final remaining = (planned - actual).clamp(0.0, double.infinity);
 
+    final isAchieved = planned > 0 && actual >= planned;
+
     return Container(
-      padding: const EdgeInsets.all(20.0),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE2E8F0), width: 1),
+        borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-            blurRadius: 14,
-            offset: const Offset(0, 4),
+            color: AppTheme.primaryBlue.withValues(alpha: 0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 6),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 4,
+            offset: const Offset(0, 1),
           ),
         ],
       ),
@@ -564,40 +720,59 @@ class OwnerDashboardTab extends ConsumerWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              Row(
                 children: [
-                  Text(
-                    'Revenue Progress',
-                    style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: const Color(0xFF0F172A),
-                      letterSpacing: -0.3,
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
                     ),
+                    child: const Icon(PhosphorIconsBold.target, color: Colors.white, size: 19),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    isConfigured ? 'Daily Target Overview' : 'Daily average so far this month',
-                    style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: const Color(0xFF64748B),
-                    ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Revenue Progress',
+                        style: TextStyle(
+                          fontFamily: 'Plus Jakarta Sans',
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                      Text(
+                        isConfigured ? 'Daily Target Overview' : 'Daily average so far',
+                        style: const TextStyle(
+                          fontFamily: 'Plus Jakarta Sans',
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
               // The badge judges the day against `planned`, so the control
-              // that sets `planned` belongs next to it - "where do I change
-              // this" was otherwise unanswerable from the card making the
-              // claim.
+              // that sets `planned` belongs next to it.
               InkWell(
                 onTap: () => _showDailyTargetDialog(context, ref, configured),
                 borderRadius: BorderRadius.circular(20),
                 child: Container(
-                  padding: const EdgeInsets.fromLTRB(10, 4, 7, 4),
+                  padding: const EdgeInsets.fromLTRB(10, 5, 8, 5),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFEEF2FF),
+                    gradient: isAchieved
+                        ? const LinearGradient(colors: [Color(0xFF10B981), Color(0xFF34D399)])
+                        : const LinearGradient(colors: [Color(0xFF4F46E5), Color(0xFF6366F1)]),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Row(
@@ -606,140 +781,123 @@ class OwnerDashboardTab extends ConsumerWidget {
                       Text(
                         !isConfigured
                             ? 'Set target'
-                            : (actual >= planned && actual > 0 ? 'Target Met' : 'In Progress'),
+                            : (isAchieved ? '🎯 Met!' : 'In Progress'),
                         style: const TextStyle(
                           fontFamily: 'Plus Jakarta Sans',
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
-                          color: Color(0xFF4F46E5),
+                          color: Colors.white,
                         ),
                       ),
                       const SizedBox(width: 3),
-                      const Icon(PhosphorIconsBold.caretRight, size: 9, color: Color(0xFF4F46E5)),
+                      const Icon(PhosphorIconsBold.caretRight, size: 9, color: Colors.white),
                     ],
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 22),
 
-          // Actual vs Planned + Circular Progress
+          // Arc gauge + stat column
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              _buildArcGauge(percentage, isAchieved),
+              const SizedBox(width: 20),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: RichText(
-                            overflow: TextOverflow.ellipsis,
-                            text: TextSpan(
-                              style: TextStyle(fontFamily: 'Plus Jakarta Sans', fontSize: 13, color: const Color(0xFF475467)),
-                              children: [
-                                const TextSpan(text: 'Actual: '),
-                                TextSpan(
-                                  text: _formatCurrency(actual),
-                                  style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 14),
-                        Flexible(
-                          child: RichText(
-                            overflow: TextOverflow.ellipsis,
-                            text: TextSpan(
-                              style: TextStyle(fontFamily: 'Plus Jakarta Sans', fontSize: 13, color: const Color(0xFF64748B)),
-                              children: [
-                                const TextSpan(text: 'Planned: '),
-                                TextSpan(
-                                  text: _formatCurrency(planned),
-                                  style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF475467)),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                    _buildProgressStat('Actual', _formatCurrency(actual), const Color(0xFF4F46E5)),
                     const SizedBox(height: 10),
-                    // Progress Bar
+                    _buildProgressStat('Target', _formatCurrency(planned), const Color(0xFF94A3B8)),
+                    const SizedBox(height: 14),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE2E8F0),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: FractionallySizedBox(
-                          alignment: Alignment.centerLeft,
-                          widthFactor: progress,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
+                      child: SizedBox(
+                        height: 7,
+                        child: LinearProgressIndicator(
+                          value: progress,
+                          backgroundColor: const Color(0xFFE2E8F0),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            isAchieved ? const Color(0xFF10B981) : const Color(0xFF4F46E5),
                           ),
                         ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      planned <= 0 && actual <= 0
+                          ? 'No sales recorded yet today'
+                          : remaining > 0
+                              ? '${_formatCurrency(remaining)} to go'
+                              : '🎯 Daily target achieved!',
+                      style: TextStyle(
+                        fontFamily: 'Plus Jakarta Sans',
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: isAchieved ? const Color(0xFF10B981) : const Color(0xFF64748B),
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 16),
-              // Circular Percentage Gauge
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox(
-                    width: 52,
-                    height: 52,
-                    child: CircularProgressIndicator(
-                      value: progress,
-                      strokeWidth: 4.5,
-                      backgroundColor: const Color(0xFFEEF2FF),
-                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF4F46E5)),
-                    ),
-                  ),
-                  Text(
-                    '$percentage%',
-                    style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      color: const Color(0xFF4F46E5),
-                    ),
-                  ),
-                ],
-              ),
             ],
-          ),
-          const SizedBox(height: 12),
-          // Remaining helper note
-          Text(
-            // `remaining` is clamped at 0, so a branch (or a salon) with no
-            // bills at all had planned == actual == 0 and got congratulated
-            // on hitting a target that doesn't exist yet. Same condition the
-            // 'Target Met' badge above uses.
-            planned <= 0 && actual <= 0
-                ? 'No sales recorded yet today'
-                : remaining > 0
-                    ? '${_formatCurrency(remaining)} needed to reach daily target'
-                    : '🎯 Daily target achieved!',
-            style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
-              fontSize: 11.5,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF64748B),
-            ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildArcGauge(int percentage, bool achieved) {
+    return SizedBox(
+      width: 80,
+      height: 80,
+      child: CustomPaint(
+        painter: _ArcGaugePainter(
+          progress: (percentage / 100).clamp(0.0, 1.0),
+          achieved: achieved,
+        ),
+        child: Center(
+          child: Text(
+            '$percentage%',
+            style: TextStyle(
+              fontFamily: 'Plus Jakarta Sans',
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              color: achieved ? const Color(0xFF10B981) : const Color(0xFF4F46E5),
+              letterSpacing: -0.5,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProgressStat(String label, String value, Color valueColor) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontFamily: 'Plus Jakarta Sans',
+            fontSize: 12.5,
+            fontWeight: FontWeight.w500,
+            color: Color(0xFF94A3B8),
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontFamily: 'Plus Jakarta Sans',
+            fontSize: 13.5,
+            fontWeight: FontWeight.w800,
+            color: valueColor,
+          ),
+        ),
+      ],
     );
   }
 
@@ -764,100 +922,126 @@ class OwnerDashboardTab extends ConsumerWidget {
         billedTotal > 0 ? (pending / billedTotal * 100).round() : 0;
 
     return Container(
-      padding: const EdgeInsets.all(20.0),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE2E8F0), width: 1),
+        borderRadius: BorderRadius.circular(22),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-            blurRadius: 14,
-            offset: const Offset(0, 4),
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header Row
+          // Header
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF10B981), Color(0xFF34D399)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(PhosphorIconsBold.wallet, color: Colors.white, size: 18),
+              ),
+              const SizedBox(width: 12),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
+                  const Text(
                     'Payment Breakdown',
-                    style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
-                      fontSize: 16,
+                    style: TextStyle(
+                      fontFamily: 'Plus Jakarta Sans',
+                      fontSize: 15,
                       fontWeight: FontWeight.w800,
-                      color: const Color(0xFF0F172A),
+                      color: Color(0xFF0F172A),
                       letterSpacing: -0.3,
                     ),
                   ),
-                  const SizedBox(height: 2),
                   Text(
-                    'Total Collected: ${_formatCurrency(collected)}',
-                    style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
-                      fontSize: 12,
+                    'Collected: ${_formatCurrency(collected)}',
+                    style: const TextStyle(
+                      fontFamily: 'Plus Jakarta Sans',
+                      fontSize: 11.5,
                       fontWeight: FontWeight.w500,
-                      color: const Color(0xFF64748B),
+                      color: Color(0xFF64748B),
                     ),
                   ),
                 ],
               ),
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: const Icon(
-                  PhosphorIconsRegular.wallet,
-                  size: 18,
-                  color: Color(0xFF64748B),
-                ),
-              ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 20),
+
+          // Stacked bar
+          if (billedTotal > 0) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: SizedBox(
+                height: 10,
+                child: Row(
+                  children: [
+                    if (cashPct > 0)
+                      Flexible(flex: cashPct, child: Container(color: const Color(0xFF10B981))),
+                    if (upiPct > 0)
+                      Flexible(flex: upiPct, child: Container(color: const Color(0xFF8B5CF6))),
+                    if (pendingPct > 0)
+                      Flexible(flex: pendingPct, child: Container(color: const Color(0xFFD97706))),
+                    if (100 - cashPct - upiPct - pendingPct > 0)
+                      Flexible(
+                        flex: math.max(1, 100 - cashPct - upiPct - pendingPct),
+                        child: Container(color: const Color(0xFFE2E8F0)),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+          ],
 
           // 1. Cash Row
           _buildPaymentChannelRow(
             icon: PhosphorIconsBold.money,
             iconColor: const Color(0xFF10B981),
             iconBg: const Color(0xFFECFDF5),
+            barColor: const Color(0xFF10B981),
             label: 'Cash',
             collectedText: '${_formatCurrency(cash)} collected',
             percent: cashPct,
-            barColor: const Color(0xFF10B981),
           ),
           const SizedBox(height: 14),
 
-          // 2. Pending Row - reads "outstanding", not "collected", because
+          // 2. UPI / QR Row
+          _buildPaymentChannelRow(
+            icon: PhosphorIconsBold.qrCode,
+            iconColor: const Color(0xFF8B5CF6),
+            iconBg: const Color(0xFFF5F3FF),
+            barColor: const Color(0xFF8B5CF6),
+            label: 'UPI / QR',
+            collectedText: '${_formatCurrency(upi)} collected',
+            percent: upiPct,
+          ),
+          const SizedBox(height: 14),
+
+          // 3. Pending Row - reads "outstanding", not "collected", because
           // this is the one channel where nothing has been handed over.
           _buildPaymentChannelRow(
             icon: PhosphorIconsBold.clockCountdown,
             iconColor: const Color(0xFFD97706),
             iconBg: const Color(0xFFFFFBEB),
+            barColor: const Color(0xFFD97706),
             label: 'Pending',
             collectedText: '${_formatCurrency(pending)} outstanding',
             percent: pendingPct,
-            barColor: const Color(0xFFD97706),
-          ),
-          const SizedBox(height: 14),
-
-          // 3. UPI / QR Row
-          _buildPaymentChannelRow(
-            icon: PhosphorIconsBold.qrCode,
-            iconColor: const Color(0xFF8B5CF6),
-            iconBg: const Color(0xFFF5F3FF),
-            label: 'UPI / QR',
-            collectedText: '${_formatCurrency(upi)} collected',
-            percent: upiPct,
-            barColor: const Color(0xFF8B5CF6),
           ),
         ],
       ),
@@ -868,14 +1052,13 @@ class OwnerDashboardTab extends ConsumerWidget {
     required IconData icon,
     required Color iconColor,
     required Color iconBg,
+    required Color barColor,
     required String label,
     required String collectedText,
     required int percent,
-    required Color barColor,
   }) {
     return Row(
       children: [
-        // Left Icon
         Container(
           width: 38,
           height: 38,
@@ -886,46 +1069,47 @@ class OwnerDashboardTab extends ConsumerWidget {
           child: Icon(icon, color: iconColor, size: 18),
         ),
         const SizedBox(width: 12),
-        // Title & Collected Subtitle
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 label,
-                style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
-                  fontSize: 14,
+                style: const TextStyle(
+                  fontFamily: 'Plus Jakarta Sans',
+                  fontSize: 13.5,
                   fontWeight: FontWeight.w700,
-                  color: const Color(0xFF0F172A),
+                  color: Color(0xFF0F172A),
                 ),
               ),
               const SizedBox(height: 2),
               Text(
                 collectedText,
-                style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
+                style: const TextStyle(
+                  fontFamily: 'Plus Jakarta Sans',
                   fontSize: 11.5,
-                  color: const Color(0xFF64748B),
+                  color: Color(0xFF64748B),
                   fontWeight: FontWeight.w500,
                 ),
               ),
             ],
           ),
         ),
-        // Right Percent & Progress Bar
         Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Text(
               '$percent%',
-              style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
-                fontSize: 13,
+              style: TextStyle(
+                fontFamily: 'Plus Jakarta Sans',
+                fontSize: 14,
                 fontWeight: FontWeight.w800,
-                color: const Color(0xFF0F172A),
+                color: barColor,
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 5),
             SizedBox(
-              width: 50,
+              width: 54,
               height: 5,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(3),
@@ -946,48 +1130,49 @@ class OwnerDashboardTab extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
+        const Text(
           'Quick Actions',
-          style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
-            fontSize: 16,
+          style: TextStyle(
+            fontFamily: 'Plus Jakarta Sans',
+            fontSize: 15,
             fontWeight: FontWeight.w800,
-            color: const Color(0xFF0F172A),
+            color: Color(0xFF0F172A),
             letterSpacing: -0.3,
           ),
         ),
         const SizedBox(height: 12),
         Row(
           children: [
-            // Start Billing Button (Primary)
             Expanded(
               child: InkWell(
                 onTap: onOpenBilling,
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(18),
                 child: Container(
-                  height: 48,
+                  height: 54,
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
                       colors: [Color(0xFF4F46E5), Color(0xFF4338CA)],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(18),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF4F46E5).withValues(alpha: 0.3),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
+                        color: const Color(0xFF4F46E5).withValues(alpha: 0.35),
+                        blurRadius: 14,
+                        offset: const Offset(0, 5),
                       ),
                     ],
                   ),
-                  child: Row(
+                  child: const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(PhosphorIconsBold.shoppingCart, color: Colors.white, size: 18),
-                      const SizedBox(width: 8),
+                      Icon(PhosphorIconsBold.shoppingCart, color: Colors.white, size: 19),
+                      SizedBox(width: 9),
                       Text(
                         'Start Billing',
-                        style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
+                        style: TextStyle(
+                          fontFamily: 'Plus Jakarta Sans',
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
                           color: Colors.white,
@@ -999,36 +1184,36 @@ class OwnerDashboardTab extends ConsumerWidget {
               ),
             ),
             const SizedBox(width: 12),
-            // Attendance Button (Secondary Outlined/Pill)
             Expanded(
               child: InkWell(
                 onTap: onOpenAttendance,
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(18),
                 child: Container(
-                  height: 48,
+                  height: 54,
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFE2E8F0), width: 1.2),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF0F172A).withValues(alpha: 0.02),
-                        blurRadius: 6,
+                        color: Colors.black.withValues(alpha: 0.03),
+                        blurRadius: 8,
                         offset: const Offset(0, 2),
                       ),
                     ],
                   ),
-                  child: Row(
+                  child: const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(PhosphorIconsRegular.calendarBlank, color: Color(0xFF475467), size: 18),
-                      const SizedBox(width: 8),
+                      Icon(PhosphorIconsRegular.calendarBlank, color: Color(0xFF475467), size: 19),
+                      SizedBox(width: 9),
                       Text(
                         'Attendance',
-                        style: TextStyle(fontFamily: 'Plus Jakarta Sans', 
+                        style: TextStyle(
+                          fontFamily: 'Plus Jakarta Sans',
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
-                          color: const Color(0xFF475467),
+                          color: Color(0xFF475467),
                         ),
                       ),
                     ],
@@ -1041,4 +1226,64 @@ class OwnerDashboardTab extends ConsumerWidget {
       ],
     );
   }
+}
+
+// ─── Arc Gauge Painter ────────────────────────────────────────────────────────
+
+class _ArcGaugePainter extends CustomPainter {
+  final double progress;
+  final bool achieved;
+
+  const _ArcGaugePainter({required this.progress, required this.achieved});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    final radius = (size.width / 2) - 6;
+    const strokeWidth = 7.0;
+
+    final trackPaint = Paint()
+      ..color = const Color(0xFFEEF2FF)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+
+    final progressPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round
+      ..shader = achieved
+          ? const LinearGradient(
+              colors: [Color(0xFF10B981), Color(0xFF34D399)],
+            ).createShader(Rect.fromCircle(center: Offset(cx, cy), radius: radius))
+          : const LinearGradient(
+              colors: [Color(0xFF4F46E5), Color(0xFF818CF8)],
+            ).createShader(Rect.fromCircle(center: Offset(cx, cy), radius: radius));
+
+    const startAngle = math.pi * 0.75;
+    const sweepMax = math.pi * 1.5;
+
+    canvas.drawArc(
+      Rect.fromCircle(center: Offset(cx, cy), radius: radius),
+      startAngle,
+      sweepMax,
+      false,
+      trackPaint,
+    );
+
+    if (progress > 0) {
+      canvas.drawArc(
+        Rect.fromCircle(center: Offset(cx, cy), radius: radius),
+        startAngle,
+        sweepMax * progress,
+        false,
+        progressPaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ArcGaugePainter old) =>
+      old.progress != progress || old.achieved != achieved;
 }
