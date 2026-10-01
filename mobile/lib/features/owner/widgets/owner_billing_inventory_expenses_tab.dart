@@ -17,6 +17,7 @@ import 'owner_payment_requests_view.dart';
 import '../../../widgets/app_settings_page.dart';
 import 'owner_management_tabs.dart';
 import 'owner_tax_settings.dart';
+import '../owner_dashboard.dart';
 
 T? _firstOrNull<T>(Iterable<T> items) => items.isEmpty ? null : items.first;
 
@@ -356,7 +357,15 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
           Expanded(
             child:
                 _section == _BillingSection.history
-                    ? BillHistoryView(state: state)
+                    ? BillHistoryView(
+                        state: state,
+                        onOpenReports: () => openAppSubPage(
+                          context,
+                          title: 'Reports',
+                          subtitle: 'Revenue, retention and staff performance',
+                          child: const OwnerReportsTab(),
+                        ),
+                      )
                     : _buildBody(context, ref, state),
           ),
         ],

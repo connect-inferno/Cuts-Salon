@@ -41,7 +41,7 @@ dependencies:
   firebase_auth: ^5.3.3
   cloud_firestore: ^5.5.0
   phosphor_flutter: ^2.1.0
-  geolocator: ^14.1.1
+  geolocator: 14.0.2
   # Browser APIs, used only by lib/widgets/csv_export_web.dart behind a
   # conditional import - the CSV export needs a Blob and an anchor click to
   # hand the owner a real file, and this app ships as a web build. Already

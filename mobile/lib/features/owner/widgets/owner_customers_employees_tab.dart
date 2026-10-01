@@ -1910,11 +1910,33 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
         padding: EdgeInsets.only(left: 14, right: count == null ? 14 : 7),
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF4F46E5) : Colors.white,
+          color: isSelected ? null : Colors.white,
+          gradient: isSelected
+              ? const LinearGradient(
+                  colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : null,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0),
+            color: isSelected ? Colors.transparent : const Color(0xFFE2E8F0),
           ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF4F46E5).withValues(alpha: 0.25),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  )
+                ]
+              : [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.03),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  )
+                ],
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1935,7 +1957,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: isSelected
-                      ? Colors.white.withValues(alpha: 0.22)
+                      ? Colors.white.withValues(alpha: 0.25)
                       : const Color(0xFFF1F5F9),
                   borderRadius: BorderRadius.circular(10),
                 ),
