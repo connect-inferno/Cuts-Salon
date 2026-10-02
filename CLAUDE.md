@@ -14,7 +14,7 @@ Multi-tenant salon management SaaS. Each salon runs on its own Firebase project 
 There is no trusted server here — the Flutter client talks to Firestore directly, so **Firestore Security Rules are the only real access-control boundary**, not the Dart code. Every rule in `firestore.rules` is deliberately commented with what REST-era behavior it's preserving (e.g. the deactivated-employee bypass fix, owner-only writes, immutable bills). When adding a new collection or mutation:
 
 - **Business logic (price resolution, commission %, GST, stock checks) lives in `AppDataNotifier`**, validated client-side before the Firestore write — see `createBill` in `app_data_provider.dart` for the pattern (resolve everything against the already-loaded `AppData` snapshot, fail fast with a clear exception before touching Firestore).
-- **Every new collection needs an explicit rule in `firestore.rules`.** Firestore's default is deny-all; forgetting a rule doesn't silently work, it silently 403s — but a rule that's too permissive is a real data leak, since nothing else is checking. Match the authorization shape of the corresponding REST-era route if one existed (the existing rules comment on which route they mirror).
+- **Every new collection needs an explicit rule in `firestore.rules`.** Firestore's default is deny-all; forgetting a rule doesn't silently work, it silently 403s — but a rule that's too permissive is a real data leak, since nothing else is checking. Match the authorization shape of the corresponding REST-era route if one existed (the existing rules comment on which route they mirror). **Editing `firestore.rules` is only half the change — deploy it (see Deployment below), or the new collection 403s in production while working fine in the repo.**
 - Firestore rules gate *documents*, not fields — there's no per-field redaction (see the comment atop `firestore.rules` re: salary visibility). If a field shouldn't be visible to someone who can read the document, that has to be enforced in the app layer (`firestore_app_data.dart`) instead.
 - A single active employee (or a tampered client) can, in principle, write internally-inconsistent values (e.g. a fabricated commission %) since rules only check *who* can write, not that the math is correct. This is a known, accepted trade-off of the no-server architecture — if that ever needs closing, the fix is moving bill/commission creation into a Cloud Function that validates and writes with elevated privileges, not relaxing this note.
 
@@ -65,3 +65,13 @@ A second, unrelated collection in the same directory project (see above): `salon
 ## Deployment
 
 - The app is a Flutter web build on Vercel (`mobile/vercel.json` + `mobile/build.sh`). There is no server to deploy or keep alive — Firestore and Firebase Auth are managed services.
+- **Rules and indexes do NOT ship with the app.** Vercel auto-deploys the Flutter build on every push to `main`; `firestore.rules` and `firestore.indexes.json` only reach Firebase when someone runs the deploy below by hand. So a push can leave the app expecting rules that production doesn't have yet — the repo looks right, production 403s.
+
+  After any change to `firestore.rules` or `firestore.indexes.json`, from `mobile/`:
+
+  ```bash
+  firebase deploy --only firestore:rules,firestore:indexes --project cuts-salon
+  ```
+
+  Repeat for every provisioned salon once there is more than one (see Onboarding a new salon). The deploy replaces the live ruleset wholesale, so any edit made directly in the Firebase Console is overwritten — change rules in the repo, never in the Console.
+- **How this fails when it is missed:** Firestore denies the read and the client logs `permission-denied` / HTTP 403 on `runQuery`/`runAggregationQuery`. Call sites that degrade gracefully (e.g. `countPendingPaymentRequests` in `salon_firestore.dart`, which catches and returns 0) swallow it, so nothing visibly breaks — a badge just silently reads 0. This happened for real: the `paymentRequests` rules landed with the feature on 2026-09-30 but weren't deployed until 2026-10-02, and the owner's pending-settlement badge read 0 the whole time. When one collection 403s in production while an identically-ruled one works, suspect an undeployed ruleset first.
