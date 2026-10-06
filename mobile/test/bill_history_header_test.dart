@@ -1,12 +1,14 @@
-// The bill history header is a pinned, collapsing SliverPersistentHeader, and
-// a pinned header has to declare its extents before it lays anything out - so
-// the heights in _HistoryHeaderDelegate are hard-coded constants rather than
-// measured. That is only safe while the widgets inside them actually fit.
+// The bill history's search box and filter chips sit in a pinned
+// SliverPersistentHeader, and a pinned header has to declare its extent
+// before it lays anything out - so _HistoryHeaderDelegate's heights are
+// hard-coded constants rather than measured. That is only safe while the
+// controls inside actually fit. Above it, the Today's Collections table
+// scrolls away with the list.
 //
-// These tests pump the real view at a phone width and a tablet width, fully
-// expanded and fully collapsed, and fail on any render overflow. If someone
-// adds a line to a summary tile or bumps a font size, this is what catches it
-// instead of an overflow stripe appearing on a salon's till.
+// These tests pump the real view at narrow, phone and tablet widths, at rest
+// and scrolled, and fail on any render overflow. If someone adds a line to
+// the header or bumps a font size, this is what catches it instead of an
+// overflow stripe appearing on a salon's till.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -72,56 +74,90 @@ void main() {
   const tablet = Size(1024, 768);
 
   for (final entry in const {'narrow': narrow, 'phone': phone, 'tablet': tablet}.entries) {
-    testWidgets('history header fits expanded at ${entry.key}', (tester) async {
+    testWidgets('history renders without overflow at ${entry.key}', (tester) async {
       await _pumpAt(tester, entry.value);
 
-      // Expanded: the full tiles are showing, the compact strip is not.
-      expect(find.text('Billed today'), findsOneWidget);
-      expect(find.text('Outstanding'), findsOneWidget);
+      expect(find.text("Today's Collections"), findsOneWidget);
+      expect(find.text('Total Collected'), findsOneWidget);
 
-      // The tiles are laid out unbounded and clipped, so too small a reserved
-      // height crops them silently instead of throwing. Measure the tile card
-      // itself, not its last line of text - the card's bottom padding and
-      // border are part of what has to fit, and cropping those is visible.
-      final clip = tester.getRect(
-        find.descendant(
-          of: find.byType(SliverPersistentHeader),
-          matching: find.byType(ClipRect),
-        ).first,
+      // The controls must fit inside the header's fixed extent - the header
+      // clips rather than throws, so too small a height crops them silently.
+      // The sliver itself has no box to measure; its top-level Container does.
+      final header = tester.getRect(
+        find.descendant(of: find.byType(SliverPersistentHeader), matching: find.byType(Container)).first,
       );
-      final card = tester.getRect(
-        find.ancestor(
-          of: find.text('Outstanding'),
-          matching: find.byType(Container),
-        ).first,
-      );
+      final chips = tester.getRect(find.text('All (30)'));
       expect(
-        card.bottom,
-        lessThanOrEqualTo(clip.bottom),
-        reason: 'summary tile is cropped - raise _HistoryHeaderDelegate._tilesH',
+        chips.bottom,
+        lessThanOrEqualTo(header.bottom),
+        reason: 'filter chips are cropped - raise _HistoryHeaderDelegate._controlsH',
       );
     });
 
-    testWidgets('history header fits collapsed at ${entry.key}', (tester) async {
+    testWidgets('search and filters stay pinned when scrolled at ${entry.key}', (tester) async {
       await _pumpAt(tester, entry.value);
 
-      // Scroll well past the header's collapse range.
+      // Scroll the collections table and a good part of the list away.
       await tester.drag(find.byType(CustomScrollView), const Offset(0, -600));
       await tester.pumpAndSettle();
 
-      // Collapsed: the strip has taken over, and - the actual point of the
-      // change - the search box and filter chips are still on screen.
-      expect(find.text('Today'), findsOneWidget);
-      expect(find.text('Due'), findsOneWidget);
-      expect(find.text('Search invoice number or client'), findsOneWidget);
+      final search = find.text('Search invoice number or client');
+      expect(search, findsOneWidget);
       expect(find.text('All (30)'), findsOneWidget);
+      expect(tester.getRect(search).top, greaterThanOrEqualTo(0), reason: 'search box scrolled off screen');
     });
   }
 
-  testWidgets('header still renders with no bills at all', (tester) async {
+  testWidgets('still renders with no bills at all', (tester) async {
     await _pumpAt(tester, phone, data: _appData(billCount: 0));
 
     expect(find.text('No bills yet'), findsOneWidget);
-    expect(find.text('Billed today'), findsOneWidget);
+    expect(find.text("Today's Collections"), findsOneWidget);
+  });
+
+  testWidgets("a balance settled by card counts under Card in today's collections", (tester) async {
+    // ₹590 bill: ₹200 by UPI at the counter, ₹390 cleared later by card.
+    // The table used to credit the whole ₹590 to the bill's own method (UPI).
+    final bill = Bill(
+      id: 'b0',
+      invoiceNumber: 'INV-0000',
+      customerId: 'c1',
+      customerName: 'Priya Ramakrishnan',
+      branchId: 'br1',
+      subTotal: 590,
+      discountAmount: 0,
+      taxAmount: 0,
+      finalAmount: 590,
+      paymentMethod: 'UPI',
+      amountPaid: 590,
+      laterPaymentsByMethod: const {'CARD': 390},
+      status: 'COMPLETED',
+      createdAt: DateTime.now(),
+      items: const [],
+    );
+    final data = _appData(billCount: 0);
+    await _pumpAt(
+      tester,
+      phone,
+      data: AppData(
+        branches: data.branches,
+        employees: data.employees,
+        customers: data.customers,
+        categories: data.categories,
+        services: data.services,
+        inventory: data.inventory,
+        bills: [bill],
+        discountRequests: data.discountRequests,
+        salesTargets: data.salesTargets,
+        commissions: data.commissions,
+        attendance: data.attendance,
+        dashboard: null,
+        settings: null,
+      ),
+    );
+
+    expect(find.text('₹390'), findsOneWidget); // Card
+    expect(find.text('₹200'), findsOneWidget); // UPI
+    expect(find.text('₹590'), findsWidgets); // total, and the bill row
   });
 }
