@@ -22,9 +22,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
 
-  // Flip to false (or gate on kDebugMode) once real salons are onboarded.
-  static const bool _showQuickPills = true;
-
   // Safari caps script-writable storage at 7 days without a visit, so a
   // stylist who doesn't open the app for a week gets signed out. Nothing in
   // a serverless app can extend that - but adding the app to the Home Screen
@@ -60,64 +57,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             _passwordController.text,
           );
     }
-  }
-
-  // Demo quick-fill. These are the cuts-salon test accounts, so keep this
-  // behind _showQuickPills before onboarding real salons - a production build
-  // should not offer anyone else's credentials on the sign-in screen.
-  void _quickFill(String email, String password, String role) {
-    setState(() {
-      _emailController.text = email;
-      _passwordController.text = password;
-    });
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(PhosphorIconsFill.checkCircle, color: Colors.white, size: 18),
-            const SizedBox(width: 8),
-            Expanded(child: Text('$role credentials loaded. Tap Log In to continue.')),
-          ],
-        ),
-        backgroundColor: const Color(0xFF4F46E5),
-        duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
-  }
-
-  Widget _quickPill({
-    required IconData icon,
-    required Color color,
-    required Color bg,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withValues(alpha: 0.22)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 14, color: color),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: color),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   @override
@@ -479,44 +418,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         ),
                       ),
                       const SizedBox(height: 18),
-
-                      if (_showQuickPills) ...[
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'Quick access',
-                              style: TextStyle(
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.6,
-                                color: const Color(0xFF94A3B8).withValues(alpha: 0.9),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            _quickPill(
-                              icon: PhosphorIconsFill.crown,
-                              color: const Color(0xFFD97706),
-                              bg: const Color(0xFFFFFBEB),
-                              label: 'Owner',
-                              onTap: () => _quickFill('owner@cuts-salon.test', 'password123', 'Owner'),
-                            ),
-                            const SizedBox(width: 10),
-                            _quickPill(
-                              icon: PhosphorIconsFill.scissors,
-                              color: const Color(0xFF4F46E5),
-                              bg: const Color(0xFFEEF2FF),
-                              label: 'Employee',
-                              onTap: () => _quickFill('employee@cuts-salon.test', 'password123', 'Employee'),
-                            ),
-                          ],
-                        ),
-                      ],
 
                       if (_showSafariTip) ...[
                         const SizedBox(height: 18),
