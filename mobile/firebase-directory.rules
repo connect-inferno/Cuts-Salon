@@ -11,8 +11,8 @@ rules_version = '2';
 // this were publicly writable, anyone could repoint another person's email
 // at an attacker-controlled Firebase project, and that person's real
 // password would then get sent to the attacker's Auth endpoint the next
-// time they tried to log in. So writes are entirely manual (Firebase
-// Console) as part of onboarding a salon or an employee - see CLAUDE.md.
+// time they tried to log in. So writes are limited to operator accounts
+// (the operator dashboard, see below) or the Firebase Console.
 //
 // `get` (fetch one known doc id) is allowed; `list` (enumerate the
 // collection) is not - the app only ever does the former, and allowing the
@@ -32,10 +32,21 @@ rules_version = '2';
 // can't be satisfied by salon-side credentials.
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Writes: operator accounts only (the operator dashboard's "Add Salon"
+    // writes the owner's entry here) - the same request.auth gate as
+    // salons/ below, and safe for the same reason ONLY while this project's
+    // Firebase Auth has public sign-up disabled (Console > Authentication >
+    // Settings > User actions > "Enable create (sign-up)" unchecked). If
+    // sign-up were on, anyone could create an account here and repoint
+    // someone's email - the exact attack described above. Docs are pinned
+    // to the single salonId field; deletes stay Console-only.
     match /emailDirectory/{email} {
       allow get: if true;
       allow list: if false;
-      allow write: if false;
+      allow create, update: if request.auth != null
+        && request.resource.data.keys().hasOnly(['salonId'])
+        && request.resource.data.salonId is string;
+      allow delete: if false;
     }
 
     match /salons/{salonId} {

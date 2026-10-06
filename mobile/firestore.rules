@@ -41,11 +41,38 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    // One-time first-owner bootstrap for a brand-new salon project, used by
+    // the operator dashboard's "Add Salon" (operator-dashboard/src/utils/
+    // provisionSalon.js). Without it a new salon can never get its first
+    // OWNER: employees/ writes need isOwner(), and nobody is one yet.
+    //
+    // Allowed only as ONE batch that creates both the caller's own
+    // employees/{uid} (role OWNER, active) and settings/main, and only while
+    // settings/main does not exist yet - exists() sees the state before the
+    // batch, existsAfter()/getAfter() the state after it. settings/main is
+    // the sentinel: once it exists the door is shut for good, so this must
+    // never be deployed to a salon project that lacks settings/main while
+    // it already has staff - any signed-in account could claim ownership.
+    // The residual risk is the window between deploying these rules to a
+    // brand-new project and running Add Salon (Firebase web config is
+    // public, so anyone could sign up and claim it first) - run Add Salon
+    // straight after the deploy, and the dashboard reports it if the claim
+    // was already taken.
+    function isBootstrappingOwner() {
+      return isSignedIn()
+        && !exists(/databases/$(database)/documents/settings/main)
+        && existsAfter(/databases/$(database)/documents/settings/main)
+        && !exists(/databases/$(database)/documents/employees/$(request.auth.uid))
+        && getAfter(/databases/$(database)/documents/employees/$(request.auth.uid)).data.role == 'OWNER'
+        && getAfter(/databases/$(database)/documents/employees/$(request.auth.uid)).data.active == true;
+    }
+
     // Single fixed-id document. Employees need gstRate to compute a bill's
     // total, so read is open to any active employee; only the owner edits it.
     match /settings/{docId} {
       allow read: if isActiveEmployee();
       allow write: if isOwner();
+      allow create: if docId == 'main' && isBootstrappingOwner();
     }
 
     match /branches/{branchId} {
@@ -62,6 +89,7 @@ service cloud.firestore {
     match /employees/{uid} {
       allow read: if isSignedIn();
       allow write: if isOwner();
+      allow create: if isSelf(uid) && isBootstrappingOwner();
     }
 
     // Any active staff member manages client records, matching the REST

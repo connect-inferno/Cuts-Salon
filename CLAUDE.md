@@ -27,20 +27,17 @@ There is no trusted server here — the Flutter client talks to Firestore direct
 
 ## Onboarding a new salon
 
-**Current status: `cuts-salon` is the only provisioned salon, deliberately.**
-Nothing else gets onboarded until the app is proven out end to end on this
-one - get it right here first, then repeat. Two consequences while that
-holds: anything deployed per-project (rules, indexes) only has to reach
-`cuts-salon` today, and the login fallback loop is effectively free because
-there is exactly one project to try. Both stop being true the moment a
-second salon exists - every per-project deploy then has to be repeated for
-every salon, and it is easy to ship a change that silently works only on
-the salon you happened to test.
+**Current status: two provisioned salons - `cuts-salon` and `instyle-salon`
+(onboarded 2026-10-05).** Two consequences: every per-project deploy (rules,
+indexes) now has to be run against BOTH projects, and it is easy to ship a
+change that silently works only on the salon you happened to test. The login
+fallback loop now tries two projects, so keep each salon's people in
+`emailDirectory` (see below) to keep sign-in on the fast path.
 
 
 1. Create a new Firebase project (Console or `firebase projects:create`), enable Firestore + Email/Password Auth.
 2. Deploy `mobile/firestore.rules` and `mobile/firestore.indexes.json` to it: `firebase deploy --only firestore:rules,firestore:indexes --project <newSalonId>`.
-3. Create the owner's Firebase Auth account and a matching `employees/{uid}` document (role `OWNER`) plus a `settings` document — see `firestore_models.dart` for the expected shape.
+3. Create the owner's Firebase Auth account and a matching `employees/{uid}` document (role `OWNER`) plus a `settings/main` document. The operator dashboard's **Add Salon** does all three (plus steps 5 and 6) via `operator-dashboard/src/utils/provisionSalon.js`, relying on the one-time `isBootstrappingOwner()` rule in `firestore.rules` — run it right after step 2, and don't hand-create `settings/main` first or the bootstrap is refused. Manual fallback: do it in the Console, see `firestore_models.dart` for the shapes.
 4. Add a `SalonFirebaseConfig` entry for it in `mobile/lib/firebase/salon_directory.dart` with that project's web config.
 5. If the login directory (below) is configured, add the owner's `emailDirectory/{email} -> { salonId }` doc for it too — not required (sign-in falls back to trying every project), but skipping it means every login for this salon pays the full fallback-loop cost.
 6. If the operator salon registry (below) is set up, add a `salons/{salonId}` doc for it too — purely for your own reference, the app never reads this.
@@ -49,7 +46,7 @@ the salon you happened to test.
 
 `login_directory.dart` is wired to the `salon-saas-87b6a` Firebase project (`directoryConfigured = true`) — this is a project separate from every salon's own, used only for the fast-path lookup described above, plus the unrelated operator registry below. Its Firestore rules (`mobile/firebase-directory.rules`) are deployed there (deploy again after editing that file: see the scratch-`firebase.json` approach below, since `mobile/firebase.json` points at the per-salon `firestore.rules` instead).
 
-- `emailDirectory/{email} -> { salonId }`: one doc per person who logs in, doc id = the lowercase email. Writes are Console-only by design (see the rules file's comment on why). `cuts-salon`'s test accounts (`owner@cuts-salon.test`, `employee@cuts-salon.test`) still need their entries added by hand for the fast path to actually apply to them — until then they just take the fallback-loop path silently, same as before wiring this up.
+- `emailDirectory/{email} -> { salonId }`: one doc per person who logs in, doc id = the lowercase email. Writes are limited to signed-in operator accounts (the operator dashboard's Add Salon writes the owner's entry) or the Console. That is only safe because public sign-up is **disabled** in this project's Firebase Auth (done 2026-10-06) — never turn it back on, or anyone could create an account and repoint someone's login (see the rules file's comment). `cuts-salon`'s test accounts (`owner@cuts-salon.test`, `employee@cuts-salon.test`) still need their entries added by hand for the fast path to actually apply to them — until then they just take the fallback-loop path silently, same as before wiring this up.
 - Going forward, every new salon's owner and, optionally, every new employee needs a matching `emailDirectory` doc added the same way.
 - **To deploy rules here without touching `mobile/firebase.json`**: copy `mobile/firebase-directory.rules` to a scratch dir as `firestore.rules`, add a minimal `firebase.json` there (`{"firestore": {"rules": "firestore.rules"}}`), then `firebase deploy --only firestore:rules --project salon-saas-87b6a` from that scratch dir. Deploying from `mobile/` would push the *wrong* rules file (the per-salon one) to this project — that happened once already during setup and had to be corrected.
 
@@ -71,7 +68,8 @@ A second, unrelated collection in the same directory project (see above): `salon
 
   ```bash
   firebase deploy --only firestore:rules,firestore:indexes --project cuts-salon
+  firebase deploy --only firestore:rules,firestore:indexes --project instyle-salon
   ```
 
-  Repeat for every provisioned salon once there is more than one (see Onboarding a new salon). The deploy replaces the live ruleset wholesale, so any edit made directly in the Firebase Console is overwritten — change rules in the repo, never in the Console.
+  Repeat for every provisioned salon (see Onboarding a new salon). The deploy replaces the live ruleset wholesale, so any edit made directly in the Firebase Console is overwritten — change rules in the repo, never in the Console.
 - **How this fails when it is missed:** Firestore denies the read and the client logs `permission-denied` / HTTP 403 on `runQuery`/`runAggregationQuery`. Call sites that degrade gracefully (e.g. `countPendingPaymentRequests` in `salon_firestore.dart`, which catches and returns 0) swallow it, so nothing visibly breaks — a badge just silently reads 0. This happened for real: the `paymentRequests` rules landed with the feature on 2026-09-30 but weren't deployed until 2026-10-02, and the owner's pending-settlement badge read 0 the whole time. When one collection 403s in production while an identically-ruled one works, suspect an undeployed ruleset first.

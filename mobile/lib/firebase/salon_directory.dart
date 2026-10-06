@@ -33,6 +33,17 @@ const List<SalonFirebaseConfig> salonFirebaseConfigs = [
       appId: '1:149609558350:web:6c3112390aaaa7f9cbeef1f',
     ),
   ),
+  SalonFirebaseConfig(
+    salonId: 'instyle-salon',
+    options: FirebaseOptions(
+      apiKey: 'AIzaSyBpZdX-4FN18X6W3m8sn71TJuFpCArsW98',
+      authDomain: 'instyle-salon.firebaseapp.com',
+      projectId: 'instyle-salon',
+      storageBucket: 'instyle-salon.firebasestorage.app',
+      messagingSenderId: '103628849521',
+      appId: '1:103628849521:web:4acc34e8640888197a76d0',
+    ),
+  ),
 ];
 
 SalonFirebaseConfig? configForSalonId(String salonId) {
