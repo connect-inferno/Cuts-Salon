@@ -1207,7 +1207,13 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
   }
 
   Widget _buildCustomerHeroCard(BuildContext context, WidgetRef ref, Customer cust, AppData state) {
-    final bills = customerBills;
+    // customerBills is fetched once when the profile opens. A balance
+    // collected afterwards (Clear Balance > Collect) patches the bill in
+    // `state`, not that copy - so the strip below kept showing the old
+    // amount owed until a reload. Prefer the live version of any bill the
+    // snapshot also holds.
+    final live = {for (final b in state.bills) b.id: b};
+    final bills = customerBills?.map((b) => live[b.id] ?? b).toList();
 
     // Calculate dynamic stats
     final unpaid = (bills ?? const <Bill>[]).where((b) => !b.isFullyPaid).toList();
@@ -1402,7 +1408,10 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
               onTap: () => openAppSubPage(
                 context,
                 title: 'Clear Balance',
-                subtitle: '${cust.name} · ₹${outstanding.toStringAsFixed(0)} outstanding',
+                // No amount here: this header is fixed when the page opens,
+                // so it kept saying "₹390 outstanding" after the balance was
+                // collected. The page's own Total Outstanding card is live.
+                subtitle: cust.name,
                 child: DuesView(initialQuery: cust.name),
               ),
               borderRadius: BorderRadius.circular(12),
@@ -3772,7 +3781,17 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
     final serviceComm = split.service;
     final productComm = split.product;
     final unattributedComm = split.unattributed;
-    final projectedPayout = emp.baseSalary + pendingCommissionTotal;
+
+    // Once this month's slip is generated, its commissions are settled (moved
+    // to PAID), so base + pending alone dropped back to the bare base salary
+    // - the card read ₹25,000 right after a ₹25,120 slip was made. When the
+    // slip exists, it is the payout; anything still pending was earned after
+    // it and is added on top.
+    final now = DateTime.now();
+    final slip = (ref.watch(salaryRecordsProvider).valueOrNull ?? const <SalaryRecord>[])
+        .where((r) => r.employeeId == emp.id && r.month == now.month && r.year == now.year)
+        .firstOrNull;
+    final projectedPayout = slip != null ? slip.totalPaid + pendingCommissionTotal : emp.baseSalary + pendingCommissionTotal;
 
     return Container(
       decoration: BoxDecoration(
@@ -3839,9 +3858,9 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                 ),
               ),
               const SizedBox(width: 6),
-              const Text(
-                'gross earnings',
-                style: TextStyle(
+              Text(
+                slip == null ? 'gross earnings' : (slip.status == 'PAID' ? 'slip paid' : 'slip generated'),
+                style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
                   color: Color(0xFF64748B),
@@ -3852,17 +3871,34 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
           const SizedBox(height: 12),
           const Divider(height: 1, color: Color(0xFFDDD6FE)),
           const SizedBox(height: 10),
-          _buildPayrollBreakdownRow('Base Pay', '₹${emp.baseSalary.toStringAsFixed(0)}'),
-          const SizedBox(height: 6),
-          _buildPayrollBreakdownRow(
-            'Service Commission (${emp.serviceCommissionPct.toInt()}%)',
-            '+ ₹${serviceComm.toStringAsFixed(0)}',
-          ),
-          const SizedBox(height: 6),
-          _buildPayrollBreakdownRow(
-            'Product Commission (${emp.productCommissionPct.toInt()}%)',
-            '+ ₹${productComm.toStringAsFixed(0)}',
-          ),
+          if (slip != null) ...[
+            _buildPayrollBreakdownRow(
+              '${monthName.substring(0, 3)} slip (base + commission - deductions)',
+              '₹${slip.totalPaid.toStringAsFixed(0)}',
+            ),
+            const SizedBox(height: 6),
+            _buildPayrollBreakdownRow(
+              'Service Commission since slip (${emp.serviceCommissionPct.toInt()}%)',
+              '+ ₹${serviceComm.toStringAsFixed(0)}',
+            ),
+            const SizedBox(height: 6),
+            _buildPayrollBreakdownRow(
+              'Product Commission since slip (${emp.productCommissionPct.toInt()}%)',
+              '+ ₹${productComm.toStringAsFixed(0)}',
+            ),
+          ] else ...[
+            _buildPayrollBreakdownRow('Base Pay', '₹${emp.baseSalary.toStringAsFixed(0)}'),
+            const SizedBox(height: 6),
+            _buildPayrollBreakdownRow(
+              'Service Commission (${emp.serviceCommissionPct.toInt()}%)',
+              '+ ₹${serviceComm.toStringAsFixed(0)}',
+            ),
+            const SizedBox(height: 6),
+            _buildPayrollBreakdownRow(
+              'Product Commission (${emp.productCommissionPct.toInt()}%)',
+              '+ ₹${productComm.toStringAsFixed(0)}',
+            ),
+          ],
           if (unattributedComm.abs() >= 1) ...[
             const SizedBox(height: 6),
             _buildPayrollBreakdownRow(
@@ -4291,23 +4327,30 @@ const List<Color> _kRosterAvatarFgs = [
   Color(0xFF475467),
 ];
 
-String _formatRosterDate(DateTime? d) {
+/// The day from [d] and the time from [clockIn]. A record's `date` is always
+/// stored as local midnight, so formatting its time - as this used to - put
+/// "12:00 AM In" on every row. A day marked on the roster with no punch has
+/// no clock-in time at all, and shows none.
+String _formatRosterDate(DateTime? d, DateTime? clockIn) {
   if (d == null) return '-';
   final now = DateTime.now();
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  final hour = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
-  final minute = d.minute.toString().padLeft(2, '0');
-  final period = d.hour >= 12 ? 'PM' : 'AM';
-  final timeStr = '$hour:$minute $period In';
+  String timeStr = '';
+  if (clockIn != null) {
+    final hour = clockIn.hour > 12 ? clockIn.hour - 12 : (clockIn.hour == 0 ? 12 : clockIn.hour);
+    final minute = clockIn.minute.toString().padLeft(2, '0');
+    final period = clockIn.hour >= 12 ? 'PM' : 'AM';
+    timeStr = ' • $hour:$minute $period In';
+  }
 
   if (now.year == d.year && now.month == d.month && now.day == d.day) {
-    return 'Today, ${d.day} ${months[d.month - 1]} • $timeStr';
+    return 'Today, ${d.day} ${months[d.month - 1]}$timeStr';
   }
   final yesterday = now.subtract(const Duration(days: 1));
   if (yesterday.year == d.year && yesterday.month == d.month && yesterday.day == d.day) {
-    return 'Yesterday, ${d.day} ${months[d.month - 1]} • $timeStr';
+    return 'Yesterday, ${d.day} ${months[d.month - 1]}$timeStr';
   }
-  return '${d.day} ${months[d.month - 1]} ${d.year} • $timeStr';
+  return '${d.day} ${months[d.month - 1]} ${d.year}$timeStr';
 }
 
 class OwnerAttendanceTab extends StatefulWidget {
@@ -4553,11 +4596,11 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                 const SizedBox(height: 2),
                 Row(
                   children: [
-                    // Flexible, not a bare Text: "Yesterday, 26 Sep - 12:00
+                    // Flexible, not a bare Text: "Yesterday, 26 Sep - 10:05
                     // AM In" plus the chip overruns the row on a phone.
                     Flexible(
                       child: Text(
-                        _formatRosterDate(rec.date),
+                        _formatRosterDate(rec.date, rec.clockIn),
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                       ),

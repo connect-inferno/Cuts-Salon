@@ -33,26 +33,12 @@ String _formatRupees(double amount) {
   return '₹$grouped,$last3';
 }
 
-String _formatDateTime(DateTime? d) {
+/// Day only. An expense is logged against a date (stored as midnight), not
+/// a moment - formatting it with a time printed "12:00 AM" on every one.
+String _formatDay(DateTime? d) {
   if (d == null) return '-';
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-  final hour = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
-  final minute = d.minute.toString().padLeft(2, '0');
-  final period = d.hour >= 12 ? 'PM' : 'AM';
-  return '${d.day} ${months[d.month - 1]}, $hour:$minute $period';
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return '${d.day} ${months[d.month - 1]} ${d.year}';
 }
 
 // --- BILLING TAB ---
@@ -3928,7 +3914,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${exp.category} - ${exp.date != null ? _formatDateTime(exp.date) : '-'}',
+                  '${exp.category} - ${exp.date != null ? _formatDay(exp.date) : '-'}',
                   style: const TextStyle(
                     fontSize: 11,
                     color: Color(0xFF94A3B8),
@@ -4018,7 +4004,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                           ),
                         ),
                         Text(
-                          '${exp.category} · ${exp.date != null ? _formatDateTime(exp.date) : 'No date'}',
+                          '${exp.category} · ${exp.date != null ? _formatDay(exp.date) : 'No date'}',
                           style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w500,
