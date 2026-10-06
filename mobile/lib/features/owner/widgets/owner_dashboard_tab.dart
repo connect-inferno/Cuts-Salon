@@ -66,10 +66,9 @@ class OwnerDashboardTab extends ConsumerWidget {
         .fold(0.0, (sum, b) => sum + b.finalAmount);
     final todayBills = branchBills.where((b) => !b.createdAt!.isBefore(todayStart)).toList();
     // Collected, not billed - matches getDashboardSummary's salon-wide
-    // version, so a part-paid bill only contributes what was handed over.
-    double byMethod(String method) => todayBills
-        .where((b) => b.paymentMethod == method)
-        .fold(0.0, (sum, b) => sum + b.amountPaid);
+    // version, so a part-paid bill only contributes what was handed over,
+    // and a later settlement counts under the method it was paid by.
+    double byMethod(String method) => todayBills.fold(0.0, (sum, b) => sum + (b.collectedByMethod[method] ?? 0));
 
     return DashboardSummary(
       todaySales: sumSince(todayStart),
@@ -904,20 +903,23 @@ class OwnerDashboardTab extends ConsumerWidget {
   Widget _buildPaymentBreakdownCard(DashboardSummary dashboard) {
     final cash = dashboard.todayCash;
     final upi = dashboard.todayUpi;
-    // Card is no longer a method the salon offers, so the third channel is
+    // Card isn't offered at checkout any more, but a pay-later balance can
+    // still be settled by card (Clients > Pending > Collect), so card money
+    // does arrive. It used to be left out of every figure here - a balance
+    // cleared by card vanished from the dashboard - so it is counted, and
+    // its row shown only on a day that actually has some.
+    final card = dashboard.todayCard;
     // Pending: billed today but not handed over. It is deliberately kept out
     // of "Total Collected" - it is money owed, not money taken.
     final pending = dashboard.todayOutstanding;
 
-    final collected = cash + upi;
-    // Shares of everything billed today, so the three rows use one base and
-    // add up. Bills written before card was retired put their amountPaid in
-    // the CARD bucket, which no row reads any more - on a day that contains
-    // one, these percentages will sum to less than 100.
+    final collected = cash + upi + card;
+    // Shares of everything billed today, so the rows use one base and add up.
     final billedTotal = collected + pending;
 
     final cashPct = billedTotal > 0 ? (cash / billedTotal * 100).round() : 0;
     final upiPct = billedTotal > 0 ? (upi / billedTotal * 100).round() : 0;
+    final cardPct = billedTotal > 0 ? (card / billedTotal * 100).round() : 0;
     final pendingPct =
         billedTotal > 0 ? (pending / billedTotal * 100).round() : 0;
 
@@ -994,11 +996,13 @@ class OwnerDashboardTab extends ConsumerWidget {
                       Flexible(flex: cashPct, child: Container(color: const Color(0xFF10B981))),
                     if (upiPct > 0)
                       Flexible(flex: upiPct, child: Container(color: const Color(0xFF8B5CF6))),
+                    if (cardPct > 0)
+                      Flexible(flex: cardPct, child: Container(color: const Color(0xFF0EA5E9))),
                     if (pendingPct > 0)
                       Flexible(flex: pendingPct, child: Container(color: const Color(0xFFD97706))),
-                    if (100 - cashPct - upiPct - pendingPct > 0)
+                    if (100 - cashPct - upiPct - cardPct - pendingPct > 0)
                       Flexible(
-                        flex: math.max(1, 100 - cashPct - upiPct - pendingPct),
+                        flex: math.max(1, 100 - cashPct - upiPct - cardPct - pendingPct),
                         child: Container(color: const Color(0xFFE2E8F0)),
                       ),
                   ],
@@ -1031,6 +1035,19 @@ class OwnerDashboardTab extends ConsumerWidget {
             percent: upiPct,
           ),
           const SizedBox(height: 14),
+
+          if (card > 0) ...[
+            _buildPaymentChannelRow(
+              icon: PhosphorIconsBold.creditCard,
+              iconColor: const Color(0xFF0EA5E9),
+              iconBg: const Color(0xFFF0F9FF),
+              barColor: const Color(0xFF0EA5E9),
+              label: 'Card',
+              collectedText: '${_formatCurrency(card)} collected',
+              percent: cardPct,
+            ),
+            const SizedBox(height: 14),
+          ],
 
           // 3. Pending Row - reads "outstanding", not "collected", because
           // this is the one channel where nothing has been handed over.

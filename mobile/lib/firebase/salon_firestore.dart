@@ -874,12 +874,12 @@ class SalonFirestore {
           {
             'date': Timestamp.fromDate(day),
             'outstanding': FieldValue.increment(-applied),
-            // Money reaching the till later still shows under the bill's own
-            // method, matching the old sumByMethod - which bucketed on
-            // bill.paymentMethod and summed its running amountPaid. A
-            // PENDING bill stays in no bucket however it's settled.
-            if (_isTillMethod(bill.paymentMethod))
-              'collected_${bill.paymentMethod}': FieldValue.increment(applied),
+            // Under the method this payment was actually taken by, not the
+            // bill's: a UPI bill's balance cleared by card is card money, and
+            // crediting it to UPI meant the day's card total never matched
+            // the card machine. This also stops a PENDING bill's settlement
+            // vanishing from every bucket.
+            if (_isTillMethod(method)) 'collected_$method': FieldValue.increment(applied),
           },
           SetOptions(merge: true),
         );
@@ -1317,15 +1317,28 @@ class SalonFirestore {
     final todayBills = windowBills.where((b) => b.createdAt != null && !b.createdAt!.isBefore(todayStart)).toList();
     final weekBills = windowBills.where((b) => b.createdAt != null && !b.createdAt!.isBefore(weekStart)).toList();
 
+    // Settlements of today's pay-later bills live in each bill's payments
+    // subcollection, not on the bill. Without them a balance cleared this
+    // afternoon still showed as outstanding here, and its money appeared in
+    // no bucket - while the rollup path (which recordPayment draws down) and
+    // the Billing screen both showed it paid. This path serves every salon
+    // for its first five weeks, so a new salon saw it on day one.
+    final todayPayments = await listPaymentsForBills(todayBills);
+    double laterPaid(FSBill b) => (todayPayments[b.id] ?? const <FSPayment>[]).fold(0.0, (s, p) => s + p.amount);
+
     double sumFinal(List<FSBill> bills) => _round2(bills.fold(0.0, (s, b) => s + b.finalAmount));
     // The payment breakdown is money actually in the till, so it sums what
     // was collected, not what was billed - a "pay later" bill contributes
-    // only the part handed over at the counter (and a wholly unpaid one
-    // contributes nothing, since its method is PENDING). todaySales above
-    // stays on finalAmount: that's revenue booked, which is a different
-    // question from cash received.
+    // the part handed over at the counter under its own method, plus each
+    // later settlement under the method that settlement was taken by.
+    // todaySales above stays on finalAmount: that's revenue booked, which is
+    // a different question from cash received.
     double sumByMethod(String method) => _round2(
-          todayBills.where((b) => b.paymentMethod == method).fold(0.0, (s, b) => s + b.amountPaid),
+          todayBills.where((b) => b.paymentMethod == method).fold(0.0, (s, b) => s + b.amountPaid) +
+              todayBills
+                  .expand((b) => todayPayments[b.id] ?? const <FSPayment>[])
+                  .where((p) => p.method == method)
+                  .fold(0.0, (s, p) => s + p.amount),
         );
 
     return {
@@ -1340,7 +1353,7 @@ class SalonFirestore {
       // Billed today but not collected today - the counterpart to the
       // breakdown above, so the dashboard can show both sides.
       'todayOutstanding': _round2(
-        todayBills.fold(0.0, (s, b) => s + (b.finalAmount - b.amountPaid).clamp(0, double.infinity)),
+        todayBills.fold(0.0, (s, b) => s + (b.finalAmount - b.amountPaid - laterPaid(b)).clamp(0, double.infinity)),
       ),
       'todayCustomersCount': todayBills.map((b) => b.customerId).toSet().length,
       'todayBillCount': todayBills.length,

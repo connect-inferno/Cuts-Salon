@@ -7,21 +7,22 @@ import '../../../theme.dart';
 /// How the money actually came in, over whatever window the Reports page is
 /// showing.
 ///
-/// Counted off `Bill.amountPaid` grouped by `Bill.paymentMethod`, which is
-/// the same attribution `dailyStats.collected_*` uses: a settlement recorded
-/// later is credited to the bill's original method
-/// (see SalonFirestore.recordPayment), and `amountPaid` already folds those
-/// settlements in (see billFromFS). So this agrees with the figures on Home
+/// Counted off `Bill.collectedByMethod`: the counter payment under the
+/// bill's own method, each later settlement under the method it was actually
+/// taken by - the same attribution `dailyStats.collected_*` uses (see
+/// SalonFirestore.recordPayment). So this agrees with the figures on Home
 /// rather than offering a second opinion.
 class PaymentMix {
   final double cash;
   final double card;
   final double upi;
 
-  /// Money taken against pay-later bills. Not a channel of its own - it is
-  /// cash or UPI in real life - but the bill records PENDING as its method,
-  /// so attributing it to either would be inventing detail the data does not
-  /// carry. Shown separately so the parts still add up to the total.
+  /// Money taken at the counter on a bill recorded as PENDING. Not a channel
+  /// of its own - it is cash or UPI in real life - but no method was recorded
+  /// for it, so attributing it to either would be inventing detail the data
+  /// does not carry. Shown separately so the parts still add up to the total.
+  /// (Later settlements on such a bill carry their own method and are
+  /// counted under it.)
   final double payLater;
 
   final int cashBills;
@@ -56,26 +57,29 @@ PaymentMix computePaymentMix(List<Bill> bills) {
 
   for (final b in bills) {
     outstanding += b.amountDue;
-    // A bill that collected nothing is not a payment by any method - it
-    // would otherwise pad the bill counts with rows worth zero.
-    if (b.amountPaid <= 0) continue;
-
-    switch (b.paymentMethod) {
-      case 'CASH':
-        cash += b.amountPaid;
-        cashBills++;
-      case 'CARD':
-        card += b.amountPaid;
-        cardBills++;
-      case 'UPI':
-        upi += b.amountPaid;
-        upiBills++;
-      default:
-        // PENDING, and anything a future method might add - counted rather
-        // than dropped, so `collected` stays the real total.
-        payLater += b.amountPaid;
-        payLaterBills++;
-    }
+    // Each amount under the method it actually arrived by, so a bill paid
+    // part UPI at the counter and part card later counts once under each.
+    // A bill that collected nothing has no entries, and so doesn't pad the
+    // bill counts with rows worth zero.
+    b.collectedByMethod.forEach((method, amount) {
+      switch (method) {
+        case 'CASH':
+          cash += amount;
+          cashBills++;
+        case 'CARD':
+          card += amount;
+          cardBills++;
+        case 'UPI':
+          upi += amount;
+          upiBills++;
+        default:
+          // Taken at the counter on a PENDING bill, and anything a future
+          // method might add - counted rather than dropped, so `collected`
+          // stays the real total.
+          payLater += amount;
+          payLaterBills++;
+      }
+    });
   }
 
   return PaymentMix(

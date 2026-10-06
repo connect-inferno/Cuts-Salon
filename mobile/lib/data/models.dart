@@ -303,6 +303,11 @@ class Bill {
   /// Everything collected against this bill so far: what was taken at the
   /// counter plus every later settlement folded in by loadAppData.
   final double amountPaid;
+  /// The later settlements folded into [amountPaid], by the method each one
+  /// actually arrived by. Kept apart because a pay-later balance cleared by
+  /// card is card money, whatever the bill's own [paymentMethod] says -
+  /// crediting it to that method put card takings under UPI.
+  final Map<String, double> laterPaymentsByMethod;
   final String status;
   final DateTime? createdAt;
   final List<BillItem> items;
@@ -319,10 +324,23 @@ class Bill {
     required this.finalAmount,
     required this.paymentMethod,
     this.amountPaid = 0,
+    this.laterPaymentsByMethod = const {},
     required this.status,
     this.createdAt,
     required this.items,
   });
+
+  /// Everything received on this bill, keyed by how it was received: the
+  /// counter payment under the bill's own [paymentMethod], each later
+  /// settlement under its own method. Sums to [amountPaid].
+  Map<String, double> get collectedByMethod {
+    final later = laterPaymentsByMethod.values.fold(0.0, (s, v) => s + v);
+    final atCounter = amountPaid - later;
+    final out = <String, double>{};
+    if (atCounter > 0.009) out[paymentMethod] = atCounter;
+    laterPaymentsByMethod.forEach((method, amount) => out[method] = (out[method] ?? 0) + amount);
+    return out;
+  }
 
   /// Still owed on this bill. Clamped at zero so an overpayment (recorded to
   /// correct an earlier mistake) can't show as a negative debt.

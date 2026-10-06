@@ -858,6 +858,10 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
               finalAmount: b.finalAmount,
               paymentMethod: b.paymentMethod,
               amountPaid: _round2(b.amountPaid + applied),
+              laterPaymentsByMethod: {
+                ...b.laterPaymentsByMethod,
+                method: _round2((b.laterPaymentsByMethod[method] ?? 0) + applied),
+              },
               status: b.status,
               createdAt: b.createdAt,
               items: b.items,

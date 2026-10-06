@@ -50,6 +50,36 @@ void main() {
       expect(mix.collected, 2000);
     });
 
+    test('a later settlement counts under the method it was paid by', () {
+      // The real case from testing Instyle: ₹590 bill, ₹200 by UPI at the
+      // counter, the ₹390 balance cleared later by card. Crediting the ₹390
+      // to the bill's own method put card takings under UPI.
+      final bill = Bill(
+        id: 'a',
+        invoiceNumber: 'INV-a',
+        customerId: 'c1',
+        branchId: 'br1',
+        subTotal: 590,
+        discountAmount: 0,
+        taxAmount: 0,
+        finalAmount: 590,
+        paymentMethod: 'UPI',
+        amountPaid: 590,
+        laterPaymentsByMethod: const {'CARD': 390},
+        status: 'COMPLETED',
+        items: const [],
+      );
+
+      expect(bill.collectedByMethod, {'UPI': 200, 'CARD': 390});
+      final mix = computePaymentMix([bill]);
+      expect(mix.upi, 200);
+      expect(mix.card, 390);
+      expect(mix.upiBills, 1);
+      expect(mix.cardBills, 1);
+      expect(mix.collected, 590);
+      expect(mix.outstanding, 0);
+    });
+
     test('money taken up front on a pay-later bill is still counted', () {
       // The bill's method is PENDING, so attributing this to cash or UPI
       // would invent detail the record does not carry - but dropping it

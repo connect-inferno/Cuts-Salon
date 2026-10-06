@@ -141,6 +141,10 @@ Bill billFromFS(FSBill b, {required List<FSBillItem> items, List<FSPayment> paym
       // What was taken at the counter plus every later settlement, folded
       // into one number so the UI never has to know the ledger exists.
       amountPaid: _round2(b.amountPaid + payments.fold(0.0, (sum, p) => sum + p.amount)),
+      laterPaymentsByMethod: {
+        for (final method in payments.map((p) => p.method).toSet())
+          method: _round2(payments.where((p) => p.method == method).fold(0.0, (sum, p) => sum + p.amount)),
+      },
       status: 'COMPLETED',
       createdAt: b.createdAt,
       items: items.map(billItemFromFS).toList(),

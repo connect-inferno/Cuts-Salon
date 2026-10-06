@@ -180,26 +180,23 @@ class _BillHistoryViewState extends State<BillHistoryView> {
     final todayBills = scoped.where((b) => _isToday(b.createdAt)).toList();
 
     // Payment-method breakdown from today's bills only.
-    // Collected amounts (amountPaid per method) rather than billed totals,
-    // so PENDING bills contribute only what was handed over up front.
+    // Collected amounts rather than billed totals, each under the method it
+    // actually arrived by - a balance later cleared by card is card money,
+    // not the bill's original method's.
     double todayCash = 0, todayUpi = 0, todayCard = 0;
     for (final b in todayBills) {
-      switch (b.paymentMethod) {
-        case 'CASH':
-          todayCash += b.amountPaid;
-          break;
-        case 'UPI':
-          todayUpi += b.amountPaid;
-          break;
-        case 'CARD':
-          todayCard += b.amountPaid;
-          break;
-        case 'PENDING':
-          // Part-payment method is stored separately; for simplicity count
-          // any amount paid on a PENDING bill as cash here.
-          todayCash += b.amountPaid;
-          break;
-      }
+      b.collectedByMethod.forEach((method, amount) {
+        switch (method) {
+          case 'UPI':
+            todayUpi += amount;
+          case 'CARD':
+            todayCard += amount;
+          default:
+            // CASH, and anything taken at the counter on a PENDING bill
+            // (no method recorded for it), which was always shown as cash.
+            todayCash += amount;
+        }
+      });
     }
 
     return Center(
