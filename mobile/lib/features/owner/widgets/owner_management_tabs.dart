@@ -980,7 +980,10 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
   final _gstRateController = TextEditingController(text: '0');
   // GST ships off; the rate below only applies once this is on.
   bool _gstEnabled = false;
-  final _latePenaltyController = TextEditingController(text: '150');
+  // 0 = no late penalty. This used to start at 150 and only hydrate a
+  // stored value above zero, so a salon with no penalty saw ₹150 here and
+  // the next save of this form quietly started docking its staff for it.
+  final _latePenaltyController = TextEditingController(text: '0');
   bool _saving = false;
   // Set the moment the owner touches any field, cleared when a save lands.
   // It's what decides whether an incoming settings change is safe to adopt:
@@ -1048,7 +1051,7 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
     if (settings.address?.isNotEmpty ?? false) _addressController.text = settings.address!;
     _gstEnabled = settings.gstEnabled;
     _gstRateController.text = settings.gstRate.toStringAsFixed(0);
-    if (settings.lateAttendancePenalty > 0) _latePenaltyController.text = settings.lateAttendancePenalty.toStringAsFixed(0);
+    _latePenaltyController.text = settings.lateAttendancePenalty.toStringAsFixed(0);
     _hydrating = false;
   }
 
@@ -1063,7 +1066,10 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
         // Saved even while disabled, so turning GST back on restores the
         // rate they already configured instead of asking for it again.
         'gstRate': double.tryParse(_gstRateController.text.replaceAll('%', '').trim()) ?? 0.0,
-        'lateAttendancePenalty': double.tryParse(_latePenaltyController.text.replaceAll('₹', '').replaceAll('/ hr', '').trim()) ?? 150.0,
+        // Unparseable input keeps the stored penalty rather than inventing one.
+        'lateAttendancePenalty': double.tryParse(_latePenaltyController.text.replaceAll('₹', '').replaceAll('/ hr', '').trim()) ??
+            ref.read(appDataProvider).valueOrNull?.settings?.lateAttendancePenalty ??
+            0.0,
       });
       // What's on screen is now what's stored, so later changes from
       // elsewhere are free to land again.
