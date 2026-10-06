@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../theme.dart';
 import '../../data/app_data_provider.dart';
+import '../../data/bill_math.dart';
 import '../../data/salary_provider.dart';
 import '../../data/models.dart';
 import '../auth/auth_provider.dart';
@@ -2130,8 +2131,9 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
 
     final subtotal = serviceTotal + productTotal;
     final gstRate = state.settings?.effectiveGstRate ?? 0;
-    final gstAmount = subtotal * (gstRate / 100);
-    final total = subtotal + gstAmount;
+    final totals = computeBillTotals(subTotal: subtotal, gstRate: gstRate);
+    final gstAmount = totals.tax;
+    final total = totals.total;
     final itemCount = serviceCount + productItemCount;
     final canSubmit = selectedCustomer != null && itemCount > 0;
 

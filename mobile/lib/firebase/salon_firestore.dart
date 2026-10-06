@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
+import '../data/bill_math.dart';
 import 'firestore_models.dart';
 
 double _round2(num n) => (n * 100).round() / 100;
@@ -436,10 +437,16 @@ class SalonFirestore {
       // sum of per-item discounts - matches bill.service.ts's
       // `billDiscount = itemDiscountTotal + (input.discountAmount ?? 0)`,
       // stored as the single combined Bill.discountAmount field.
-      final discountAmount = _round2(itemDiscountTotal + billDiscountAmount);
-      final taxable = _round2(subTotal - discountAmount);
-      final taxAmount = _round2(taxable * (gstRate / 100));
-      final finalAmount = _round2(taxable + taxAmount);
+      // Whole rupees, via the same function the billing screens quote from
+      // - see computeBillTotals.
+      final totals = computeBillTotals(
+        subTotal: subTotal,
+        discount: itemDiscountTotal + billDiscountAmount,
+        gstRate: gstRate,
+      );
+      final discountAmount = totals.discount;
+      final taxAmount = totals.tax;
+      final finalAmount = totals.total;
       final invoiceNumber = 'INV-${billRef.id.substring(0, 8).toUpperCase()}';
       final amountPaid = _round2(
         amountPaidNow == null ? finalAmount : amountPaidNow.clamp(0, finalAmount),

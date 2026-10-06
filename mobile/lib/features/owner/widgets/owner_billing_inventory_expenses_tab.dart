@@ -3,6 +3,7 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../theme.dart';
 import '../../../data/app_data_provider.dart';
+import '../../../data/bill_math.dart';
 import '../../../data/expenses_provider.dart';
 import '../../../data/models.dart';
 import '../../../widgets/async_state_views.dart';
@@ -468,11 +469,17 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
       final prod = state.inventory.where((p) => p.id == entry.key);
       if (prod.isNotEmpty) subtotal += prod.first.price * entry.value;
     }
-    final discountAmount = subtotal * (_discountPercent / 100);
-    final taxable = subtotal - discountAmount;
+    // Same whole-rupee maths createBill writes with, so the quote matches
+    // the stored bill to the rupee.
     final gstRate = state.settings?.effectiveGstRate ?? 0;
-    final taxAmount = taxable * (gstRate / 100);
-    final totalAmount = taxable + taxAmount;
+    final totals = computeBillTotals(
+      subTotal: subtotal,
+      discount: subtotal * (_discountPercent / 100),
+      gstRate: gstRate,
+    );
+    final discountAmount = totals.discount;
+    final taxAmount = totals.tax;
+    final totalAmount = totals.total;
 
     final isMobile = MediaQuery.of(context).size.width < 768;
 
