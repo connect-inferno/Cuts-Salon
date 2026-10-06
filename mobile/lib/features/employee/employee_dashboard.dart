@@ -243,9 +243,19 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
     final salonName = state.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Salon';
     final pending = _myPendingDiscounts(profile, state);
 
-    void go(String title, String subtitle, Widget page) {
+    // Builds the page from live app data, not the `state` captured when the
+    // menu was tapped. A pushed route doesn't rebuild with its parent, so a
+    // snapshot went stale the moment anything changed on it: a discount
+    // request just sent didn't appear, and clocking in on the Attendance
+    // page left it still offering "Clock In".
+    void go(String title, String subtitle, Widget Function(AppData live) page) {
       if (isModal) Navigator.pop(context);
-      openAppSubPage(context, title: title, subtitle: subtitle, child: page);
+      openAppSubPage(
+        context,
+        title: title,
+        subtitle: subtitle,
+        child: Consumer(builder: (_, ref, __) => page(ref.watch(appDataProvider).valueOrNull ?? state)),
+      );
     }
 
     void jump(EmployeeTab tab) {
@@ -304,26 +314,26 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
               icon: PhosphorIconsRegular.calendarBlank,
               label: 'Attendance',
               onTap: () => go('Attendance', 'Your shift history',
-                  _EmployeeAttendanceTab(profile: profile, state: state)),
+                  (live) => _EmployeeAttendanceTab(profile: profile, state: live)),
             ),
             AppDrawerItem(
               icon: PhosphorIconsRegular.chartLineUp,
               label: 'Sales Targets',
               onTap: () => go('Sales Targets', 'Quotas set by your manager',
-                  _EmployeeTargetTab(profile: profile, state: state)),
+                  (live) => _EmployeeTargetTab(profile: profile, state: live)),
             ),
             AppDrawerItem(
               icon: PhosphorIconsRegular.sealPercent,
               label: 'Discount Requests',
               badgeCount: pending,
               onTap: () => go('Discount Requests', 'Your requests and their status',
-                  _EmployeeDiscountRequestsTab(profile: profile, state: state)),
+                  (live) => _EmployeeDiscountRequestsTab(profile: profile, state: live)),
             ),
             AppDrawerItem(
               icon: PhosphorIconsRegular.userCircle,
               label: 'Profile',
               onTap: () => go('Profile', 'Your details and password',
-                  _EmployeeProfileTab(profile: profile, state: state)),
+                  (live) => _EmployeeProfileTab(profile: profile, state: live)),
             ),
           ],
         ),
@@ -665,7 +675,9 @@ class _EmployeeDashboardTab extends ConsumerWidget {
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: AppTheme.accentRed),
+        );
       }
     }
   }
@@ -675,6 +687,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
     final now = DateTime.now();
     final todayRecord = _todayAttendance(state, profile.id);
     final isClockedIn = todayRecord != null && todayRecord.clockIn != null && todayRecord.clockOut == null;
+    final shiftDone = todayRecord != null && todayRecord.clockIn != null && todayRecord.clockOut != null;
     final firstName = profile.name.split(' ').first;
 
     final myBills = state.bills.where((b) => b.items.any((i) => i.employeeId == profile.id)).toList()
@@ -684,7 +697,14 @@ class _EmployeeDashboardTab extends ConsumerWidget {
     // Stats
     final todayBills = myBills.where((b) => b.createdAt != null && _isSameDay(b.createdAt!, now)).toList();
     final todayCustomers = todayBills.map((b) => b.customerId).toSet().length;
-    final todayRevenue = todayBills.fold<double>(0, (s, b) => s + b.finalAmount);
+    // What this stylist earned today: the commission on their own lines.
+    // This used to sum the whole bills' finalAmount - GST and colleagues'
+    // lines included - so a ₹1,180 bill read as ₹1,180 "earned" when the
+    // stylist's commission on it was ₹120.
+    final todayEarned = todayBills.fold<double>(
+      0,
+      (s, b) => s + b.items.where((i) => i.employeeId == profile.id).fold<double>(0, (t, i) => t + i.calculatedCommission),
+    );
 
     String shiftDuration = '--';
     if (isClockedIn && todayRecord.clockIn != null) {
@@ -820,7 +840,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                   iconColor: const Color(0xFF10B981),
                   label: 'Earned Today',
                   valueWidget: Text(
-                    '₹${todayRevenue.toStringAsFixed(0)}',
+                    '₹${todayEarned.toStringAsFixed(0)}',
                     style: const TextStyle(
                       fontSize: 13.5,
                       fontWeight: FontWeight.w800,
@@ -925,7 +945,9 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                   width: double.infinity,
                   height: 46,
                   child: ElevatedButton.icon(
-                    onPressed: () => _toggleClock(context, ref, isClockedIn),
+                    // One shift a day - the attendance rules refuse a second
+                    // clock-in, so offering the button only produced an error.
+                    onPressed: shiftDone ? null : () => _toggleClock(context, ref, isClockedIn),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF18181B),
                       foregroundColor: Colors.white,
@@ -940,7 +962,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                       color: Colors.white,
                     ),
                     label: Text(
-                      isClockedIn ? 'Clock Out' : 'Clock In',
+                      shiftDone ? 'Shift finished for today' : (isClockedIn ? 'Clock Out' : 'Clock In'),
                       style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
                     ),
                   ),
@@ -1275,7 +1297,9 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: AppTheme.accentRed),
+        );
       }
     }
   }
@@ -1284,6 +1308,7 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final todayRecord = _todayAttendance(state, profile.id);
     final isClockedIn = todayRecord != null && todayRecord.clockIn != null && todayRecord.clockOut == null;
+    final shiftDone = todayRecord != null && todayRecord.clockIn != null && todayRecord.clockOut != null;
     final statusLine = todayRecord == null
         ? 'Tap below to log attendance'
         : (isClockedIn ? 'Clocked in at ${_formatTime(todayRecord.clockIn)}' : 'Clocked out at ${_formatTime(todayRecord.clockOut)}');
@@ -1346,7 +1371,8 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
                     Text(statusLine, style: const TextStyle(color: Colors.white70, fontSize: 13), textAlign: TextAlign.center),
                     const SizedBox(height: 28),
                     GestureDetector(
-                      onTap: () => _toggleClock(context, ref, isClockedIn),
+                      // See the Home shift card: one shift a day.
+                      onTap: shiftDone ? null : () => _toggleClock(context, ref, isClockedIn),
                       child: Container(
                         width: 120,
                         height: 120,
@@ -1365,7 +1391,7 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              isClockedIn ? 'Clock Out' : 'Clock In',
+                              shiftDone ? 'Done today' : (isClockedIn ? 'Clock Out' : 'Clock In'),
                               style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Colors.white),
                             ),
                           ],
@@ -4639,7 +4665,7 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
               TextField(
                 controller: discountController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: appDialogFieldDecoration(label: 'Requested Discount (Rs.) *', hint: 'e.g. 200', icon: PhosphorIconsRegular.percent),
+                decoration: appDialogFieldDecoration(label: 'Requested Discount (Rs.) *', hint: 'e.g. 200', icon: PhosphorIconsRegular.currencyInr),
               ),
               const SizedBox(height: 12),
               TextField(
