@@ -54,11 +54,12 @@ template wording and troubleshooting: `mobile/functions/whatsapp.md`.
 
 ## Onboarding a new salon
 
-**Current status: two provisioned salons - `cuts-salon` and `instyle-salon`
-(onboarded 2026-10-05).** Two consequences: every per-project deploy (rules,
-indexes) now has to be run against BOTH projects, and it is easy to ship a
+**Current status: three provisioned projects - `cuts-salon`, `instyle-salon`
+(onboarded 2026-10-05) and `test-salon-ee06a` (a test salon added 2026-10-14
+for trying the WhatsApp Business API).** Consequences: every per-project
+deploy (rules, indexes) has to be run against ALL of them, and it is easy to ship a
 change that silently works only on the salon you happened to test. The login
-fallback loop now tries two projects, so keep each salon's people in
+fallback loop now tries every one of them, so keep each salon's people in
 `emailDirectory` (see below) to keep sign-in on the fast path.
 
 
@@ -96,6 +97,7 @@ A second, unrelated collection in the same directory project (see above): `salon
   ```bash
   firebase deploy --only firestore:rules,firestore:indexes --project cuts-salon
   firebase deploy --only firestore:rules,firestore:indexes --project instyle-salon
+  firebase deploy --only firestore:rules,firestore:indexes --project test-salon-ee06a
   ```
 
   Repeat for every provisioned salon (see Onboarding a new salon). The deploy replaces the live ruleset wholesale, so any edit made directly in the Firebase Console is overwritten — change rules in the repo, never in the Console.

@@ -44,6 +44,17 @@ const List<SalonFirebaseConfig> salonFirebaseConfigs = [
       appId: '1:103628849521:web:4acc34e8640888197a76d0',
     ),
   ),
+  SalonFirebaseConfig(
+    salonId: 'test-salon-ee06a',
+    options: FirebaseOptions(
+      apiKey: 'AIzaSyC6nK2ddzD9J_-H7jHjSgkJrDHQzEhJgbY',
+      authDomain: 'test-salon-ee06a.firebaseapp.com',
+      projectId: 'test-salon-ee06a',
+      storageBucket: 'test-salon-ee06a.firebasestorage.app',
+      messagingSenderId: '451342816330',
+      appId: '1:451342816330:web:7030bab7c96586622e02b3',
+    ),
+  ),
 ];
 
 SalonFirebaseConfig? configForSalonId(String salonId) {
