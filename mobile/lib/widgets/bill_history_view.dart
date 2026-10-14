@@ -293,11 +293,11 @@ class _BillHistoryViewState extends State<BillHistoryView> {
                   const SizedBox(width: 10),
                   // Expanded + ellipsis: unbounded, these overflowed the card
                   // on a narrow phone or with a large system font size.
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        const Text(
                           "Today's Collections",
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -310,10 +310,10 @@ class _BillHistoryViewState extends State<BillHistoryView> {
                           ),
                         ),
                         Text(
-                          'Cash · UPI · Card received today',
+                          card > 0 ? 'Cash · UPI · Card received today' : 'Cash and UPI received today',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontFamily: 'Plus Jakarta Sans',
                             fontSize: 10.5,
                             fontWeight: FontWeight.w500,
@@ -401,20 +401,24 @@ class _BillHistoryViewState extends State<BillHistoryView> {
               amount: upi,
               share: pct(upi),
               accentColor: const Color(0xFF8B5CF6),
-              divider: true,
+              divider: card > 0,
             ),
 
-            // Card
-            _collectionRow(
-              icon: PhosphorIconsBold.creditCard,
-              iconColor: const Color(0xFF0EA5E9),
-              iconBg: const Color(0xFFE0F2FE),
-              label: 'Card',
-              amount: card,
-              share: pct(card),
-              accentColor: const Color(0xFF0EA5E9),
-              divider: false,
-            ),
+            // Card - retired at the till (only Cash/UPI/Pending can be
+            // picked), so the row only appears when a payment recorded
+            // before then lands today; otherwise it's a permanent ₹0 line
+            // for a method nobody can choose.
+            if (card > 0)
+              _collectionRow(
+                icon: PhosphorIconsBold.creditCard,
+                iconColor: const Color(0xFF0EA5E9),
+                iconBg: const Color(0xFFE0F2FE),
+                label: 'Card',
+                amount: card,
+                share: pct(card),
+                accentColor: const Color(0xFF0EA5E9),
+                divider: false,
+              ),
 
             // Total row
             Container(
@@ -456,12 +460,13 @@ class _BillHistoryViewState extends State<BillHistoryView> {
                       ),
                     ),
                   ),
-                  const Expanded(
+                  Expanded(
                     flex: 2,
                     child: Text(
-                      '100%',
+                      // Nothing collected is not "100%" of anything.
+                      total > 0 ? '100%' : '-',
                       textAlign: TextAlign.right,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontFamily: 'Plus Jakarta Sans',
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
@@ -1020,7 +1025,7 @@ Future<void> showBillDetailSheet(
                               Expanded(
                                 child: Text(
                                   bill.isFullyPaid
-                                      ? 'Paid in full via ${bill.paymentMethod}'
+                                      ? 'Paid in full via ${paymentMethodLabel(bill.paymentMethod)}'
                                       : '${_rupees(bill.amountPaid)} collected · ${_rupees(bill.amountDue)} outstanding',
                                   style: TextStyle(
                                     fontSize: 12.5,

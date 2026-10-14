@@ -357,10 +357,15 @@ class SalonFirestore {
     );
   }
 
+  Future<void> updateService(String id, Map<String, dynamic> changes) =>
+      db.collection('services').doc(id).update(changes);
+
   // Mirrors service.service.ts's per-salon name-uniqueness check.
+  // A removed (archived) service doesn't hold on to its name - a salon that
+  // takes "Haircut" off the menu must be able to add a new "Haircut" later.
   Future<bool> isServiceNameTaken(String name) async {
-    final snap = await db.collection('services').where('name', isEqualTo: name).limit(1).get();
-    return snap.docs.isNotEmpty;
+    final snap = await db.collection('services').where('name', isEqualTo: name).get();
+    return snap.docs.any((d) => d.data()['archived'] != true);
   }
 
   Future<List<FSInventoryItem>> listInventory() async {
@@ -385,9 +390,10 @@ class SalonFirestore {
   Future<void> updateInventoryItem(String id, Map<String, dynamic> changes) => db.collection('inventoryItems').doc(id).update(changes);
 
   // Mirrors inventory.service.ts's per-salon SKU-uniqueness check.
+  // Same as isServiceNameTaken: a removed product frees its SKU.
   Future<bool> isSkuTaken(String sku) async {
-    final snap = await db.collection('inventoryItems').where('sku', isEqualTo: sku).limit(1).get();
-    return snap.docs.isNotEmpty;
+    final snap = await db.collection('inventoryItems').where('sku', isEqualTo: sku).get();
+    return snap.docs.any((d) => d.data()['archived'] != true);
   }
 
   // --- Bills ---
@@ -456,6 +462,12 @@ class SalonFirestore {
       // hitting the same target add up instead of overwriting each other.
       final runningProgress = <String, double>{};
       // ---- READS (must all happen before any write below) ----
+      // Running invoice number. Read and bumped inside this transaction, so
+      // two tills billing at once can't take the same number - one of them
+      // retries. firestore.rules only lets it go up by exactly one.
+      final counterRef = db.collection('counters').doc('invoices');
+      final counterSnap = await tx.get(counterRef);
+      final invoiceSeq = ((counterSnap.data()?['last'] as num?)?.toInt() ?? 0) + 1;
       final freshTargets = <String, DocumentSnapshot<Map<String, dynamic>>>{};
       for (final docs in targetDocsByEmployee.values) {
         for (final d in docs) {
@@ -485,13 +497,21 @@ class SalonFirestore {
       final discountAmount = totals.discount;
       final taxAmount = totals.tax;
       final finalAmount = totals.total;
-      final invoiceNumber = 'INV-${billRef.id.substring(0, 8).toUpperCase()}';
+      // INV-0001, INV-0002, ... - it used to be the first 8 characters of
+      // the random document id (INV-L5ARGFGK), which no salon could quote
+      // or file. Bills from before this keep their old numbers.
+      final invoiceNumber = 'INV-${invoiceSeq.toString().padLeft(4, '0')}';
       final amountPaid = _round2(
         amountPaidNow == null ? finalAmount : amountPaidNow.clamp(0, finalAmount),
       );
       final amountDue = _round2(finalAmount - amountPaid);
 
       // ---- WRITES ----
+      if (counterSnap.exists) {
+        tx.update(counterRef, {'last': invoiceSeq});
+      } else {
+        tx.set(counterRef, {'last': invoiceSeq});
+      }
       final bill = FSBill(
         id: billRef.id,
         invoiceNumber: invoiceNumber,

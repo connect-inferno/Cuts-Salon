@@ -27,6 +27,9 @@ class OwnerDashboardTab extends ConsumerWidget {
   final VoidCallback? onOpenNotifications;
   final VoidCallback? onOpenProfile;
   final VoidCallback? onOpenSettings;
+  // Where the setup checklist's steps go (see _buildSetupChecklist).
+  final VoidCallback? onOpenServices;
+  final VoidCallback? onOpenTeam;
   final VoidCallback? onSelectBranch;
   // Which branch the header pill is pointed at; null means the whole salon.
   final String? selectedBranchId;
@@ -40,6 +43,8 @@ class OwnerDashboardTab extends ConsumerWidget {
     this.onOpenNotifications,
     this.onOpenProfile,
     this.onOpenSettings,
+    this.onOpenServices,
+    this.onOpenTeam,
     this.onSelectBranch,
     this.selectedBranchId,
   });
@@ -185,6 +190,15 @@ class OwnerDashboardTab extends ConsumerWidget {
                         children: [
                           const SizedBox(height: 20),
 
+                          // Billing is the job this screen is opened for
+                          // most, so its button sits right under the
+                          // takings - it used to be the last thing on the
+                          // page, below three cards of numbers.
+                          _buildQuickActionsCard(),
+                          const SizedBox(height: 20),
+
+                          // Until a new salon is set up, what to do next.
+                          ..._buildSetupChecklist(state),
 
                           // 2. Metric Cards grid
                           _buildMetricGrid(dashboard, state),
@@ -196,10 +210,6 @@ class OwnerDashboardTab extends ConsumerWidget {
 
                           // 4. Payment Breakdown Card
                           _buildPaymentBreakdownCard(dashboard),
-                          const SizedBox(height: 20),
-
-                          // 5. Quick Actions
-                          _buildQuickActionsCard(),
                           const SizedBox(height: 88),
                         ],
                       ),
@@ -439,18 +449,32 @@ class OwnerDashboardTab extends ConsumerWidget {
                 onTap: onOpenAttendance,
               ),
             ),
-            // 4. Low Stock
+            // 4. Low Stock - red only when something actually is low. It
+            // used to be red with a red "All Good" badge at zero, which read
+            // as an alarm on a day with nothing wrong.
             SizedBox(
               width: cardWidth,
               child: _buildMetricCard(
-                icon: PhosphorIconsBold.warningCircle,
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFDC2626), Color(0xFFEF4444)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                accentColor: const Color(0xFFDC2626),
-                accentBg: const Color(0xFFFEF2F2),
+                icon: dashboard.lowStockItemCount > 0
+                    ? PhosphorIconsBold.warningCircle
+                    : PhosphorIconsBold.checkCircle,
+                gradient: dashboard.lowStockItemCount > 0
+                    ? const LinearGradient(
+                        colors: [Color(0xFFDC2626), Color(0xFFEF4444)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      )
+                    : const LinearGradient(
+                        colors: [Color(0xFF16A34A), Color(0xFF22C55E)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                accentColor: dashboard.lowStockItemCount > 0
+                    ? const Color(0xFFDC2626)
+                    : const Color(0xFF16A34A),
+                accentBg: dashboard.lowStockItemCount > 0
+                    ? const Color(0xFFFEF2F2)
+                    : const Color(0xFFF0FDF4),
                 badgeText: dashboard.lowStockItemCount > 0 ? 'Low Stock' : 'All Good',
                 title: 'Low Stock',
                 value: '${dashboard.lowStockItemCount}',
@@ -1143,21 +1167,139 @@ class OwnerDashboardTab extends ConsumerWidget {
     );
   }
 
+  /// "Get your salon ready": the four things a salon fresh from Add Salon
+  /// needs before the app is useful. A brand-new owner used to land on a
+  /// dashboard of zeros with nothing saying where to start. Each step ticks
+  /// itself off from the salon's real data, and the card disappears for good
+  /// once all four are done - there's nothing to dismiss or store.
+  List<Widget> _buildSetupChecklist(AppData state) {
+    final settings = state.settings;
+    final steps = [
+      (
+        done: (settings?.phone?.trim().isNotEmpty ?? false) && (settings?.address?.trim().isNotEmpty ?? false),
+        icon: PhosphorIconsRegular.storefront,
+        title: 'Add your salon\'s phone and address',
+        detail: 'They appear on bills',
+        onTap: onOpenSettings,
+      ),
+      (
+        done: state.services.isNotEmpty,
+        icon: PhosphorIconsRegular.scissors,
+        title: 'Add your services and prices',
+        detail: 'Haircut, colour, facial...',
+        onTap: onOpenServices,
+      ),
+      (
+        done: state.employees.length > 1,
+        icon: PhosphorIconsRegular.usersThree,
+        title: 'Add your staff',
+        detail: 'So they can log in, clock in and bill',
+        onTap: onOpenTeam,
+      ),
+      (
+        done: state.bills.isNotEmpty,
+        icon: PhosphorIconsRegular.receipt,
+        title: 'Make your first bill',
+        detail: 'Pick a client, tick services, take payment',
+        onTap: onOpenBilling,
+      ),
+    ];
+    final doneCount = steps.where((s) => s.done).length;
+    if (doneCount == steps.length) return const [];
+
+    return [
+      Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFC7D2FE), width: 1.2),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Get your salon ready',
+                    style: TextStyle(
+                      fontFamily: 'Plus Jakarta Sans',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0F172A),
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                ),
+                Text(
+                  '$doneCount of ${steps.length} done',
+                  style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF4F46E5)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: doneCount / steps.length,
+                minHeight: 6,
+                backgroundColor: const Color(0xFFEEF2FF),
+                color: const Color(0xFF4F46E5),
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (final step in steps)
+              InkWell(
+                onTap: step.done ? null : step.onTap,
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 2),
+                  child: Row(
+                    children: [
+                      Icon(
+                        step.done ? PhosphorIconsFill.checkCircle : step.icon,
+                        size: 20,
+                        color: step.done ? const Color(0xFF16A34A) : const Color(0xFF4F46E5),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              step.title,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: step.done ? const Color(0xFF94A3B8) : const Color(0xFF0F172A),
+                                decoration: step.done ? TextDecoration.lineThrough : null,
+                              ),
+                            ),
+                            if (!step.done)
+                              Text(
+                                step.detail,
+                                style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                              ),
+                          ],
+                        ),
+                      ),
+                      if (!step.done) const Icon(PhosphorIconsRegular.caretRight, size: 15, color: Color(0xFF94A3B8)),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 20),
+    ];
+  }
+
   Widget _buildQuickActionsCard() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Quick Actions',
-          style: TextStyle(
-            fontFamily: 'Plus Jakarta Sans',
-            fontSize: 15,
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF0F172A),
-            letterSpacing: -0.3,
-          ),
-        ),
-        const SizedBox(height: 12),
         Row(
           children: [
             Expanded(

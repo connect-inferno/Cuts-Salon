@@ -766,3 +766,22 @@ class BillItemInput {
     this.discountAmount,
   });
 }
+
+/// How a stored payment method reads on screen. The stored values are
+/// upper-case codes (CASH/UPI/CARD/PENDING) and used to be printed as-is,
+/// so a bill said "via CASH".
+String paymentMethodLabel(String method) => switch (method) {
+      'CASH' => 'Cash',
+      'UPI' => 'UPI',
+      'CARD' => 'Card',
+      'PENDING' => 'Pay later',
+      _ => method,
+    };
+
+/// How a stored expense category code (RENT, UTILITIES, ...) reads on screen.
+String expenseCategoryLabel(String category) => switch (category) {
+      'MISC' => 'Other',
+      _ => category.isEmpty
+          ? category
+          : category[0].toUpperCase() + category.substring(1).toLowerCase(),
+    };

@@ -18,6 +18,7 @@ import '../../../widgets/dues_view.dart';
 import '../../../widgets/async_state_views.dart';
 import '../../../widgets/app_dialog.dart';
 import '../../../widgets/birthday_picker.dart';
+import '../../../widgets/open_link.dart';
 import '../../../data/birthday.dart';
 import '../../auth/auth_provider.dart';
 import 'add_employee_page.dart';
@@ -321,11 +322,25 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                cust.name,
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    cust.name,
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  // Phone and last visit under the name - the two things
+                  // staff check before calling or billing someone, which
+                  // used to take opening each client's page.
+                  Text(
+                    '${cust.phone} · ${_lastVisitLabel(cust, now)}',
+                    style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, color: Color(0xFF64748B)),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ),
             ),
             // Follow-up marker. Archived clients are excluded: they have been
@@ -362,6 +377,15 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
         ),
       ),
     );
+  }
+
+  String _lastVisitLabel(Customer cust, DateTime now) {
+    final last = cust.lastVisitAt;
+    if (last == null) return 'No visits yet';
+    final days = daysSinceVisit(last, now);
+    if (days <= 0) return 'Visited today';
+    if (days == 1) return 'Visited yesterday';
+    return 'Last visit $days days ago';
   }
 
   /// The red/amber dot beside a client's name, with the day count next to
@@ -867,8 +891,16 @@ class _OwnerCustomerDetailPageState extends ConsumerState<OwnerCustomerDetailPag
   List<Bill>? get customerBills => _bills;
   @override
   bool get loadingBills => _loading;
+  // The dashboard's handler switches the tab underneath to Billing - this
+  // page is pushed on top of it, so it has to close itself first or New
+  // Bill looks like it did nothing.
   @override
-  ValueChanged<Customer>? get startBill => widget.onStartBill;
+  ValueChanged<Customer>? get startBill => widget.onStartBill == null
+      ? null
+      : (customer) {
+          Navigator.of(context).pop();
+          widget.onStartBill!(customer);
+        };
 
   @override
   void initState() {
@@ -1046,19 +1078,15 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                   title: const Text('Call Client', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                   onTap: () {
                     Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Calling ${cust.name} (${cust.phone})...'), behavior: SnackBarBehavior.floating),
-                    );
+                    _callClient(context, cust);
                   },
                 ),
                 ListTile(
-                  leading: const Icon(PhosphorIconsRegular.chatCircle, color: Color(0xFFD97706)),
-                  title: const Text('Send Message', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  leading: const Icon(PhosphorIconsRegular.whatsappLogo, color: Color(0xFF16A34A)),
+                  title: const Text('WhatsApp Client', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                   onTap: () {
                     Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Opening messaging for ${cust.name}...'), behavior: SnackBarBehavior.floating),
-                    );
+                    _whatsappClient(context, cust);
                   },
                 ),
                 ListTile(
@@ -1099,6 +1127,31 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
           ),
         );
       },
+    );
+  }
+
+  // These two used to only show a "Calling..." / "Opening messaging..."
+  // snackbar and do nothing else, which read as a broken button.
+  void _callClient(BuildContext context, Customer cust) {
+    final number = cust.phone.replaceAll(RegExp(r'[^\d+]'), '');
+    if (number.isEmpty || !openLink('tel:$number')) {
+      _linkFailed(context, 'Could not start a call to ${cust.phone}.');
+    }
+  }
+
+  /// Opens a WhatsApp chat with the client from the staff member's own
+  /// WhatsApp - unrelated to the salon's automatic messages, and so not
+  /// gated on the client's WhatsApp consent.
+  void _whatsappClient(BuildContext context, Customer cust) {
+    final number = whatsappNumber(cust.phone);
+    if (number == null || !openLink('https://wa.me/$number')) {
+      _linkFailed(context, '${cust.phone} does not look like a WhatsApp number.');
+    }
+  }
+
+  void _linkFailed(BuildContext context, String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: AppTheme.accentRed, behavior: SnackBarBehavior.floating),
     );
   }
 
@@ -1410,14 +1463,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Dialing ${cust.name} (${cust.phone})...'),
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
-                  },
+                  onPressed: () => _callClient(context, cust),
                   icon: const Icon(PhosphorIconsRegular.phone, size: 14, color: Color(0xFF334155)),
                   label: const Text('Call', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF334155))),
                   style: OutlinedButton.styleFrom(
@@ -1431,16 +1477,9 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
               const SizedBox(width: 8),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Opening messaging for ${cust.name}...'),
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
-                  },
-                  icon: const Icon(PhosphorIconsRegular.chatCircle, size: 14, color: Color(0xFF334155)),
-                  label: const Text('Message', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF334155))),
+                  onPressed: () => _whatsappClient(context, cust),
+                  icon: const Icon(PhosphorIconsRegular.whatsappLogo, size: 14, color: Color(0xFF16A34A)),
+                  label: const Text('WhatsApp', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF334155))),
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: Color(0xFFCBD5E1)),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1590,6 +1629,50 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
               ],
             ),
           ],
+          // Birthday and WhatsApp consent, tappable to change - they're what
+          // the automatic WhatsApp messages run on, so staff should see at a
+          // glance whether this client will get them.
+          const SizedBox(height: 8),
+          InkWell(
+            onTap: () => _editBirthdayAndWhatsApp(context, ref, cust),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                children: [
+                  const Icon(PhosphorIconsRegular.cake, size: 13, color: Color(0xFF94A3B8)),
+                  const SizedBox(width: 6),
+                  Text(
+                    formatBirthday(cust.birthday) ?? 'Add birthday',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: cust.birthday == null ? AppTheme.primaryBlue : const Color(0xFF64748B),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Icon(
+                    PhosphorIconsRegular.whatsappLogo,
+                    size: 13,
+                    color: cust.whatsappOptIn ? const Color(0xFF16A34A) : const Color(0xFF94A3B8),
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      cust.whatsappOptIn ? 'WhatsApp OK' : 'No WhatsApp consent',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: cust.whatsappOptIn ? const Color(0xFF16A34A) : const Color(0xFF94A3B8),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 18),
 
           // Row 4: Visit History Subsection
@@ -4794,11 +4877,11 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _buildStatusCircle(emp.id, 'P', 'PRESENT', currentStatus == 'PRESENT', const Color(0xFF10B981)),
+                _buildStatusCircle(emp.id, 'Present', 'PRESENT', currentStatus == 'PRESENT', const Color(0xFF10B981)),
                 const SizedBox(width: 4),
-                _buildStatusCircle(emp.id, 'L', 'LATE', currentStatus == 'LATE', const Color(0xFFF59E0B)),
+                _buildStatusCircle(emp.id, 'Late', 'LATE', currentStatus == 'LATE', const Color(0xFFF59E0B)),
                 const SizedBox(width: 4),
-                _buildStatusCircle(emp.id, 'A', 'ABSENT', currentStatus == 'ABSENT', const Color(0xFFEF4444)),
+                _buildStatusCircle(emp.id, 'Absent', 'ABSENT', currentStatus == 'ABSENT', const Color(0xFFEF4444)),
               ],
             ),
           ),
@@ -4815,13 +4898,15 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
         });
       },
       borderRadius: BorderRadius.circular(15),
+      // Whole words, not P / L / A - single letters meant nothing to a new
+      // receptionist marking the roster for the first time.
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
-        width: 30,
         height: 30,
+        padding: const EdgeInsets.symmetric(horizontal: 9),
         decoration: BoxDecoration(
           color: isSelected ? activeColor : Colors.transparent,
-          shape: BoxShape.circle,
+          borderRadius: BorderRadius.circular(15),
           boxShadow: isSelected
               ? [
                   BoxShadow(
@@ -4836,7 +4921,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
           child: Text(
             letter,
             style: TextStyle(
-              fontSize: 12,
+              fontSize: 11.5,
               fontWeight: FontWeight.w800,
               color: isSelected ? Colors.white : const Color(0xFF64748B),
             ),

@@ -272,6 +272,9 @@ class FSService {
   final double price;
   final String categoryId;
   final String? categoryName;
+  /// Taken off the menu. Never deleted - past bills and reports still point
+  /// at it - so the app just doesn't load it (firestore_app_data.dart).
+  final bool archived;
 
   FSService({
     required this.id,
@@ -279,6 +282,7 @@ class FSService {
     required this.price,
     required this.categoryId,
     this.categoryName,
+    this.archived = false,
   });
 
   factory FSService.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -289,6 +293,7 @@ class FSService {
       price: _num(d['price']),
       categoryId: d['categoryId'] ?? '',
       categoryName: d['categoryName'],
+      archived: d['archived'] ?? false,
     );
   }
 
@@ -309,6 +314,8 @@ class FSInventoryItem {
   final double costPrice;
   final int stockCount;
   final int minAlertThreshold;
+  /// Removed from the catalog - see FSService.archived.
+  final bool archived;
 
   FSInventoryItem({
     required this.id,
@@ -319,6 +326,7 @@ class FSInventoryItem {
     required this.costPrice,
     required this.stockCount,
     required this.minAlertThreshold,
+    this.archived = false,
   });
 
   bool get isLowStock => stockCount <= minAlertThreshold;
@@ -334,6 +342,7 @@ class FSInventoryItem {
       costPrice: _num(d['costPrice']),
       stockCount: _int(d['stockCount']),
       minAlertThreshold: _int(d['minAlertThreshold']),
+      archived: d['archived'] ?? false,
     );
   }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
@@ -72,11 +73,27 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
 
     // Only build() consumes the sign-in settings - refresh() below goes
     // through _loadAll and always re-reads them.
-    final loaded = await loadAppData(
+    var loaded = await loadAppData(
       _fs,
       auth,
       preloadedSettings: ref.read(authControllerProvider.notifier).consumeInitialSettings(),
     );
+    // A salon fresh from the operator dashboard's Add Salon has no branch
+    // at all, and billing and hiring both need one - the first bill used to
+    // fail with "Unexpected null value" and nothing said why. Most salons
+    // are one location, so give the owner a default they can rename in
+    // Settings > Branches rather than making them discover that page first.
+    // Owner-only: firestore.rules lets nobody else create branches.
+    if (auth.isOwner && loaded.branches.isEmpty) {
+      try {
+        final createdFS = await _fs.createBranch(name: 'Main Branch');
+        loaded = loaded.copyWith(branches: [
+          branchFromFS(createdFS, employeeCount: 0, customerCount: 0, monthlyRevenue: 0),
+        ]);
+      } catch (e) {
+        debugPrint('Could not create the default branch: $e');
+      }
+    }
     _watchTodayStats();
     _watchNewBills();
     return loaded;
@@ -564,6 +581,31 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     return created;
   }
 
+  /// Renames or reprices a service. Only future bills see the change: every
+  /// bill line keeps its own copy of the name and price it was rung at.
+  Future<void> updateService(String id, {required String name, required double price}) async {
+    final current = state.value;
+    final match = current?.services.where((s) => s.id == id) ?? const Iterable<SalonService>.empty();
+    if (match.isEmpty) throw Exception('Service not found');
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) throw Exception('Service name is required');
+    if (price <= 0) throw Exception('Enter a price above zero');
+    final existing = match.first;
+    if (trimmed != existing.name && await _fs.isServiceNameTaken(trimmed)) {
+      throw Exception('A service with this name already exists');
+    }
+    await _fs.updateService(id, {'name': trimmed, 'price': price});
+    // Re-read after the await - see addService.
+    final latest = state.value;
+    if (latest == null) return;
+    state = AsyncData(latest.copyWith(services: [
+      for (final s in latest.services)
+        s.id == id
+            ? SalonService(id: s.id, name: trimmed, price: price, categoryId: s.categoryId, categoryName: s.categoryName)
+            : s,
+    ]));
+  }
+
   Future<void> addService({required String name, required double price, required String categoryId}) async {
     final current = state.value;
     final categoryMatch = current?.categories.where((c) => c.id == categoryId) ?? const Iterable.empty();
@@ -591,7 +633,16 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     int? stockCount,
     int? minAlertThreshold,
   }) async {
-    if (await _fs.isSkuTaken(sku)) {
+    // Most small salons don't label stock with SKUs, so a blank one gets a
+    // generated code (HAIR-482) instead of blocking the form.
+    if (sku.trim().isEmpty) {
+      final letters = name.toUpperCase().replaceAll(RegExp(r'[^A-Z]'), '');
+      final prefix = letters.isEmpty ? 'ITEM' : letters.substring(0, letters.length < 4 ? letters.length : 4);
+      final random = Random();
+      do {
+        sku = '$prefix-${100 + random.nextInt(900)}';
+      } while (await _fs.isSkuTaken(sku));
+    } else if (await _fs.isSkuTaken(sku)) {
       throw Exception('An inventory item with this SKU already exists');
     }
     final createdFS = await _fs.createInventoryItem(FSInventoryItem(
@@ -607,6 +658,66 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     final created = inventoryFromFS(createdFS);
     final current = state.value;
     if (current != null) state = AsyncData(current.copyWith(inventory: [...current.inventory, created]));
+  }
+
+  /// Takes a service off the menu. Not a delete - see FSService.archived.
+  Future<void> removeService(String id) async {
+    await _fs.updateService(id, {'archived': true});
+    final latest = state.value;
+    if (latest != null) {
+      state = AsyncData(latest.copyWith(services: latest.services.where((s) => s.id != id).toList()));
+    }
+  }
+
+  /// Takes a product out of the catalog. Not a delete - see FSService.archived.
+  Future<void> removeInventoryItem(String id) async {
+    await _fs.updateInventoryItem(id, {'archived': true});
+    final latest = state.value;
+    if (latest != null) {
+      state = AsyncData(latest.copyWith(inventory: latest.inventory.where((i) => i.id != id).toList()));
+    }
+  }
+
+  /// Everything about a product except its stock count (that's
+  /// updateInventoryStock) and SKU. Like services, past bills keep the
+  /// name and price they were sold at.
+  Future<void> updateInventoryDetails(
+    String id, {
+    required String name,
+    required String category,
+    required double price,
+    required double costPrice,
+    required int minAlertThreshold,
+  }) async {
+    final trimmedName = name.trim();
+    final trimmedCategory = category.trim();
+    if (trimmedName.isEmpty || trimmedCategory.isEmpty) throw Exception('Name and category are required');
+    if (price <= 0) throw Exception('Enter a selling price above zero');
+    if (costPrice < 0 || minAlertThreshold < 0) throw Exception('Cost price and low-stock alert cannot be negative');
+    await _fs.updateInventoryItem(id, {
+      'name': trimmedName,
+      'category': trimmedCategory,
+      'price': price,
+      'costPrice': costPrice,
+      'minAlertThreshold': minAlertThreshold,
+    });
+    final latest = state.value;
+    if (latest == null) return;
+    state = AsyncData(latest.copyWith(
+      inventory: latest.inventory.map((i) {
+        if (i.id != id) return i;
+        return InventoryItem(
+          id: i.id,
+          sku: i.sku,
+          name: trimmedName,
+          category: trimmedCategory,
+          price: price,
+          costPrice: costPrice,
+          stockCount: i.stockCount,
+          minAlertThreshold: minAlertThreshold,
+        );
+      }).toList(),
+    ));
   }
 
   Future<void> updateInventoryStock(String id, int newStock) async {

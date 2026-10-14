@@ -9,6 +9,7 @@ import '../../data/salary_provider.dart';
 import '../../data/models.dart';
 import '../auth/auth_provider.dart';
 import '../../firebase/salon_auth.dart';
+import '../../widgets/bill_whatsapp_note.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/app_page_header.dart';
 import '../../widgets/app_page_switcher.dart';
@@ -3086,13 +3087,20 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
           iconBackground: AppTheme.accentGreenBg,
           title: 'Bill Completed',
           subtitle: 'Invoice ${bill.invoiceNumber} generated',
-          child: Text(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+          Text(
             bill.amountDue > 0
                 ? 'Total ₹${bill.finalAmount.toStringAsFixed(0)}. '
                     '${bill.amountPaid > 0 ? 'Collected ₹${bill.amountPaid.toStringAsFixed(0)}. ' : ''}'
                     '₹${bill.amountDue.toStringAsFixed(0)} left to collect from this client.'
-                : 'Total amount ₹${bill.finalAmount.toStringAsFixed(0)} collected via ${bill.paymentMethod}.',
+                : 'Total amount ₹${bill.finalAmount.toStringAsFixed(0)} collected via ${paymentMethodLabel(bill.paymentMethod)}.',
             style: const TextStyle(fontSize: 13, color: AppTheme.slateMedium),
+          ),
+              BillWhatsAppNote(customerId: bill.customerId),
+            ],
           ),
           actions: SizedBox(
             width: double.infinity,

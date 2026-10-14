@@ -347,6 +347,23 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Running invoice number (counters/invoices = { last: N }), bumped
+    // inside createBill's transaction by whoever rings the bill, owner or
+    // employee. No REST-era route - the REST backend used random numbers.
+    // It may only start at 1 and only ever go up by exactly one, so a
+    // client can't reset it or skip ahead; it can still burn a number by
+    // bumping without billing, which only leaves a gap.
+    match /counters/{counterId} {
+      allow read: if isActiveEmployee();
+      allow create: if isActiveEmployee() && counterId == 'invoices'
+                    && request.resource.data.keys().hasOnly(['last'])
+                    && request.resource.data.last == 1;
+      allow update: if isActiveEmployee() && counterId == 'invoices'
+                    && request.resource.data.keys().hasOnly(['last'])
+                    && request.resource.data.last == resource.data.last + 1;
+      allow delete: if false;
+    }
+
     // WhatsApp (functions/index.js, a Cloud Function using the Admin SDK,
     // which bypasses these rules). No REST-era route - this postdates it.
     //

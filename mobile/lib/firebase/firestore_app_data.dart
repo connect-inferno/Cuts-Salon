@@ -318,7 +318,7 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
           // getDashboardSummary itself.
           todayAttendanceCount: todayAttendanceCountFS(attendanceFS),
           pendingDiscountRequests: pendingDiscountCount,
-          lowStockItemCount: inventoryFS.where((i) => i.isLowStock).length,
+          lowStockItemCount: inventoryFS.where((i) => !i.archived && i.isLowStock).length,
         )
       : null;
 
@@ -370,8 +370,11 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
     customers: allCustomers.where((c) => !c.archived).toList(),
     archivedCustomers: allCustomers.where((c) => c.archived).toList(),
     categories: categoriesFS.map(categoryFromFS).toList(),
-    services: servicesFS.map(serviceFromFS).toList(),
-    inventory: inventoryFS.map(inventoryFromFS).toList(),
+    // Removed (archived) catalog entries are left out entirely, so billing,
+    // the menu and stock alerts never offer them. Past bills don't need
+    // them: every bill line carries its own name and price.
+    services: servicesFS.where((s) => !s.archived).map(serviceFromFS).toList(),
+    inventory: inventoryFS.where((i) => !i.archived).map(inventoryFromFS).toList(),
     bills: bills,
     discountRequests: discountRequestsFS.map(discountRequestFromFS).toList(),
     pendingPaymentRequestCount: pendingPaymentRequestsCounted,

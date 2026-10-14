@@ -473,6 +473,13 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
           child: const OwnerAttendanceTab(),
         ),
         onOpenClients: () => _switchToTab(OwnerTab.clients),
+        onOpenServices: () => openAppSubPage(
+          context,
+          title: 'Services',
+          subtitle: 'Service menu, stock and prices',
+          child: const OwnerInventoryTab(),
+        ),
+        onOpenTeam: () => _switchToTab(OwnerTab.team),
         onOpenReports: () => openAppSubPage(
           context,
           title: 'Reports',
@@ -642,29 +649,17 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text(
-                          'Analytical Reports',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A),
-                            letterSpacing: -0.5,
-                          ),
-                        ),
-                        SizedBox(height: 2),
-                        Text(
-                          'Business performance & revenue insights',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: Color(0xFF64748B),
-                          ),
-                        ),
-                      ],
+                  // No second "Analytical Reports" heading here: this page
+                  // always opens under the "Reports" page header, and the
+                  // two titles stacked read as a layout glitch.
+                  const Expanded(
+                    child: Text(
+                      'Period',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF64748B),
+                      ),
                     ),
                   ),
                   InkWell(

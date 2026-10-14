@@ -8,6 +8,7 @@ import '../../../data/expenses_provider.dart';
 import '../../../data/models.dart';
 import '../../../widgets/async_state_views.dart';
 import '../../../widgets/searchable_picker.dart';
+import '../../../widgets/bill_whatsapp_note.dart';
 import '../../../widgets/app_dialog.dart';
 import '../../../widgets/app_page_header.dart';
 import '../../../widgets/bill_history_view.dart';
@@ -1802,6 +1803,21 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
     AppData state,
     double discountAmount,
   ) async {
+    // Clear messages instead of a null-check crash ("Unexpected null value")
+    // when a required pick is missing.
+    final missing = _selectedBranchId == null
+        ? 'This salon has no branch yet - add one in Settings > Branches.'
+        : _selectedEmployeeId == null
+            ? 'Choose the attending stylist first.'
+            : _selectedCustomerId == null
+                ? 'Choose a customer first.'
+                : null;
+    if (missing != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(missing), backgroundColor: AppTheme.accentRed),
+      );
+      return;
+    }
     setState(() => _submitting = true);
     try {
       final items = [
@@ -1849,16 +1865,23 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
               iconBackground: AppTheme.accentGreenBg,
               title: 'Bill Generated',
               subtitle: bill.invoiceNumber,
-              child: Text(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+              Text(
                 bill.amountDue > 0
                     ? 'Total: ₹${bill.finalAmount.toStringAsFixed(0)}. '
-                        '${bill.amountPaid > 0 ? 'Collected ₹${bill.amountPaid.toStringAsFixed(0)} via $_partPaymentMethod. ' : ''}'
+                        '${bill.amountPaid > 0 ? 'Collected ₹${bill.amountPaid.toStringAsFixed(0)} via ${paymentMethodLabel(_partPaymentMethod)}. ' : ''}'
                         '₹${bill.amountDue.toStringAsFixed(0)} outstanding - track it under Pending Payments.'
-                    : 'Total: ₹${bill.finalAmount.toStringAsFixed(0)} via ${bill.paymentMethod}.',
+                    : 'Total: ₹${bill.finalAmount.toStringAsFixed(0)} via ${paymentMethodLabel(bill.paymentMethod)}.',
                 style: const TextStyle(
                   fontSize: 14,
                   color: AppTheme.slateMedium,
                 ),
+              ),
+                  BillWhatsAppNote(customerId: bill.customerId),
+                ],
               ),
               actions: SizedBox(
                 width: double.infinity,
@@ -2092,14 +2115,9 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      TextField(
-                        controller: skuController,
-                        decoration: appDialogFieldDecoration(
-                          label: 'SKU *',
-                          icon: PhosphorIconsRegular.barcode,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
+                      // Name first; the SKU is optional and comes after
+                      // the essentials - it used to be the first, required
+                      // field, and most salons have no SKU codes.
                       TextField(
                         controller: nameController,
                         decoration: appDialogFieldDecoration(
@@ -2132,6 +2150,15 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                         decoration: appDialogFieldDecoration(
                           label: 'Cost Price (Rs.) *',
                           icon: PhosphorIconsRegular.receipt,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: skuController,
+                        decoration: appDialogFieldDecoration(
+                          label: 'SKU / barcode',
+                          hint: 'Optional - one is made up if left blank',
+                          icon: PhosphorIconsRegular.barcode,
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -2172,15 +2199,14 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                       final category = categoryController.text.trim();
                       final price = double.tryParse(priceController.text);
                       final cost = double.tryParse(costController.text);
-                      if (sku.isEmpty ||
-                          name.isEmpty ||
+                      if (name.isEmpty ||
                           category.isEmpty ||
                           price == null ||
                           cost == null) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text(
-                              'All fields are required with valid numbers.',
+                              'Fill in the name, category and both prices.',
                             ),
                             backgroundColor: AppTheme.accentRed,
                           ),
@@ -2219,6 +2245,282 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                               content: Text(e.toString()),
                               backgroundColor: AppTheme.accentRed,
                             ),
+                          );
+                        }
+                      }
+                    },
+                  ),
+                ),
+          ),
+    );
+  }
+
+  Widget _removeButton({required String label, required VoidCallback? onPressed}) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: TextButton.icon(
+        onPressed: onPressed,
+        icon: const Icon(PhosphorIconsRegular.trash, size: 15, color: AppTheme.accentRed),
+        label: Text(
+          label,
+          style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppTheme.accentRed),
+        ),
+      ),
+    );
+  }
+
+  /// Asks before taking something out of the catalog, then does it. Returns
+  /// whether it was removed, so the edit dialog underneath can close too.
+  Future<bool> _confirmRemove(
+    BuildContext context,
+    WidgetRef ref, {
+    required String title,
+    required String body,
+    required Future<void> Function() remove,
+  }) async {
+    bool submitting = false;
+    final removed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AppDialog(
+          icon: PhosphorIconsRegular.trash,
+          iconColor: AppTheme.accentRed,
+          iconBackground: AppTheme.accentRedBg,
+          title: title,
+          child: Text(
+            body,
+            style: const TextStyle(fontSize: 12.5, color: AppTheme.slateMedium, height: 1.4),
+          ),
+          actions: AppDialogActions(
+            submitLabel: 'Remove',
+            submitting: submitting,
+            onCancel: () => Navigator.pop(ctx, false),
+            onSubmit: () async {
+              setDialogState(() => submitting = true);
+              try {
+                await remove();
+                if (ctx.mounted) Navigator.pop(ctx, true);
+              } catch (e) {
+                setDialogState(() => submitting = false);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: AppTheme.accentRed),
+                  );
+                }
+              }
+            },
+          ),
+        ),
+      ),
+    );
+    return removed ?? false;
+  }
+
+  void _showEditProductDialog(BuildContext context, WidgetRef ref, InventoryItem prod) {
+    final nameController = TextEditingController(text: prod.name);
+    final categoryController = TextEditingController(text: prod.category);
+    final priceController = TextEditingController(text: prod.price.toStringAsFixed(0));
+    final costController = TextEditingController(text: prod.costPrice.toStringAsFixed(0));
+    final alertController = TextEditingController(text: '${prod.minAlertThreshold}');
+    bool submitting = false;
+
+    showDialog(
+      context: context,
+      builder:
+          (ctx) => StatefulBuilder(
+            builder:
+                (ctx, setDialogState) => AppDialog(
+                  icon: PhosphorIconsRegular.pencilSimple,
+                  title: 'Edit Product',
+                  subtitle: 'SKU ${prod.sku} - use Update Stock to change the quantity.',
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: nameController,
+                        decoration: appDialogFieldDecoration(label: 'Product Name *', icon: PhosphorIconsRegular.tag),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: categoryController,
+                        decoration: appDialogFieldDecoration(label: 'Category *', icon: PhosphorIconsRegular.squaresFour),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: priceController,
+                              keyboardType: TextInputType.number,
+                              decoration: appDialogFieldDecoration(label: 'Selling (Rs.) *', icon: PhosphorIconsRegular.currencyInr),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextField(
+                              controller: costController,
+                              keyboardType: TextInputType.number,
+                              decoration: appDialogFieldDecoration(label: 'Cost (Rs.) *', icon: PhosphorIconsRegular.receipt),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: alertController,
+                        keyboardType: TextInputType.number,
+                        decoration: appDialogFieldDecoration(
+                          label: 'Low Stock Alert',
+                          hint: 'Warn when stock falls to this',
+                          icon: PhosphorIconsRegular.warning,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      _removeButton(
+                        label: 'Remove from catalog',
+                        onPressed: submitting
+                            ? null
+                            : () async {
+                                final removed = await _confirmRemove(
+                                  context,
+                                  ref,
+                                  title: 'Remove ${prod.name}?',
+                                  body: 'It disappears from the catalog and from billing. '
+                                      'Past bills and reports still show it.',
+                                  remove: () => ref.read(appDataProvider.notifier).removeInventoryItem(prod.id),
+                                );
+                                if (removed && ctx.mounted) Navigator.pop(ctx);
+                              },
+                      ),
+                    ],
+                  ),
+                  actions: AppDialogActions(
+                    submitLabel: 'Save',
+                    submitting: submitting,
+                    onCancel: () => Navigator.pop(ctx),
+                    onSubmit: () async {
+                      final price = double.tryParse(priceController.text.trim());
+                      final cost = double.tryParse(costController.text.trim());
+                      final alert = int.tryParse(alertController.text.trim());
+                      if (price == null || cost == null || alert == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Enter valid numbers for prices and the alert level'), backgroundColor: AppTheme.accentRed),
+                        );
+                        return;
+                      }
+                      setDialogState(() => submitting = true);
+                      try {
+                        await ref.read(appDataProvider.notifier).updateInventoryDetails(
+                              prod.id,
+                              name: nameController.text,
+                              category: categoryController.text,
+                              price: price,
+                              costPrice: cost,
+                              minAlertThreshold: alert,
+                            );
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('${nameController.text.trim()} updated.'), backgroundColor: AppTheme.accentGreen),
+                          );
+                        }
+                      } catch (e) {
+                        setDialogState(() => submitting = false);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: AppTheme.accentRed),
+                          );
+                        }
+                      }
+                    },
+                  ),
+                ),
+          ),
+    );
+  }
+
+  void _showEditServiceDialog(BuildContext context, WidgetRef ref, SalonService svc) {
+    final nameController = TextEditingController(text: svc.name);
+    final priceController = TextEditingController(text: svc.price.toStringAsFixed(0));
+    bool submitting = false;
+
+    showDialog(
+      context: context,
+      builder:
+          (ctx) => StatefulBuilder(
+            builder:
+                (ctx, setDialogState) => AppDialog(
+                  icon: PhosphorIconsRegular.pencilSimple,
+                  title: 'Edit Service',
+                  subtitle: 'A new price applies to new bills only - past bills keep the price they were charged.',
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: nameController,
+                        decoration: appDialogFieldDecoration(
+                          label: 'Service Name *',
+                          icon: PhosphorIconsRegular.tag,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: priceController,
+                        keyboardType: TextInputType.number,
+                        decoration: appDialogFieldDecoration(
+                          label: 'Price (Rs.) *',
+                          icon: PhosphorIconsRegular.currencyInr,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      _removeButton(
+                        label: 'Remove from menu',
+                        onPressed: submitting
+                            ? null
+                            : () async {
+                                final removed = await _confirmRemove(
+                                  context,
+                                  ref,
+                                  title: 'Remove ${svc.name}?',
+                                  body: 'It disappears from the menu and from billing. '
+                                      'Past bills and reports still show it.',
+                                  remove: () => ref.read(appDataProvider.notifier).removeService(svc.id),
+                                );
+                                if (removed && ctx.mounted) Navigator.pop(ctx);
+                              },
+                      ),
+                    ],
+                  ),
+                  actions: AppDialogActions(
+                    submitLabel: 'Save',
+                    submitting: submitting,
+                    onCancel: () => Navigator.pop(ctx),
+                    onSubmit: () async {
+                      final price = double.tryParse(priceController.text.trim());
+                      if (price == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Enter a valid price'), backgroundColor: AppTheme.accentRed),
+                        );
+                        return;
+                      }
+                      setDialogState(() => submitting = true);
+                      try {
+                        await ref.read(appDataProvider.notifier).updateService(
+                              svc.id,
+                              name: nameController.text,
+                              price: price,
+                            );
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('${nameController.text.trim()} updated.'), backgroundColor: AppTheme.accentGreen),
+                          );
+                        }
+                      } catch (e) {
+                        setDialogState(() => submitting = false);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: AppTheme.accentRed),
                           );
                         }
                       }
@@ -2850,11 +3152,17 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
 
                         // Service List Items
                         if (filteredServices.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 20.0),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 20.0),
                             child: Center(
                               child: Text(
-                                'No services matching your search.',
+                                // "matching your search" only when there is
+                                // one - a new salon with an empty menu used
+                                // to be told its (empty) search found nothing.
+                                state.services.isEmpty
+                                    ? 'No services yet - tap + Add Service to build your menu.'
+                                    : 'No services match your search.',
+                                textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color: Color(0xFF64748B),
                                   fontSize: 12,
@@ -2865,7 +3173,12 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                         else
                           ...filteredServices.map((svc) {
                             final (bg, fg, icon) = _iconForService(svc);
-                            return Padding(
+                            return InkWell(
+                              // Tap to change the name or price - there was
+                              // no way to edit a service once added.
+                              onTap: () => _showEditServiceDialog(context, ref, svc),
+                              borderRadius: BorderRadius.circular(12),
+                              child: Padding(
                               padding: const EdgeInsets.only(bottom: 14.0),
                               child: Row(
                                 children: [
@@ -2919,7 +3232,14 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                       letterSpacing: -0.2,
                                     ),
                                   ),
+                                  const SizedBox(width: 6),
+                                  const Icon(
+                                    PhosphorIconsRegular.pencilSimple,
+                                    size: 14,
+                                    color: Color(0xFF94A3B8),
+                                  ),
                                 ],
+                              ),
                               ),
                             );
                           }),
@@ -3021,11 +3341,14 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
 
                         // Products List
                         if (filteredProducts.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 20.0),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 20.0),
                             child: Center(
                               child: Text(
-                                'No products matching filter.',
+                                state.inventory.isEmpty
+                                    ? 'No products yet - tap + Add Product if you sell retail items.'
+                                    : 'No products match this filter.',
+                                textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color: Color(0xFF64748B),
                                   fontSize: 12,
@@ -3040,8 +3363,11 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                               padding: const EdgeInsets.only(bottom: 16.0),
                               child: Row(
                                 children: [
-                                  // Product Info
+                                  // Product Info - tap to edit or remove
                                   Expanded(
+                                    child: InkWell(
+                                    onTap: () => _showEditProductDialog(context, ref, prod),
+                                    borderRadius: BorderRadius.circular(10),
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
@@ -3057,7 +3383,10 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                         ),
                                         const SizedBox(height: 2),
                                         Text(
-                                          'SKU: ${prod.sku} • ${prod.category}',
+                                          // Price first - it's what staff
+                                          // look for; services already show
+                                          // theirs, products didn't.
+                                          '₹${prod.price.toStringAsFixed(0)} • ${prod.category} • SKU ${prod.sku}',
                                           style: const TextStyle(
                                             fontSize: 11.5,
                                             color: Color(0xFF64748B),
@@ -3095,6 +3424,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                           ),
                                         ),
                                       ],
+                                    ),
                                     ),
                                   ),
                                   const SizedBox(width: 8),
@@ -3240,7 +3570,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                                     color: _styleFor(cat).fg,
                                   ),
                                   const SizedBox(width: 8),
-                                  Text(cat),
+                                  Text(expenseCategoryLabel(cat)),
                                 ],
                               ),
                             ),
@@ -3810,7 +4140,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                 children: [
                   Expanded(
                     child: Text(
-                      cat,
+                      expenseCategoryLabel(cat),
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
@@ -3874,7 +4204,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
           ),
         ),
         child: Text(
-          '$label ($count)',
+          '${expenseCategoryLabel(label)} ($count)',
           style: TextStyle(
             fontSize: 11.5,
             fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
@@ -3921,7 +4251,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${exp.category} - ${exp.date != null ? _formatDay(exp.date) : '-'}',
+                  '${expenseCategoryLabel(exp.category)} - ${exp.date != null ? _formatDay(exp.date) : '-'}',
                   style: const TextStyle(
                     fontSize: 11,
                     color: Color(0xFF94A3B8),
@@ -4011,7 +4341,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                           ),
                         ),
                         Text(
-                          '${exp.category} · ${exp.date != null ? _formatDay(exp.date) : 'No date'}',
+                          '${expenseCategoryLabel(exp.category)} · ${exp.date != null ? _formatDay(exp.date) : 'No date'}',
                           style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w500,

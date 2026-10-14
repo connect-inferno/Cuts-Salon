@@ -191,8 +191,21 @@ class _SearchablePickerSheetState<T> extends State<_SearchablePickerSheet<T>> {
                         itemBuilder: (context, index) {
                           final item = filtered[index];
                           final subtitle = widget.subtitleOf?.call(item);
+                          final label = widget.labelOf(item);
+                          // Padded to line up with the search box above, with
+                          // an initials avatar - the bare rows used to sit
+                          // flush against the sheet's edge.
                           return ListTile(
-                            title: Text(widget.labelOf(item), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+                            leading: CircleAvatar(
+                              radius: 18,
+                              backgroundColor: AppTheme.primaryLight,
+                              child: Text(
+                                _initials(label),
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppTheme.primaryBlue),
+                              ),
+                            ),
+                            title: Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                             subtitle: subtitle == null ? null : Text(subtitle, style: const TextStyle(color: AppTheme.slateLight, fontSize: 12)),
                             onTap: () => Navigator.pop(context, item),
                           );
@@ -205,4 +218,10 @@ class _SearchablePickerSheetState<T> extends State<_SearchablePickerSheet<T>> {
       ),
     );
   }
+}
+
+String _initials(String name) {
+  final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+  if (parts.isEmpty) return '?';
+  return parts.take(2).map((p) => p[0].toUpperCase()).join();
 }
