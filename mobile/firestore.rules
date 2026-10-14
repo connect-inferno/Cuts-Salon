@@ -346,5 +346,31 @@ service cloud.firestore {
       allow update: if isOwner();
       allow delete: if false;
     }
+
+    // WhatsApp (functions/index.js, a Cloud Function using the Admin SDK,
+    // which bypasses these rules). No REST-era route - this postdates it.
+    //
+    // whatsappLog is the record of every message the function sent or tried
+    // to send. The owner may read it; nobody writes it from the app, since a
+    // fake "already sent" entry would silently suppress a real message.
+    match /whatsappLog/{logId} {
+      allow read: if isOwner();
+      allow write: if false;
+    }
+
+    // The owner's "send test message" / "run today's messages now" buttons.
+    // The app can't call Meta itself (that would ship the salon's access
+    // token in the app), so it files a request here and the function does
+    // the sending and writes the outcome back. create is pinned to the two
+    // known types, to PENDING and to the owner's own uid; only the function
+    // ever updates one.
+    match /whatsappRequests/{requestId} {
+      allow read: if isOwner();
+      allow create: if isOwner()
+                    && request.resource.data.type in ['test', 'daily']
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.requestedBy == request.auth.uid;
+      allow update, delete: if false;
+    }
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -278,6 +279,43 @@ class SalonFirestore {
 
   Future<void> updateCustomer(String id, Map<String, dynamic> changes) =>
       db.collection('customers').doc(id).update(customerTouch(changes));
+
+  // --- WhatsApp ---
+
+  /// Files an owner's WhatsApp request and waits for the Cloud Function in
+  /// functions/index.js to write its outcome back onto the same doc. The app
+  /// never talks to Meta itself - that would put the salon's access token in
+  /// the app - see whatsappRequests in firestore.rules.
+  Future<String> runWhatsAppRequest({
+    required String type, // 'test' | 'daily'
+    required String requestedBy,
+    String? phone,
+  }) async {
+    final ref = await db.collection('whatsappRequests').add({
+      'type': type,
+      'status': 'pending',
+      'requestedBy': requestedBy,
+      if (phone != null) 'phone': phone,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    final Map<String, dynamic> answer;
+    try {
+      answer = (await ref
+          .snapshots()
+          .map((s) => s.data())
+          .firstWhere((d) => d != null && d['status'] != 'pending')
+          .timeout(const Duration(seconds: 60)))!;
+    } on TimeoutException {
+      throw Exception(
+        'No answer from the WhatsApp service. Its functions may not be '
+        'deployed for this salon yet.',
+      );
+    }
+    if (answer['status'] == 'failed') {
+      throw Exception(answer['error'] ?? 'WhatsApp request failed');
+    }
+    return answer['result'] as String? ?? 'Done';
+  }
 
   // Mirrors customer.service.ts's per-salon phone-uniqueness check.
   Future<bool> isCustomerPhoneTaken(String phone) async {

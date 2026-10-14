@@ -10,6 +10,7 @@ import '../firebase/firestore_models.dart';
 import '../firebase/salon_auth.dart';
 import '../firebase/salon_firestore.dart';
 import 'app_data.dart';
+import 'birthday.dart';
 import 'punch_location.dart';
 import 'discount_requests_provider.dart';
 import 'salary_provider.dart';
@@ -394,7 +395,10 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     String? gender,
     bool? isVip,
     String? registeredAtBranchId,
+    String? birthday,
+    bool whatsappOptIn = false,
   }) async {
+    _checkBirthday(birthday);
     if (await _fs.isCustomerPhoneTaken(phone)) {
       throw Exception('A customer with this phone number already exists');
     }
@@ -414,11 +418,66 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       branchId: registeredAtBranchId ?? '',
       createdById: auth.userId,
       createdByName: creator?.name ?? auth.name,
+      birthday: birthday,
+      whatsappOptIn: whatsappOptIn,
     ));
     final created = customerFromFS(createdFS);
     final current = state.value;
     if (current != null) state = AsyncData(current.copyWith(customers: [created, ...current.customers]));
     return created;
+  }
+
+  /// Birthday and WhatsApp consent are the only customer fields editable
+  /// after creation - they're what the WhatsApp messages run on, and both
+  /// are often only learnt on a later visit.
+  Future<void> updateCustomerWhatsApp(
+    String id, {
+    required String? birthday,
+    required bool whatsappOptIn,
+  }) async {
+    _checkBirthday(birthday);
+    await _fs.updateCustomer(id, {'birthday': birthday, 'whatsappOptIn': whatsappOptIn});
+    // Re-read after the await - see the note in archiveCustomer.
+    final latest = state.value;
+    if (latest == null) return;
+    state = AsyncData(latest.copyWith(customers: [
+      for (final c in latest.customers)
+        if (c.id != id)
+          c
+        else
+          Customer(
+            id: c.id,
+            name: c.name,
+            phone: c.phone,
+            email: c.email,
+            gender: c.gender,
+            notes: c.notes,
+            isVip: c.isVip,
+            branchId: c.branchId,
+            createdAt: c.createdAt,
+            visitCount: c.visitCount,
+            totalSpent: c.totalSpent,
+            outstandingBalance: c.outstandingBalance,
+            lastVisitAt: c.lastVisitAt,
+            archived: c.archived,
+            createdById: c.createdById,
+            createdByName: c.createdByName,
+            birthday: birthday,
+            whatsappOptIn: whatsappOptIn,
+          ),
+    ]));
+  }
+
+  /// "MM-DD" or nothing - the exact shape functions/index.js matches on, so a
+  /// malformed value would mean a birthday that silently never gets wished.
+  void _checkBirthday(String? birthday) {
+    if (birthday == null) return;
+    final match = RegExp(r'^(\d{2})-(\d{2})$').firstMatch(birthday);
+    final month = int.tryParse(match?.group(1) ?? '') ?? 0;
+    final day = int.tryParse(match?.group(2) ?? '') ?? 0;
+    if (month < 1 || month > 12 || day < 1 || day > daysInBirthdayMonth(month)) {
+      throw Exception('Invalid birthday');
+    }
   }
 
   // firestore.rules blocks customer deletes on purpose ("customer history
@@ -775,6 +834,8 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
               totalSpent: _round2(c.totalSpent + created.finalAmount),
               outstandingBalance: _round2(c.outstandingBalance + created.amountDue),
               lastVisitAt: created.createdAt ?? DateTime.now(),
+              birthday: c.birthday,
+              whatsappOptIn: c.whatsappOptIn,
             ),
       ],
       branches: [
@@ -889,6 +950,8 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
               outstandingBalance: _round2((c.outstandingBalance - applied).clamp(0, double.infinity)),
               lastVisitAt: c.lastVisitAt,
               archived: c.archived,
+              birthday: c.birthday,
+              whatsappOptIn: c.whatsappOptIn,
             ),
       ],
     ));
@@ -1076,6 +1139,18 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     final updated = attendanceFromFS(recordFS);
     final withoutOld = current.attendance.where((a) => a.id != updated.id);
     state = AsyncData(current.copyWith(attendance: [updated, ...withoutOld]));
+  }
+
+  // --- WhatsApp ---
+
+  /// The owner's test buttons in Settings: 'test' sends WhatsApp's
+  /// hello_world to [phone]; 'daily' runs today's birthday and reminder
+  /// messages now instead of waiting for 10:00. Returns what the function
+  /// reported. Owner-only - firestore.rules refuses anyone else.
+  Future<String> runWhatsAppRequest(String type, {String? phone}) {
+    final uid = ref.read(authControllerProvider).userId;
+    if (uid == null) throw Exception('Not signed in');
+    return _fs.runWhatsAppRequest(type: type, requestedBy: uid, phone: phone);
   }
 
   // --- Settings ---

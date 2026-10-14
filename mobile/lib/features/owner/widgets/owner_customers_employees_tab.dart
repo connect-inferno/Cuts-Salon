@@ -17,6 +17,8 @@ import '../../../widgets/pay_period_picker.dart';
 import '../../../widgets/dues_view.dart';
 import '../../../widgets/async_state_views.dart';
 import '../../../widgets/app_dialog.dart';
+import '../../../widgets/birthday_picker.dart';
+import '../../../data/birthday.dart';
 import '../../auth/auth_provider.dart';
 import 'add_employee_page.dart';
 import 'owner_shift_card.dart';
@@ -1067,6 +1069,21 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                     _showAllBillsDialog(context, cust, customerBills ?? []);
                   },
                 ),
+                ListTile(
+                  leading: const Icon(PhosphorIconsRegular.cake, color: Color(0xFF16A34A)),
+                  title: const Text('Birthday & WhatsApp', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  subtitle: Text(
+                    [
+                      formatBirthday(cust.birthday) ?? 'No birthday',
+                      cust.whatsappOptIn ? 'WhatsApp OK' : 'No WhatsApp consent',
+                    ].join(' • '),
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _editBirthdayAndWhatsApp(context, ref, cust);
+                  },
+                ),
                 const Divider(height: 18, color: Color(0xFFF1F5F9)),
                 ListTile(
                   leading: const Icon(PhosphorIconsRegular.archive, color: AppTheme.accentRed),
@@ -1082,6 +1099,64 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
           ),
         );
       },
+    );
+  }
+
+  // Clients registered before birthdays existed - or who only share one on
+  // a later visit - get it here. These two fields drive the WhatsApp
+  // messages (functions/index.js), which is why they're the editable ones.
+  void _editBirthdayAndWhatsApp(BuildContext context, WidgetRef ref, Customer cust) {
+    String? birthday = parseBirthday(cust.birthday) == null ? null : cust.birthday;
+    bool optIn = cust.whatsappOptIn;
+    bool submitting = false;
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AppDialog(
+          icon: PhosphorIconsRegular.cake,
+          iconColor: const Color(0xFF16A34A),
+          iconBackground: const Color(0xFFDCFCE7),
+          title: cust.name,
+          subtitle: 'Birthday and WhatsApp consent',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              BirthdayPicker(initial: birthday, onChanged: (b) => birthday = b),
+              const SizedBox(height: 8),
+              WhatsAppOptInTile(value: optIn, onChanged: (v) => setDialogState(() => optIn = v)),
+            ],
+          ),
+          actions: AppDialogActions(
+            submitLabel: 'Save',
+            submitting: submitting,
+            onCancel: () => Navigator.pop(ctx),
+            onSubmit: () async {
+              setDialogState(() => submitting = true);
+              try {
+                await ref.read(appDataProvider.notifier).updateCustomerWhatsApp(
+                      cust.id,
+                      birthday: birthday,
+                      whatsappOptIn: optIn,
+                    );
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('${cust.name} updated.'), backgroundColor: AppTheme.accentGreen),
+                  );
+                }
+              } catch (e) {
+                setDialogState(() => submitting = false);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed),
+                  );
+                }
+              }
+            },
+          ),
+        ),
+      ),
     );
   }
 

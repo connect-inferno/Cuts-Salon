@@ -136,6 +136,9 @@ class Customer {
   /// always satisfy (staff who have since left are no longer in the list).
   final String? createdById;
   final String? createdByName;
+  /// "MM-DD", no year - see FSCustomer.birthday.
+  final String? birthday;
+  final bool whatsappOptIn;
 
   Customer({
     required this.id,
@@ -154,6 +157,8 @@ class Customer {
     this.archived = false,
     this.createdById,
     this.createdByName,
+    this.birthday,
+    this.whatsappOptIn = false,
   });
 
   factory Customer.fromJson(Map<String, dynamic> json) => Customer(
@@ -172,6 +177,8 @@ class Customer {
         lastVisitAt: _date(json['lastVisitAt']),
         createdById: json['createdById'],
         createdByName: json['createdByName'],
+        birthday: json['birthday'],
+        whatsappOptIn: json['whatsappOptIn'] ?? false,
       );
 }
 
@@ -699,6 +706,8 @@ class SalonSettings {
   /// what makes the dashboard fall back to the running daily average rather
   /// than showing a target of zero and a permanently met goal.
   final double dailyRevenueTarget;
+  /// Automatic WhatsApp messages on/off - see FSSettings.whatsappEnabled.
+  final bool whatsappEnabled;
 
   SalonSettings({
     required this.salonName,
@@ -708,6 +717,7 @@ class SalonSettings {
     required this.gstRate,
     required this.lateAttendancePenalty,
     this.dailyRevenueTarget = 0,
+    this.whatsappEnabled = false,
   });
 
   /// The rate that actually applies to a bill. Every caller should use this
@@ -727,6 +737,7 @@ class SalonSettings {
       gstEnabled: json['gstEnabled'] ?? false,
       lateAttendancePenalty: _num(json['lateAttendancePenalty']),
       dailyRevenueTarget: _num(json['dailyRevenueTarget']),
+      whatsappEnabled: json['whatsappEnabled'] ?? false,
     );
   }
 }

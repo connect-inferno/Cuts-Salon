@@ -25,6 +25,33 @@ There is no trusted server here — the Flutter client talks to Firestore direct
 - An employee document's Firestore ID *is* their Firebase Auth UID (`employees/{uid}`) — this is what lets `firestore.rules` check "is this my own record" with a direct `get()` instead of a query (rules can't run arbitrary queries).
 - Firebase web config values (apiKey, appId, etc.) are not secrets by design — see the comment in `salon_directory.dart`. The real access boundary is Firestore Security Rules + Firebase Auth.
 
+## WhatsApp messages (Cloud Functions)
+
+`mobile/functions/` holds the only server-side code: Cloud Functions that
+send a salon's bill receipts, birthday wishes and come-back reminders from
+that salon's own WhatsApp Business number (Meta WhatsApp Cloud API). Setup,
+template wording and troubleshooting: `mobile/functions/whatsapp.md`.
+
+- **Opt-in per salon.** Functions are deployed only to salons that use
+  WhatsApp (`firebase deploy --only functions --project <salonId>`, which
+  needs the Blaze plan and that salon's `WHATSAPP_TOKEN` secret), and they do
+  nothing unless the owner's `settings/main.whatsappEnabled` switch is on and
+  the client has `whatsappOptIn: true`. Never run a bare `firebase deploy`
+  from `mobile/`: it would try to deploy functions to a salon that has no
+  token.
+- **The Meta access token is a Secret Manager secret in each salon's own
+  project**, never in Firestore, the app, the operator registry or git.
+  Non-secret per-salon values (Phone number ID) go in
+  `mobile/functions/.env.<salonId>`.
+- The app never calls Meta. The owner's test buttons write
+  `whatsappRequests` docs that the function answers. Sends are recorded in
+  `whatsappLog` (owner-readable, never client-writable, because a fake
+  entry would suppress a real send).
+- Customer `birthday` is `"MM-DD"` (no year; helpers in
+  `mobile/lib/data/birthday.dart`). The daily function matches on that
+  exact string.
+- Currently deployed to: `test-salon-ee06a` only (test salon, Meta test number; deployed 2026-10-14).
+
 ## Onboarding a new salon
 
 **Current status: two provisioned salons - `cuts-salon` and `instyle-salon`

@@ -5,6 +5,7 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../data/app_data_provider.dart';
 import '../data/models.dart';
 import '../theme.dart';
+import 'birthday_picker.dart';
 
 /// Add Customer, as its own page.
 ///
@@ -33,6 +34,9 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
+  // "MM-DD" once both day and month are picked - see data/birthday.dart.
+  String? _birthday;
+  bool _whatsappOptIn = false;
   bool _submitting = false;
 
   @override
@@ -87,6 +91,8 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
             name: name,
             phone: phone,
             email: _emailController.text.trim(),
+            birthday: _birthday,
+            whatsappOptIn: _whatsappOptIn,
             registeredAtBranchId:
                 widget.branches.isNotEmpty ? widget.branches.first.id : null,
           );
@@ -326,6 +332,23 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
             onSubmitted: (_) {
               if (!_submitting) _submit();
             },
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'Birthday',
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.slateMedium,
+              letterSpacing: 0.1,
+            ),
+          ),
+          const SizedBox(height: 6),
+          BirthdayPicker(onChanged: (b) => _birthday = b),
+          const SizedBox(height: 8),
+          WhatsAppOptInTile(
+            value: _whatsappOptIn,
+            onChanged: (v) => setState(() => _whatsappOptIn = v),
           ),
         ],
       ),

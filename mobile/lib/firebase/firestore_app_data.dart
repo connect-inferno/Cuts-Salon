@@ -86,6 +86,8 @@ Customer customerFromFS(FSCustomer c) => Customer(
       archived: c.archived,
       createdById: c.createdById,
       createdByName: c.createdByName,
+      birthday: c.birthday,
+      whatsappOptIn: c.whatsappOptIn,
     );
 
 ServiceCategory categoryFromFS(FSServiceCategory c) => ServiceCategory(id: c.id, name: c.name);
@@ -225,6 +227,7 @@ SalonSettings settingsFromFS(FSSettings s) => SalonSettings(
       gstRate: s.gstRate,
       lateAttendancePenalty: s.lateAttendancePenalty,
       dailyRevenueTarget: s.dailyRevenueTarget,
+      whatsappEnabled: s.whatsappEnabled,
     );
 
 // Assembles one AppData from Firestore, replicating every requester-based

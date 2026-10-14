@@ -9,6 +9,7 @@ import '../../../data/models.dart';
 import '../../auth/auth_provider.dart';
 import '../../../widgets/async_state_views.dart';
 import '../../../widgets/app_dialog.dart';
+import 'owner_whatsapp_settings.dart';
 
 String _formatRupees(double amount) {
   final whole = amount.round().toString();
@@ -1618,6 +1619,9 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
                       ],
                     ),
                   ),
+                  const SizedBox(height: 20),
+
+                  const OwnerWhatsAppCard(),
                   const SizedBox(height: 24),
 
                   // Navbar spacing

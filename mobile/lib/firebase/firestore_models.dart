@@ -171,6 +171,12 @@ class FSCustomer {
   /// leaves - see Customer.createdByName.
   final String? createdById;
   final String? createdByName;
+  /// "MM-DD" (no year - most clients won't give one). The format is what
+  /// the WhatsApp birthday function matches on (functions/index.js).
+  final String? birthday;
+  /// The client agreed to WhatsApp messages (bill, birthday, reminders).
+  /// Meta's rules and Indian data law both need this before messaging them.
+  final bool whatsappOptIn;
 
   FSCustomer({
     required this.id,
@@ -189,6 +195,8 @@ class FSCustomer {
     this.archived = false,
     this.createdById,
     this.createdByName,
+    this.birthday,
+    this.whatsappOptIn = false,
   });
 
   factory FSCustomer.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -210,6 +218,8 @@ class FSCustomer {
       archived: d['archived'] ?? false,
       createdById: d['createdById'],
       createdByName: d['createdByName'],
+      birthday: d['birthday'],
+      whatsappOptIn: d['whatsappOptIn'] ?? false,
     );
   }
 
@@ -222,6 +232,8 @@ class FSCustomer {
         'isVip': isVip,
         'branchId': branchId,
         'archived': archived,
+        'birthday': birthday,
+        'whatsappOptIn': whatsappOptIn,
         // Stamped on every write, including the stat bumps inside createBill
         // and recordPayment - see SalonFirestore.customerTouch. It's what
         // lets listCustomers read the directory from cache and ask the server
@@ -919,6 +931,9 @@ class FSSettings {
   /// The salon's own daily takings goal. 0 = never set; see
   /// SalonSettings.dailyRevenueTarget for what the dashboard does then.
   final double dailyRevenueTarget;
+  /// The owner's on/off switch for automatic WhatsApp messages. Off unless
+  /// turned on; the functions in functions/index.js check it before every send.
+  final bool whatsappEnabled;
 
   FSSettings({
     required this.salonName,
@@ -928,6 +943,7 @@ class FSSettings {
     required this.gstRate,
     required this.lateAttendancePenalty,
     this.dailyRevenueTarget = 0,
+    this.whatsappEnabled = false,
   });
 
   factory FSSettings.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -948,6 +964,7 @@ class FSSettings {
       gstEnabled: d['gstEnabled'] ?? false,
       lateAttendancePenalty: _num(d['lateAttendancePenalty']),
       dailyRevenueTarget: _num(d['dailyRevenueTarget']),
+      whatsappEnabled: d['whatsappEnabled'] ?? false,
     );
   }
 
