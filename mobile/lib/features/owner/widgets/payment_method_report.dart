@@ -110,7 +110,7 @@ class PaymentMethodReport extends StatelessWidget {
   });
 
   static const _cashColor = AppTheme.accentGreen;
-  static const _upiColor = Color(0xFF8B5CF6);
+  static const _upiColor = Color(0xFF3B82F6);
   static const _cardColor = Color(0xFF3B82F6);
   static const _laterColor = AppTheme.accentAmber;
 
@@ -148,7 +148,7 @@ class PaymentMethodReport extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         color: Color(0xFF0F172A),
                       ),
                     ),
@@ -175,7 +175,7 @@ class PaymentMethodReport extends StatelessWidget {
                     maxLines: 1,
                     style: const TextStyle(
                       fontSize: 18,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                       color: Color(0xFF0F172A),
                       letterSpacing: -0.5,
                     ),
@@ -346,7 +346,7 @@ class PaymentMethodReport extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 12.5,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                   color: muted ? const Color(0xFF94A3B8) : const Color(0xFF0F172A),
                 ),
               ),
@@ -374,7 +374,7 @@ class PaymentMethodReport extends StatelessWidget {
               maxLines: 1,
               style: TextStyle(
                 fontSize: 13.5,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
                 color: muted ? const Color(0xFF94A3B8) : const Color(0xFF0F172A),
               ),
             ),

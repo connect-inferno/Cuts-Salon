@@ -103,7 +103,7 @@ class OwnerPayrollView extends ConsumerWidget {
                     '${_kMonths[now.month - 1].toUpperCase()} ${now.year} PAYROLL',
                     style: const TextStyle(
                       fontSize: 10,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                       color: AppTheme.primaryBlue,
                       letterSpacing: 0.9,
                     ),
@@ -111,7 +111,7 @@ class OwnerPayrollView extends ConsumerWidget {
                   const SizedBox(height: 10),
                   _summaryRow('Base salaries', _rupees(totalBase)),
                   _summaryRow('Commission owed', _rupees(totalCommission)),
-                  const Divider(height: 18, color: Color(0xFFC7D2FE)),
+                  const Divider(height: 18, color: Color(0xFF99F6E4)),
                   _summaryRow(
                     'Total if paid now',
                     _rupees(totalBase + totalCommission),
@@ -152,7 +152,7 @@ class OwnerPayrollView extends ConsumerWidget {
             label,
             style: TextStyle(
               fontSize: emphasise ? 13.5 : 12.5,
-              fontWeight: emphasise ? FontWeight.w800 : FontWeight.w600,
+              fontWeight: emphasise ? FontWeight.w700 : FontWeight.w600,
               color: emphasise ? AppTheme.slateDark : AppTheme.slateMedium,
             ),
           ),
@@ -160,7 +160,7 @@ class OwnerPayrollView extends ConsumerWidget {
             value,
             style: TextStyle(
               fontSize: emphasise ? 17 : 12.5,
-              fontWeight: emphasise ? FontWeight.w800 : FontWeight.w700,
+              fontWeight: emphasise ? FontWeight.w700 : FontWeight.w700,
               color: emphasise ? AppTheme.slateDark : AppTheme.slateMedium,
               letterSpacing: emphasise ? -0.5 : 0,
             ),
@@ -199,7 +199,7 @@ class OwnerPayrollView extends ConsumerWidget {
                   .join(),
               style: const TextStyle(
                 fontSize: 13,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
                 color: AppTheme.primaryBlue,
               ),
             ),
@@ -213,7 +213,7 @@ class OwnerPayrollView extends ConsumerWidget {
                   row.employee.name,
                   style: const TextStyle(
                     fontSize: 13.5,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     color: AppTheme.slateDark,
                   ),
                   maxLines: 1,
@@ -241,7 +241,7 @@ class OwnerPayrollView extends ConsumerWidget {
                 _rupees(total),
                 style: const TextStyle(
                   fontSize: 14.5,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                   color: AppTheme.slateDark,
                   letterSpacing: -0.4,
                 ),
@@ -257,7 +257,7 @@ class OwnerPayrollView extends ConsumerWidget {
                   row.alreadyPaid ? 'Slip made' : 'Pending',
                   style: TextStyle(
                     fontSize: 9.5,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     color: row.alreadyPaid ? AppTheme.accentGreen : AppTheme.accentAmber,
                   ),
                 ),

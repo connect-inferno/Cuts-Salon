@@ -108,7 +108,7 @@ class _SearchablePickerSheetState<T> extends State<_SearchablePickerSheet<T>> {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   fontSize: 13.5,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                   color: AppTheme.primaryDark,
                 ),
               ),
@@ -144,7 +144,7 @@ class _SearchablePickerSheetState<T> extends State<_SearchablePickerSheet<T>> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: Text(widget.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.slateDark)),
+                      child: Text(widget.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppTheme.slateDark)),
                     ),
                     IconButton(
                       icon: const Icon(PhosphorIconsRegular.x, size: 20),
@@ -202,7 +202,7 @@ class _SearchablePickerSheetState<T> extends State<_SearchablePickerSheet<T>> {
                               backgroundColor: AppTheme.primaryLight,
                               child: Text(
                                 _initials(label),
-                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppTheme.primaryBlue),
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.primaryBlue),
                               ),
                             ),
                             title: Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),

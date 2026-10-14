@@ -1,36 +1,19 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 
-/// The floating bottom bar shared by the owner and employee dashboards,
-/// animated in the iOS 26 "liquid glass" idiom.
+/// The bottom bar shared by the owner and employee dashboards.
 ///
-/// Three things make that idiom read as liquid rather than as a plain
-/// crossfade, and all three are here:
-///
-///  * **One indicator that travels.** The selection capsule doesn't fade out
-///    under the old tab and in under the new one - it slides, and while it's
-///    in flight it stretches along the direction of travel and squashes
-///    across it (classic squash-and-stretch, scaled by how far it has to
-///    go), then settles. That's [_flowController].
-///  * **Glass, not paint.** The bar is a translucent capsule over a real
-///    backdrop blur with a specular highlight along its top edge, so
-///    whatever scrolls underneath tints it.
-///  * **Everything reacts to touch.** Each slot and the centre button dip
-///    under a press and spring back, and icons morph between their outline
-///    and filled weights as the capsule arrives.
+/// A plain bar docked to the bottom edge: white, a hairline on top, the
+/// current tab in brand teal and the rest in grey. It used to be a floating
+/// "liquid glass" capsule with a stretching, bouncing indicator, blur and a
+/// specular highlight - impressive in a demo, but it was the single most
+/// "generated-looking" thing in the app and it drew the eye away from the
+/// page above it. The class keeps its old name so callers didn't change.
 ///
 /// The slot list is always 5 wide, and [selectedIndex] is the slot index
 /// directly - exactly the numbering both dashboards keep their nav state in.
-///
-/// There are two shapes. The plain one (no [onCenterTap]) is five real
-/// destinations, which is what both dashboards use now: the protruding "+"
-/// used to eat the middle slot to open a "Quick Actions" sheet whose four
-/// tiles only jumped to four pages that were already reachable, so it spent
-/// a fifth of the bar on a second, redundant way to navigate. If
-/// [onCenterTap] is supplied, the entry at [centerSlot] must be null and
-/// that gap carries the protruding action button instead.
+/// If [onCenterTap] is supplied, the entry at [centerSlot] must be null and
+/// that slot carries the action button instead.
 class LiquidNavItem {
   final IconData icon;
   final IconData activeIcon;
@@ -71,7 +54,7 @@ class LiquidNavBar extends StatefulWidget {
   /// this as bottom padding, or its last row is permanently parked behind
   /// the capsule. Add MediaQuery's bottom padding to it on a device with a
   /// home indicator.
-  static const double barInset = 88;
+  static const double barInset = 72;
 
   const LiquidNavBar({
     super.key,
@@ -90,109 +73,30 @@ class LiquidNavBar extends StatefulWidget {
   State<LiquidNavBar> createState() => _LiquidNavBarState();
 }
 
-class _LiquidNavBarState extends State<LiquidNavBar> with SingleTickerProviderStateMixin {
-  static const Color _accent = Color(0xFF4F46E5);
-  // Softer than the old 0xFF334155: four near-black labels beside one
-  // indigo one made the unselected items compete with the selected one.
-  static const Color _idle = Color(0xFF64748B);
-  // 78 left a visible dead band under the labels, and with 16px above and
-  // 12px below the bar the whole assembly ate ~106px of a phone screen.
+class _LiquidNavBarState extends State<LiquidNavBar> {
+  static const Color _active = Color(0xFF0F766E);
+  static const Color _idle = Color(0xFF667085);
   static const double _barHeight = 62;
 
-  // How far the capsule sits off the bottom of the safe area. Bigger than
-  // the old 8 so the bar reads as floating rather than docked.
-  static const double _bottomGap = 22;
-
-  // The selection indicator: a compact pill behind the icon.
-  static const double _indicatorWidth = 54;
-  static const double _indicatorHeight = 30;
-  static const double _labelHeight = 14;
-  static const double _iconLabelGap = 3;
-
-  // One number drives both the indicator's y and the slot content's y, so
-  // they cannot drift apart the way a hand-tuned `top:` and a separate
-  // `Padding` did.
-  static const double _contentHeight = _indicatorHeight + _iconLabelGap + _labelHeight;
-  static const double _contentTop = (_barHeight - _contentHeight) / 2;
-
-  late final AnimationController _flowController;
-  // Fractional, because a redirected flight takes off from a position
-  // between two slots.
-  late double _fromIndex;
-  late int _toIndex;
-
-  @override
-  void initState() {
-    super.initState();
-    _fromIndex = (widget.selectedIndex ?? 0).toDouble();
-    _toIndex = widget.selectedIndex ?? 0;
-    _flowController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 460),
-      value: 1,
-    );
-  }
-
-  @override
-  void didUpdateWidget(LiquidNavBar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // A null selection leaves the capsule parked where it is: "Menu" opens
-    // a drawer over the current page rather than navigating away from it,
-    // so the bar should keep pointing at the page underneath.
-    final target = widget.selectedIndex;
-    if (target != null && target != _toIndex) {
-      // Take off from wherever the capsule actually is rather than from the
-      // last settled slot, so tapping mid-flight redirects it instead of
-      // snapping it back to start the new trip.
-      _fromIndex = _currentSlotPosition;
-      _toIndex = target;
-      _flowController.forward(from: 0);
-    }
-  }
-
-  double get _currentSlotPosition {
-    final t = Curves.easeOutCubic.transform(_flowController.value);
-    return _fromIndex + (_toIndex - _fromIndex) * t;
-  }
-
-  @override
-  void dispose() {
-    _flowController.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
-    // Headroom only where something actually protrudes: the centre action
-    // button overhangs the bar by 18px, a plain five-slot bar by nothing.
-    final topPadding = widget.onCenterTap != null ? 16.0 : 4.0;
-
-    // Transparent around the capsule, so it floats over the page rather
-    // than sitting in a band of scaffold colour.
-    //
-    // This footer used to be filled with AppTheme.bgSurface. Both dashboards
-    // set extendBody, so page content really does scroll underneath here,
-    // and the fill was there to stop it showing in the gap below the
-    // capsule. Letting it show is the point of a floating bar - the capsule
-    // is near-opaque white over a blur, so it stays legible whatever passes
-    // beneath it - but it does mean scrollables need bottom padding that
-    // clears the whole assembly, or their last row sits under the bar
-    // forever. See barInset below, which is what that padding should use.
-    // RepaintBoundary: the bar is composited over a scrolling page, and
-    // without its own layer Flutter repaints the whole thing - gradient,
-    // border, two shadows, five slots - on every frame the page moves. It
-    // only actually changes when a tab does.
-    return RepaintBoundary(
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Color(0xFFE4E8EF))),
+      ),
       child: SafeArea(
         top: false,
-        child: Padding(
-          padding: EdgeInsets.only(left: 16, right: 16, bottom: _bottomGap, top: topPadding),
-          child: Stack(
-            clipBehavior: Clip.none,
-            alignment: Alignment.center,
+        child: SizedBox(
+          height: _barHeight,
+          child: Row(
             children: [
-              _buildGlassBar(),
-              if (widget.onCenterTap != null) Positioned(top: -18, child: _buildCenterButton()),
+              for (var i = 0; i < widget.items.length; i++)
+                Expanded(
+                  child: widget.items[i] == null
+                      ? _buildCenterAction()
+                      : _buildSlot(widget.items[i]!, i == widget.selectedIndex),
+                ),
             ],
           ),
         ),
@@ -200,217 +104,45 @@ class _LiquidNavBarState extends State<LiquidNavBar> with SingleTickerProviderSt
     );
   }
 
-  Widget _buildGlassBar() {
-    // No BackdropFilter here, deliberately.
-    //
-    // There was an 18px blur behind this so the bar would "read as glass".
-    // The fill in front of it is white at 0.96-0.99 alpha, so the blur was
-    // never actually visible - but it still forced a backdrop read, a blur
-    // and a composite on EVERY frame that anything moved underneath. Since
-    // the surround went transparent, that is every frame of every scroll,
-    // and on an iPhone it is the difference between a smooth list and a
-    // stuttering one. Paid in full, for an effect nobody could see.
-    //
-    // If the bar is ever made genuinely translucent the blur can come back,
-    // but then it is being paid for on purpose rather than by accident.
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: Container(
-        height: _barHeight,
-        padding: const EdgeInsets.symmetric(horizontal: 6),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          // Near-opaque with a real border. The page behind it is
-          // #F8F9FC and the bar used to be white at 82-92% with a *white*
-          // border, so the two washed into each other and the bar read as
-          // a strip of the page rather than as something floating over it.
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Colors.white.withValues(alpha: 0.99), Colors.white.withValues(alpha: 0.96)],
-          ),
-          border: Border.all(color: const Color(0xFFE2E8F0), width: 1),
-          boxShadow: [
-            // The wide, darker cast is what lifts it off the page.
-            BoxShadow(
-              color: const Color(0xFF0F172A).withValues(alpha: 0.18),
-              blurRadius: 34,
-              spreadRadius: -4,
-              offset: const Offset(0, 14),
-            ),
-            BoxShadow(
-              color: const Color(0xFF0F172A).withValues(alpha: 0.07),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final slotWidth = constraints.maxWidth / widget.items.length;
-            return Stack(
-              children: [
-                _buildFlowingCapsule(slotWidth),
-                _buildSpecularHighlight(),
-                Row(
-                  children: [
-                    for (var i = 0; i < widget.items.length; i++)
-                      Expanded(
-                        child:
-                            widget.items[i] == null
-                                ? _buildCenterSlotLabel()
-                                : _buildNavSlot(widget.items[i]!, i),
-                      ),
-                  ],
-                ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  /// A single tinted capsule that flows between slots, stretching along its
-  /// path and squashing across it while in flight. The stretch scales with
-  /// the distance travelled, so a hop to the neighbouring tab barely
-  /// deforms while a jump across the bar visibly pulls.
-  Widget _buildFlowingCapsule(double slotWidth) {
-    return AnimatedBuilder(
-      animation: _flowController,
-      builder: (context, _) {
-        final t = _flowController.value;
-        final travel = (_toIndex - _fromIndex).abs();
-        // Peaks at mid-flight and returns to 1 at both ends, so the capsule
-        // is only ever deformed while it is actually moving.
-        final flight = math.sin(math.pi * t) * math.min(travel / 3, 1.0);
-        final stretchX = 1 + 0.38 * flight;
-        final squashY = 1 - 0.14 * flight;
-
-        // Sits behind the ICON only, not the icon and its label.
-        //
-        // Wrapping both made the selected slot a tall block roughly the size
-        // of the whole bar interior, so one tab carried a heavy filled shape
-        // while its four neighbours carried none - the selected item read as
-        // a different kind of control rather than as the same control, on.
-        // A compact indicator behind the icon keeps every slot the same
-        // shape and size, and still travels.
-        final indicatorWidth = math.min(_indicatorWidth, slotWidth - 10);
-        final left = _currentSlotPosition * slotWidth + (slotWidth - indicatorWidth) / 2;
-
-        return Positioned(
-          left: left,
-          top: _contentTop,
-          width: indicatorWidth,
-          height: _indicatorHeight,
-          child: Transform.scale(
-            scaleX: stretchX,
-            scaleY: squashY,
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(_indicatorHeight / 2),
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [_accent.withValues(alpha: 0.18), _accent.withValues(alpha: 0.11)],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  /// The thin bright line along the top edge - the cheap trick that makes a
-  /// translucent surface look like a lens instead of a sheet of plastic.
-  Widget _buildSpecularHighlight() {
-    return Positioned(
-      left: 22,
-      right: 22,
-      top: 0,
-      height: 1,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              Colors.white.withValues(alpha: 0),
-              Colors.white,
-              Colors.white.withValues(alpha: 0),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNavSlot(LiquidNavItem item, int index) {
-    final isSelected = widget.selectedIndex == index;
-    final color = isSelected ? _accent : _idle;
-
-    // Fixed boxes for both rows. Nothing here changes size with selection -
-    // the icon used to swell 12-14% and the label jump two font weights, so
-    // the selected slot occupied more room than its neighbours and the whole
-    // bar shuffled sideways every time you switched tab.
-    return _PressSpring(
-      onTap: item.onTap,
-      onLongPress: item.onLongPress,
-      child: Padding(
-        padding: const EdgeInsets.only(top: _contentTop),
+  Widget _buildSlot(LiquidNavItem item, bool selected) {
+    final color = selected ? _active : _idle;
+    return Semantics(
+      selected: selected,
+      button: true,
+      label: item.label,
+      child: InkResponse(
+        onTap: item.onTap,
+        onLongPress: item.onLongPress,
+        radius: 32,
+        highlightColor: Colors.transparent,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SizedBox(
-              height: _indicatorHeight,
-              child: Center(
-                child: Badge(
-                  isLabelVisible: item.badgeCount > 0,
-                  label: Text('${item.badgeCount}', style: const TextStyle(fontSize: 9)),
-                  backgroundColor: const Color(0xFFF04438),
-                  // The outline weight cross-fades into the filled one
-                  // rather than swapping between frames.
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      AnimatedOpacity(
-                        opacity: isSelected ? 0 : 1,
-                        duration: const Duration(milliseconds: 240),
-                        child: Icon(item.icon, color: color, size: 20),
-                      ),
-                      AnimatedOpacity(
-                        opacity: isSelected ? 1 : 0,
-                        duration: const Duration(milliseconds: 240),
-                        child: Icon(item.activeIcon, color: color, size: 20),
-                      ),
-                    ],
-                  ),
-                ),
+            // A soft teal pill behind the current tab's icon - enough to find
+            // your place at a glance, without the old travelling capsule.
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
+              decoration: BoxDecoration(
+                color: selected ? const Color(0xFFF0FDFA) : Colors.transparent,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Badge(
+                isLabelVisible: item.badgeCount > 0,
+                label: Text('${item.badgeCount}', style: const TextStyle(fontSize: 9)),
+                backgroundColor: const Color(0xFFDC2626),
+                child: Icon(selected ? item.activeIcon : item.icon, size: 22, color: color),
               ),
             ),
-            const SizedBox(height: _iconLabelGap),
-            SizedBox(
-              height: _labelHeight,
-              child: Center(
-                child: AnimatedDefaultTextStyle(
-                  duration: const Duration(milliseconds: 240),
-                  curve: Curves.easeOut,
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    // w600 both ways: only the colour marks the selection, so
-                    // the label's width is identical in either state.
-                    fontWeight: FontWeight.w600,
-                    color: color,
-                    letterSpacing: -0.1,
-                    height: 1.2,
-                  ),
-                  child: Text(
-                    item.label,
-                    maxLines: 1,
-                    softWrap: false,
-                    textAlign: TextAlign.center,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
+            const SizedBox(height: 2),
+            Text(
+              item.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                color: color,
               ),
             ),
           ],
@@ -419,98 +151,22 @@ class _LiquidNavBarState extends State<LiquidNavBar> with SingleTickerProviderSt
     );
   }
 
-  Widget _buildCenterSlotLabel() {
-    return _PressSpring(
-      onTap: widget.onCenterTap ?? () {},
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.start,
-        children: [
-          const SizedBox(height: 38),
-          Text(
-            widget.centerLabel,
-            style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: _idle,
-              letterSpacing: -0.2,
-            ),
+  Widget _buildCenterAction() {
+    final onTap = widget.onCenterTap;
+    if (onTap == null) return const SizedBox.shrink();
+    return Center(
+      child: Material(
+        color: _active,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Icon(widget.centerIcon, color: Colors.white, size: 22),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCenterButton() {
-    return _PressSpring(
-      onTap: widget.onCenterTap ?? () {},
-      pressedScale: 0.88,
-      child: Container(
-        width: 52,
-        height: 52,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: _accent.withValues(alpha: 0.42),
-              blurRadius: 18,
-              offset: const Offset(0, 6),
-            ),
-          ],
         ),
-        child: Center(child: Icon(widget.centerIcon, color: Colors.white, size: 26)),
-      ),
-    );
-  }
-}
-
-/// Dips under a press and springs back past its resting size on release -
-/// the touch response the whole iOS 26 control set shares. Kept as its own
-/// widget so each slot owns its press state instead of rebuilding the bar.
-class _PressSpring extends StatefulWidget {
-  final Widget child;
-  final VoidCallback onTap;
-  final VoidCallback? onLongPress;
-  final double pressedScale;
-
-  const _PressSpring({
-    required this.child,
-    required this.onTap,
-    this.onLongPress,
-    this.pressedScale = 0.92,
-  });
-
-  @override
-  State<_PressSpring> createState() => _PressSpringState();
-}
-
-class _PressSpringState extends State<_PressSpring> {
-  bool _pressed = false;
-
-  void _setPressed(bool value) {
-    if (_pressed != value && mounted) setState(() => _pressed = value);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: widget.onTap,
-      onLongPress: widget.onLongPress,
-      onTapDown: (_) => _setPressed(true),
-      onTapUp: (_) => _setPressed(false),
-      onTapCancel: () => _setPressed(false),
-      child: AnimatedScale(
-        scale: _pressed ? widget.pressedScale : 1,
-        // easeOutBack on the way back up is the overshoot that reads as a
-        // spring rather than as a fade.
-        duration: Duration(milliseconds: _pressed ? 110 : 320),
-        curve: _pressed ? Curves.easeOut : Curves.easeOutBack,
-        child: widget.child,
       ),
     );
   }

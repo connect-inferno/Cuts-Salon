@@ -79,27 +79,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       backgroundColor: const Color(0xFFF8FAFC),
       body: Stack(
         children: [
-          // Background soft gradient ambient glow
-          Positioned(
-            top: -100,
-            left: -50,
-            right: -50,
-            height: 350,
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: Alignment.topCenter,
-                  radius: 1.2,
-                  colors: [
-                    const Color(0xFF6366F1).withValues(alpha: 0.18),
-                    const Color(0xFF818CF8).withValues(alpha: 0.08),
-                    Colors.transparent,
-                  ],
-                ),
-              ),
-            ),
-          ),
-
           SafeArea(
             child: Center(
               child: SingleChildScrollView(
@@ -115,20 +94,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       Container(
                         width: 76,
                         height: 76,
+                        // Flat brand tile - the glow, gradient and the
+                        // ambient background blob were decoration only.
                         decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
-                          ),
-                          borderRadius: BorderRadius.circular(22),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF4F46E5).withValues(alpha: 0.38),
-                              blurRadius: 20,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
+                          color: const Color(0xFF0F766E),
+                          borderRadius: BorderRadius.circular(20),
                         ),
                         child: Center(
                           child: Image.asset(
@@ -151,14 +121,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         'Stylux',
                         style: TextStyle(
                           fontSize: 26,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                           letterSpacing: -0.5,
                           color: Color(0xFF0F172A),
                         ),
                       ),
                       const SizedBox(height: 4),
                       const Text(
-                        'Salon Management OS • v2.4',
+                        'Salon management',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
@@ -171,15 +141,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       Container(
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(24),
-                          border: Border.all(color: const Color(0xFFF1F5F9), width: 1.2),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF0F172A).withValues(alpha: 0.05),
-                              blurRadius: 28,
-                              offset: const Offset(0, 12),
-                            ),
-                          ],
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: const Color(0xFFE4E8EF)),
                         ),
                         padding: const EdgeInsets.symmetric(horizontal: 22.0, vertical: 26.0),
                         child: Form(
@@ -191,7 +154,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 'Sign in to your salon dashboard',
                                 style: TextStyle(
                                   fontSize: 16,
-                                  fontWeight: FontWeight.w800,
+                                  fontWeight: FontWeight.w700,
                                   color: Color(0xFF0F172A),
                                   letterSpacing: -0.3,
                                 ),
@@ -237,7 +200,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                   ),
                                   focusedBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(14),
-                                    borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                                    borderSide: const BorderSide(color: Color(0xFF0F766E), width: 1.5),
                                   ),
                                 ),
                                 validator: (value) {
@@ -275,7 +238,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                       style: TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w700,
-                                        color: Color(0xFF4F46E5),
+                                        color: Color(0xFF0F766E),
                                       ),
                                     ),
                                   ),
@@ -325,7 +288,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                   ),
                                   focusedBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(14),
-                                    borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                                    borderSide: const BorderSide(color: Color(0xFF0F766E), width: 1.5),
                                   ),
                                 ),
                                 validator: (value) {
@@ -337,26 +300,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               ),
                               const SizedBox(height: 24),
 
-                              // Gradient "Log In ->" Button
+                              // "Log In" - solid brand teal, like every
+                              // primary button in the app.
                               Container(
                                 height: 50,
                                 decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
-                                  ),
-                                  borderRadius: BorderRadius.circular(16),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: const Color(0xFF4F46E5).withValues(alpha: 0.35),
-                                      blurRadius: 16,
-                                      offset: const Offset(0, 8),
-                                    ),
-                                  ],
+                                  color: const Color(0xFF0F766E),
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Material(
                                   color: Colors.transparent,
                                   child: InkWell(
-                                    borderRadius: BorderRadius.circular(16),
+                                    borderRadius: BorderRadius.circular(12),
                                     onTap: state.isLoading ? null : _submit,
                                     child: Center(
                                       child: state.isLoading
@@ -445,7 +400,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                     children: [
                                       TextSpan(
                                         text: 'Using Safari? ',
-                                        style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF334155)),
+                                        style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF334155)),
                                       ),
                                       TextSpan(
                                         text: 'Add Stylux to your Home Screen to stay signed in. '

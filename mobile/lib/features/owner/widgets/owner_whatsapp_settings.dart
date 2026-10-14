@@ -127,7 +127,7 @@ class _OwnerWhatsAppCardState extends ConsumerState<OwnerWhatsAppCard> {
                   children: [
                     Text(
                       'WhatsApp Messages',
-                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Color(0xFF0F172A)),
+                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF0F172A)),
                     ),
                     SizedBox(height: 2),
                     Text(

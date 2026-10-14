@@ -58,7 +58,7 @@ class AppDialog extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17, color: AppTheme.slateDark)),
+                          Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17, color: AppTheme.slateDark)),
                           if (subtitle != null) ...[
                             const SizedBox(height: 2),
                             Text(subtitle!, style: const TextStyle(fontSize: 12.5, color: AppTheme.slateLight)),

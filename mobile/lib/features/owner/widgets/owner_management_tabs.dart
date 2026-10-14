@@ -305,7 +305,7 @@ class OwnerBranchTab extends StatelessWidget {
               maxLines: 1,
               style: TextStyle(
                 fontSize: 15,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
                 letterSpacing: -0.3,
                 color: valueColor ?? const Color(0xFF0F172A),
               ),
@@ -341,7 +341,7 @@ class OwnerBranchTab extends StatelessWidget {
                     const Text(
                       'Multi-Branch Performance',
                       style: TextStyle(
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         fontSize: 19,
                         letterSpacing: -0.4,
                         height: 1.2,
@@ -372,7 +372,7 @@ class OwnerBranchTab extends StatelessWidget {
                   ),
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF4F46E5),
+                  backgroundColor: const Color(0xFF0F766E),
                   elevation: 0,
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -403,13 +403,13 @@ class OwnerBranchTab extends StatelessWidget {
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFEEF2FF),
+                    color: const Color(0xFFF0FDFA),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: const Icon(
                     PhosphorIconsFill.buildings,
                     size: 22,
-                    color: Color(0xFF4F46E5),
+                    color: Color(0xFF0F766E),
                   ),
                 ),
                 const SizedBox(width: 14),
@@ -421,7 +421,7 @@ class OwnerBranchTab extends StatelessWidget {
                         'TOTAL NETWORK GROSS',
                         style: TextStyle(
                           fontSize: 10,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                           letterSpacing: 0.6,
                           color: Color(0xFF64748B),
                         ),
@@ -431,7 +431,7 @@ class OwnerBranchTab extends StatelessWidget {
                         _formatRupees(totalRevenue),
                         style: const TextStyle(
                           fontSize: 20,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                           letterSpacing: -0.5,
                           color: Color(0xFF0F172A),
                         ),
@@ -538,7 +538,7 @@ class OwnerBranchTab extends StatelessWidget {
                                   branch.active ? 'ACTIVE' : 'INACTIVE',
                                   style: TextStyle(
                                     fontSize: 10,
-                                    fontWeight: FontWeight.w800,
+                                    fontWeight: FontWeight.w700,
                                     color: branch.active ? const Color(0xFF16A34A) : const Color(0xFF94A3B8),
                                     letterSpacing: 0.4,
                                   ),
@@ -563,7 +563,7 @@ class OwnerBranchTab extends StatelessWidget {
                         branch.name,
                         style: const TextStyle(
                           fontSize: 16,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                           color: Color(0xFF0F172A),
                           letterSpacing: -0.3,
                         ),
@@ -608,7 +608,7 @@ class OwnerBranchTab extends StatelessWidget {
                         _formatRupees(branch.monthlyRevenue),
                         style: const TextStyle(
                           fontSize: 22,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                           letterSpacing: -0.6,
                           color: Color(0xFF0F172A),
                         ),
@@ -667,7 +667,7 @@ class OwnerBranchTab extends StatelessWidget {
                               icon: PhosphorIconsRegular.trendUp,
                               label: 'Rev/Emp',
                               value: _formatRupees(revenuePerEmployee),
-                              valueColor: const Color(0xFF4F46E5),
+                              valueColor: const Color(0xFF0F766E),
                             ),
                           ),
                           ],
@@ -744,7 +744,7 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
                       Text(
                         discountedVal != null ? 'Final net: ${_formatRupees(discountedVal)}' : (req.overridePrice != null ? 'Override: ${_formatRupees(req.overridePrice!)}' : 'No linked bill'),
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: AppTheme.accentGreen),
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.accentGreen),
                       ),
                     ],
                   ),
@@ -822,7 +822,7 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Pending Approvals', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppTheme.slateDark)),
+                        const Text('Waiting for you', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16, color: AppTheme.slateDark)),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                           decoration: BoxDecoration(
@@ -830,7 +830,7 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
-                            '${pendingRequests.length} Due',
+                            pendingRequests.isEmpty ? 'All clear' : '${pendingRequests.length} waiting',
                             style: TextStyle(color: pendingRequests.isEmpty ? AppTheme.accentGreen : AppTheme.accentAmber, fontWeight: FontWeight.bold, fontSize: 10),
                           ),
                         ),
@@ -846,7 +846,7 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
                             children: [
                               Icon(PhosphorIconsRegular.sealCheck, size: 48, color: AppTheme.accentGreen),
                               SizedBox(height: 12),
-                              Text('No pending discount requests!', style: TextStyle(color: AppTheme.slateMedium)),
+                              Text('No discount requests waiting', style: TextStyle(color: AppTheme.slateMedium)),
                             ],
                           ),
                         ),
@@ -873,10 +873,10 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Approval Audit History', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.slateDark)),
+                      const Text('Past decisions', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.slateDark)),
                       const SizedBox(height: 16),
                       if (historyRequests.isEmpty)
-                        const Text('No resolved requests yet.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
+                        const Text('Requests you approve or refuse will be listed here.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
                       else
                         ListView.separated(
                           shrinkWrap: true,
@@ -913,7 +913,7 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
                                           Container(
                                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                                             decoration: BoxDecoration(color: isApproved ? AppTheme.accentGreenBg : AppTheme.accentRedBg, borderRadius: BorderRadius.circular(4)),
-                                            child: Text(req.status, style: TextStyle(color: isApproved ? AppTheme.accentGreen : AppTheme.accentRed, fontSize: 8, fontWeight: FontWeight.bold)),
+                                            child: Text(isApproved ? 'Approved' : 'Refused', style: TextStyle(color: isApproved ? AppTheme.accentGreen : AppTheme.accentRed, fontSize: 10, fontWeight: FontWeight.w600)),
                                           ),
                                         ],
                                       ),
@@ -926,7 +926,7 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
                                       decoration: BoxDecoration(color: AppTheme.accentGreenBg, borderRadius: BorderRadius.circular(6)),
                                       child: Text(
                                         'Code: ${req.authorizedCode}',
-                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.accentGreen, letterSpacing: 0.5),
+                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.accentGreen, letterSpacing: 0.5),
                                       ),
                                     ),
                                   ],
@@ -944,7 +944,12 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
             if (isMobile) {
               return SingleChildScrollView(
                 padding: const EdgeInsets.all(16.0),
-                child: Column(children: [pendingWidget, const SizedBox(height: 20), auditHistoryWidget]),
+                // stretch: the history card used to shrink to its text and
+                // sit centred under a full-width card.
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [pendingWidget, const SizedBox(height: 16), auditHistoryWidget],
+                ),
               );
             }
 
@@ -1171,7 +1176,7 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
                               width: 52,
                               height: 52,
                               decoration: const BoxDecoration(
-                                color: Color(0xFF4F46E5),
+                                color: Color(0xFF0F766E),
                                 shape: BoxShape.circle,
                               ),
                               // A generic person glyph rather than invented
@@ -1190,7 +1195,7 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
                                         style: const TextStyle(
                                           color: Colors.white,
                                           fontSize: 18,
-                                          fontWeight: FontWeight.w800,
+                                          fontWeight: FontWeight.w700,
                                         ),
                                       ),
                               ),
@@ -1203,7 +1208,7 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
                                   Text(
                                     ownerName ?? 'Name not set',
                                     style: TextStyle(
-                                      fontWeight: FontWeight.w800,
+                                      fontWeight: FontWeight.w700,
                                       fontSize: 16,
                                       // Italic and muted when it is a
                                       // placeholder, so it cannot be read as
@@ -1374,10 +1379,10 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
                             Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFEEF2FF),
+                                color: const Color(0xFFF0FDFA),
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              child: const Icon(PhosphorIconsFill.slidersHorizontal, size: 16, color: Color(0xFF4F46E5)),
+                              child: const Icon(PhosphorIconsFill.slidersHorizontal, size: 16, color: Color(0xFF0F766E)),
                             ),
                             const SizedBox(width: 10),
                             const Expanded(
@@ -1387,7 +1392,7 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
                                   Text(
                                     'Salon Business Configuration',
                                     style: TextStyle(
-                                      fontWeight: FontWeight.w800,
+                                      fontWeight: FontWeight.w700,
                                       fontSize: 14,
                                       color: Color(0xFF0F172A),
                                     ),
@@ -1573,13 +1578,11 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
                         Container(
                           height: 48,
                           decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
-                            ),
+                            color: Color(0xFF0D9488),
                             borderRadius: BorderRadius.circular(16),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFF4F46E5).withValues(alpha: 0.35),
+                                color: const Color(0xFF0F766E).withValues(alpha: 0.06),
                                 blurRadius: 14,
                                 offset: const Offset(0, 6),
                               ),
@@ -1667,7 +1670,7 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+        borderSide: const BorderSide(color: Color(0xFF0F766E), width: 1.5),
       ),
     );
   }

@@ -127,30 +127,30 @@ class OwnerProfileView extends ConsumerWidget {
             height: 64,
             alignment: Alignment.center,
             decoration: const BoxDecoration(
-              color: Color(0xFF1E1B4B),
+              color: Color(0xFF134E4A),
               shape: BoxShape.circle,
             ),
             child: Text(
               _initials(name),
-              style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800),
+              style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700),
             ),
           ),
           const SizedBox(height: 12),
           Text(
             name,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.slateDark),
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppTheme.slateDark),
           ),
           const SizedBox(height: 4),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
             decoration: BoxDecoration(
-              color: const Color(0xFFEEF2FF),
+              color: const Color(0xFFF0FDFA),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
               role,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF4F46E5)),
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF0F766E)),
             ),
           ),
           const SizedBox(height: 6),
@@ -182,7 +182,7 @@ class OwnerProfileView extends ConsumerWidget {
               title.toUpperCase(),
               style: const TextStyle(
                 fontSize: 10,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
                 letterSpacing: 0.6,
                 color: Color(0xFF94A3B8),
               ),

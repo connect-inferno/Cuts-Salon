@@ -79,7 +79,7 @@ String _targetTypeLabel(String type) {
 Widget _statusBadge(String label, Color bg, Color fg) => Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
       decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
-      child: Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: fg)),
+      child: Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: fg)),
     );
 
 // ─── Shell ──────────────────────────────────────────────────────────────────
@@ -280,6 +280,10 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
         ref.read(authControllerProvider.notifier).logout();
       },
       sections: [
+        // The four tabs only in the desktop sidebar: on a phone the bottom
+        // bar already shows them, and repeating them at the top of the menu
+        // pushed what the menu is actually for below the fold.
+        if (!isModal)
         AppDrawerSection(
           title: 'Go to',
           items: [
@@ -386,7 +390,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
           // lookup cannot miss. The key's currentState reads null whenever
           // the AsyncValue flips through `loading` and remounts the
           // Scaffold, which silently made this button do nothing.
-          onTap: () => Scaffold.of(context).openDrawer(),
+          onTap: () => Scaffold.of(context).openEndDrawer(),
         ),
       ],
     );
@@ -425,7 +429,10 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
     return Scaffold(
       backgroundColor: AppTheme.bgSurface,
       extendBody: isMobile,
-      drawer: isMobile ? _buildDrawer(context, empProfile, state, isModal: true) : null,
+      // endDrawer: the Menu button is the last slot on the bottom bar, at the
+      // right edge, so the panel slides in from that side - it used to come
+      // from the left, the opposite side from where the thumb just tapped.
+      endDrawer: isMobile ? _buildDrawer(context, empProfile, state, isModal: true) : null,
       bottomNavigationBar:
           isMobile ? Builder(builder: (ctx) => _buildNavBar(ctx, pending)) : null,
       body: SafeArea(
@@ -435,7 +442,10 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
             // glass, so the inset lives on each tab's scrollable.
             ? PageView(
                 controller: _pageController,
-                physics: const ClampingScrollPhysics(),
+                // Tabs change from the bar only. Swiping the page sideways
+                // used to flip to the next tab, which fired by accident while
+                // scrolling the horizontal filter-chip rows on every list.
+                physics: const NeverScrollableScrollPhysics(),
                 onPageChanged: (index) => setState(() => _activeTab = EmployeeTab.values[index]),
                 children: _buildPages(context, empProfile, state),
               )
@@ -639,7 +649,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                   'Monthly Target',
                   style: TextStyle(
                     fontSize: 13.5,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     color: AppTheme.slateDark,
                   ),
                 ),
@@ -733,7 +743,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: const Color(0xFFEEF2FF),
+              color: const Color(0xFFF0FDFA),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Row(
@@ -743,7 +753,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                   width: 5,
                   height: 5,
                   decoration: const BoxDecoration(
-                    color: Color(0xFF4F46E5),
+                    color: Color(0xFF0F766E),
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -753,7 +763,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                   style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF4F46E5),
+                    color: Color(0xFF0F766E),
                   ),
                 ),
               ],
@@ -766,7 +776,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
             'Good ${_greeting(now.hour)}, $firstName',
             style: const TextStyle(
               fontSize: 22,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
               color: Color(0xFF0F172A),
               letterSpacing: -0.5,
             ),
@@ -797,7 +807,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                         : '${_formatTime(todayRecord!.clockIn)} – ${todayRecord.clockOut == null ? 'now' : _formatTime(todayRecord.clockOut)}',
                     style: const TextStyle(
                       fontSize: 12.5,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                       color: Color(0xFF0F172A),
                     ),
                     maxLines: 1,
@@ -809,15 +819,15 @@ class _EmployeeDashboardTab extends ConsumerWidget {
               Expanded(
                 child: _buildMetricCard(
                   icon: PhosphorIconsRegular.users,
-                  iconBg: const Color(0xFFEEF2FF),
-                  iconColor: const Color(0xFF4F46E5),
+                  iconBg: const Color(0xFFF0FDFA),
+                  iconColor: const Color(0xFF0F766E),
                   label: 'Clients',
                   valueWidget: RichText(
                     text: TextSpan(
                       text: '$todayCustomers ',
                       style: const TextStyle(
                         fontSize: 14,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         color: Color(0xFF0F172A),
                       ),
                       children: const [
@@ -845,7 +855,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                     '₹${todayEarned.toStringAsFixed(0)}',
                     style: const TextStyle(
                       fontSize: 13.5,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                       color: Color(0xFF0F172A),
                     ),
                     maxLines: 1,
@@ -909,7 +919,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                               isClockedIn ? 'ACTIVE SHIFT' : 'INACTIVE SHIFT',
                               style: TextStyle(
                                 fontSize: 9.5,
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w700,
                                 color: isClockedIn ? const Color(0xFF0D9488) : const Color(0xFF94A3B8),
                                 letterSpacing: 0.5,
                               ),
@@ -921,20 +931,20 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFEEF2FF),
+                        color: const Color(0xFFF0FDFA),
                         borderRadius: BorderRadius.circular(16),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(PhosphorIconsRegular.clock, size: 13, color: Color(0xFF4F46E5)),
+                          const Icon(PhosphorIconsRegular.clock, size: 13, color: Color(0xFF0F766E)),
                           const SizedBox(width: 5),
                           Text(
                             shiftDuration,
                             style: const TextStyle(
                               fontSize: 11.5,
                               fontWeight: FontWeight.w600,
-                              color: Color(0xFF4F46E5),
+                              color: Color(0xFF0F766E),
                             ),
                           ),
                         ],
@@ -981,15 +991,11 @@ class _EmployeeDashboardTab extends ConsumerWidget {
             child: Container(
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF4F46E5), Color(0xFF4338CA)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
+                color: Color(0xFF0F766E),
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF4F46E5).withValues(alpha: 0.32),
+                    color: const Color(0xFF0F766E).withValues(alpha: 0.06),
                     blurRadius: 18,
                     offset: const Offset(0, 6),
                   ),
@@ -1008,7 +1014,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                       'FAST POS',
                       style: TextStyle(
                         fontSize: 9.5,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         color: Colors.white,
                         letterSpacing: 0.5,
                       ),
@@ -1037,7 +1043,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                               'New Billing /\nCheckout',
                               style: TextStyle(
                                 fontSize: 16,
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w700,
                                 color: Colors.white,
                                 height: 1.15,
                               ),
@@ -1064,7 +1070,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                         child: const Center(
                           child: Icon(
                             PhosphorIconsBold.arrowRight,
-                            color: Color(0xFF4F46E5),
+                            color: Color(0xFF0F766E),
                             size: 16,
                           ),
                         ),
@@ -1101,7 +1107,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                       'Recent Bills Handled',
                       style: TextStyle(
                         fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         color: Color(0xFF0F172A),
                       ),
                     ),
@@ -1129,7 +1135,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                         style: const TextStyle(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFF4F46E5),
+                          color: Color(0xFF0F766E),
                         ),
                       ),
                     ),
@@ -1222,10 +1228,10 @@ class _EmployeeDashboardTab extends ConsumerWidget {
       children: [
         CircleAvatar(
           radius: 17,
-          backgroundColor: const Color(0xFFEEF2FF),
+          backgroundColor: const Color(0xFFF0FDFA),
           child: Text(
             initials,
-            style: const TextStyle(color: Color(0xFF4F46E5), fontSize: 11, fontWeight: FontWeight.bold),
+            style: const TextStyle(color: Color(0xFF0F766E), fontSize: 11, fontWeight: FontWeight.bold),
           ),
         ),
         const SizedBox(width: 10),
@@ -1246,7 +1252,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
         Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Text('₹${myTotal.toStringAsFixed(0)}', style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+            Text('₹${myTotal.toStringAsFixed(0)}', style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
             const SizedBox(height: 2),
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -1344,14 +1350,14 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
                   gradient: LinearGradient(
                     colors: isClockedIn
                         ? [const Color(0xFF065F46), const Color(0xFF047857)]
-                        : [const Color(0xFF1E1B4B), const Color(0xFF312E81)],
+                        : [const Color(0xFF134E4A), const Color(0xFF312E81)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: (isClockedIn ? const Color(0xFF065F46) : AppTheme.primaryBlue).withValues(alpha: 0.3),
+                      color: (isClockedIn ? const Color(0xFF065F46) : AppTheme.primaryBlue).withValues(alpha: 0.06),
                       blurRadius: 20,
                       offset: const Offset(0, 8),
                     ),
@@ -1363,7 +1369,7 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
                     Text(
                       isClockedIn ? '● SHIFT ACTIVE' : '○ NOT CLOCKED IN',
                       style: TextStyle(
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         color: isClockedIn ? const Color(0xFF6EE7B7) : Colors.white54,
                         fontSize: 11,
                         letterSpacing: 1,
@@ -1394,7 +1400,7 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
                             const SizedBox(height: 6),
                             Text(
                               shiftDone ? 'Done today' : (isClockedIn ? 'Clock Out' : 'Clock In'),
-                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Colors.white),
+                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white),
                             ),
                           ],
                         ),
@@ -1429,7 +1435,7 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Attendance History', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppTheme.slateDark)),
+                    const Text('Attendance History', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.slateDark)),
                     const SizedBox(height: 14),
                     if (history.isEmpty)
                       const Text('No attendance records yet.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
@@ -1486,7 +1492,7 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
         decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
         child: Column(
           children: [
-            Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: fg)),
+            Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: fg)),
             const SizedBox(height: 2),
             Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: fg.withValues(alpha: 0.7))),
           ],
@@ -1579,8 +1585,8 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
             children: [
               _summaryTile(
                 icon: PhosphorIconsRegular.usersThree,
-                iconBg: const Color(0xFFEEF2FF),
-                iconColor: const Color(0xFF4F46E5),
+                iconBg: const Color(0xFFF0FDFA),
+                iconColor: const Color(0xFF0F766E),
                 label: 'Handled',
                 value: '${mine.length}',
               ),
@@ -1708,7 +1714,7 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
             const SizedBox(height: 8),
             Text(
               value,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
             ),
             Text(
               label,
@@ -1728,16 +1734,16 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFEEF2FF) : Colors.white,
+          color: isSelected ? const Color(0xFFF0FDFA) : Colors.white,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0)),
+          border: Border.all(color: isSelected ? const Color(0xFF0F766E) : const Color(0xFFE2E8F0)),
         ),
         child: Text(
           '$label ($count)',
           style: TextStyle(
             fontSize: 11.5,
-            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-            color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+            color: isSelected ? const Color(0xFF0F766E) : const Color(0xFF64748B),
           ),
         ),
       ),
@@ -1745,8 +1751,8 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
   }
 
   Widget _clientRow(BuildContext context, Customer c, int idx, List<Bill> myBills) {
-    const avatarBgs = [Color(0xFFEEF2FF), Color(0xFFFEF3C7), Color(0xFFF5F3FF), Color(0xFFCCFBF1), Color(0xFFFCE7F3)];
-    const avatarFgs = [Color(0xFF4F46E5), Color(0xFFD97706), Color(0xFF7C3AED), Color(0xFF0D9488), Color(0xFFDB2777)];
+    const avatarBgs = [Color(0xFFF0FDFA), Color(0xFFFEF3C7), Color(0xFFEFF6FF), Color(0xFFCCFBF1), Color(0xFFFFF1F2)];
+    const avatarFgs = [Color(0xFF0F766E), Color(0xFFD97706), Color(0xFF2563EB), Color(0xFF0D9488), Color(0xFFBE123C)];
     final bg = avatarBgs[idx % avatarBgs.length];
     final fg = avatarFgs[idx % avatarFgs.length];
 
@@ -1772,7 +1778,7 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
             alignment: Alignment.center,
             child: Text(
               c.name.isNotEmpty ? c.name[0].toUpperCase() : 'C',
-              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: fg),
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: fg),
             ),
           ),
           const SizedBox(width: 12),
@@ -1828,7 +1834,7 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
               // claiming credit for someone else's work.
               Text(
                 '₹${_myRevenueFor(myBills).toStringAsFixed(0)}',
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: Color(0xFF0F172A)),
+                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: Color(0xFF0F172A)),
               ),
               const SizedBox(height: 2),
               Text(
@@ -1893,9 +1899,9 @@ class _MyClientHistoryView extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFFEEF2FF),
+              color: const Color(0xFFF0FDFA),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFE0E7FF)),
+              border: Border.all(color: const Color(0xFFCCFBF1)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1904,9 +1910,9 @@ class _MyClientHistoryView extends StatelessWidget {
                   'BILLED BY YOU',
                   style: TextStyle(
                     fontSize: 10,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     letterSpacing: 0.6,
-                    color: Color(0xFF4F46E5),
+                    color: Color(0xFF0F766E),
                   ),
                 ),
                 const SizedBox(height: 3),
@@ -1914,9 +1920,9 @@ class _MyClientHistoryView extends StatelessWidget {
                   '\u20B9${myTotal.toStringAsFixed(0)}',
                   style: const TextStyle(
                     fontSize: 24,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     letterSpacing: -0.6,
-                    color: Color(0xFF1E1B4B),
+                    color: Color(0xFF134E4A),
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -1930,7 +1936,7 @@ class _MyClientHistoryView extends StatelessWidget {
           const SizedBox(height: 16),
           const Text(
             'Visits you handled',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF64748B)),
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF64748B)),
           ),
           const SizedBox(height: 10),
           for (final bill in bills) ...[
@@ -1972,7 +1978,7 @@ class _MyClientHistoryView extends StatelessWidget {
                       bill.invoiceNumber,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -1984,7 +1990,7 @@ class _MyClientHistoryView extends StatelessWidget {
               ),
               Text(
                 '\u20B9${myTotal.toStringAsFixed(0)}',
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
               ),
             ],
           ),
@@ -2162,7 +2168,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                         'Generate Client Bill',
                         style: TextStyle(
                           fontSize: 17,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                           color: Color(0xFF0F172A),
                           letterSpacing: -0.3,
                         ),
@@ -2229,12 +2235,12 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                         width: 38,
                         height: 38,
                         decoration: BoxDecoration(
-                          color: const Color(0xFFEEF2FF),
+                          color: const Color(0xFFF0FDFA),
                           shape: BoxShape.circle,
-                          border: Border.all(color: const Color(0xFFC7D2FE)),
+                          border: Border.all(color: const Color(0xFF99F6E4)),
                         ),
                         child: const Center(
-                          child: Icon(PhosphorIconsRegular.user, color: Color(0xFF4F46E5), size: 18),
+                          child: Icon(PhosphorIconsRegular.user, color: Color(0xFF0F766E), size: 18),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -2265,7 +2271,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                                       'VIP',
                                       style: TextStyle(
                                         fontSize: 8.5,
-                                        fontWeight: FontWeight.w800,
+                                        fontWeight: FontWeight.w700,
                                         color: Color(0xFFD97706),
                                       ),
                                     ),
@@ -2320,7 +2326,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                     'Services',
                     style: TextStyle(
                       fontSize: 14.5,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                       color: Color(0xFF0F172A),
                     ),
                   ),
@@ -2393,7 +2399,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                         'Products & Retail',
                         style: TextStyle(
                           fontSize: 14.5,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                           color: Color(0xFF0F172A),
                         ),
                       ),
@@ -2402,7 +2408,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(
                           color: productItemCount > 0
-                              ? const Color(0xFFEEF2FF)
+                              ? const Color(0xFFF0FDFA)
                               : const Color(0xFFF1F5F9),
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -2412,7 +2418,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                             fontSize: 10.5,
                             fontWeight: FontWeight.w600,
                             color: productItemCount > 0
-                                ? const Color(0xFF4F46E5)
+                                ? const Color(0xFF0F766E)
                                 : const Color(0xFF64748B),
                           ),
                         ),
@@ -2488,7 +2494,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                     'Payment Method',
                     style: TextStyle(
                       fontSize: 14.5,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                       color: Color(0xFF0F172A),
                     ),
                   ),
@@ -2507,7 +2513,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                   const SizedBox(width: 8),
                   _buildPaymentCard('UPI', 'UPI / QR', PhosphorIconsRegular.qrCode),
                   const SizedBox(width: 8),
-                  _buildPaymentCard('PENDING', 'Pending', PhosphorIconsRegular.clockCountdown),
+                  _buildPaymentCard('PENDING', 'Pay later', PhosphorIconsRegular.clockCountdown),
                 ],
               ),
 
@@ -2543,7 +2549,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                       'Bill Breakdown',
                       style: TextStyle(
                         fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         color: Color(0xFF0F172A),
                       ),
                     ),
@@ -2573,7 +2579,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF0F172A).withValues(alpha: 0.08),
+                  color: const Color(0xFF0F172A).withValues(alpha: 0.06),
                   blurRadius: 16,
                   offset: const Offset(0, -4),
                 ),
@@ -2592,7 +2598,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                           'TOTAL AMOUNT',
                           style: TextStyle(
                             fontSize: 10,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w700,
                             color: Color(0xFF94A3B8),
                             letterSpacing: 0.5,
                           ),
@@ -2611,7 +2617,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                       '₹${total.toStringAsFixed(0)}',
                       style: const TextStyle(
                         fontSize: 22,
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w700,
                         color: Color(0xFF0F172A),
                       ),
                     ),
@@ -2624,7 +2630,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                   child: ElevatedButton.icon(
                     onPressed: (_submitting || !canSubmit) ? null : () => _submit(context, state),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF4F46E5),
+                      backgroundColor: const Color(0xFF0F766E),
                       foregroundColor: Colors.white,
                       elevation: 0,
                       shape: RoundedRectangleBorder(
@@ -2676,10 +2682,10 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
             width: 22,
             height: 22,
             decoration: BoxDecoration(
-              color: isSelected ? const Color(0xFF4F46E5) : Colors.transparent,
+              color: isSelected ? const Color(0xFF0F766E) : Colors.transparent,
               shape: BoxShape.circle,
               border: Border.all(
-                color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFFCBD5E1),
+                color: isSelected ? const Color(0xFF0F766E) : const Color(0xFFCBD5E1),
                 width: 1.5,
               ),
             ),
@@ -2749,7 +2755,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                     style: const TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF4F46E5),
+                      color: Color(0xFF0F766E),
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -2777,7 +2783,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
             decoration: BoxDecoration(
-              color: const Color(0xFFEEF2FF),
+              color: const Color(0xFFF0FDFA),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Row(
@@ -2800,14 +2806,14 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                       color: Colors.white,
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(PhosphorIconsRegular.minus, size: 10, color: Color(0xFF4F46E5)),
+                    child: const Icon(PhosphorIconsRegular.minus, size: 10, color: Color(0xFF0F766E)),
                   ),
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8.0),
                   child: Text(
                     '$qty',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF4F46E5)),
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF0F766E)),
                   ),
                 ),
                 GestureDetector(
@@ -2820,7 +2826,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                     width: 20,
                     height: 20,
                     decoration: const BoxDecoration(
-                      color: Color(0xFF4F46E5),
+                      color: Color(0xFF0F766E),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(PhosphorIconsBold.plus, size: 10, color: Colors.white),
@@ -2889,7 +2895,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
               const SizedBox(width: 5),
               const Text(
                 'Paying later',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF92400E)),
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF92400E)),
               ),
               const Spacer(),
               Text(
@@ -2909,7 +2915,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
               filled: true,
               fillColor: Colors.white,
               prefixText: '₹ ',
-              prefixStyle: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF92400E), fontSize: 13),
+              prefixStyle: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF92400E), fontSize: 13),
               hintText: 'Collecting now (blank for nothing)',
               hintStyle: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
               errorText: overTyped ? 'More than the bill total' : null,
@@ -2950,10 +2956,10 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                           border: Border.all(color: const Color(0xFFFDE68A)),
                         ),
                         child: Text(
-                          m,
+                          paymentMethodLabel(m),
                           style: TextStyle(
                             fontSize: 10,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w700,
                             color: _partPaymentMethod == m ? Colors.white : const Color(0xFF92400E),
                           ),
                         ),
@@ -2977,10 +2983,10 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFFEEF2FF) : Colors.white,
+            color: isSelected ? const Color(0xFFF0FDFA) : Colors.white,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0),
+              color: isSelected ? const Color(0xFF0F766E) : const Color(0xFFE2E8F0),
               width: isSelected ? 1.5 : 1.0,
             ),
           ),
@@ -2990,7 +2996,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
               Icon(
                 icon,
                 size: 18,
-                color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+                color: isSelected ? const Color(0xFF0F766E) : const Color(0xFF64748B),
               ),
               const SizedBox(height: 4),
               Text(
@@ -2998,7 +3004,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-                  color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+                  color: isSelected ? const Color(0xFF0F766E) : const Color(0xFF64748B),
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -3026,7 +3032,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
           val,
           style: TextStyle(
             fontSize: 12.5,
-            fontWeight: isBold ? FontWeight.w800 : FontWeight.w600,
+            fontWeight: isBold ? FontWeight.w700 : FontWeight.w600,
             color: const Color(0xFF0F172A),
           ),
         ),
@@ -3106,7 +3112,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
             width: double.infinity,
             child: ElevatedButton(
               onPressed: () => Navigator.pop(ctx),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4F46E5), foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F766E), foregroundColor: Colors.white),
               child: const Text('Done'),
             ),
           ),
@@ -3272,11 +3278,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
           Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFF8FAFC), Color(0xFFEEF2FF)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
+              color: Color(0xFFF8FAFC),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: const Color(0xFFE2E8F0)),
               boxShadow: [
@@ -3319,7 +3321,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
-                          color: Color(0xFF4F46E5),
+                          color: Color(0xFF0F766E),
                         ),
                       ),
                     ),
@@ -3334,8 +3336,8 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                       '₹${displayNet.toStringAsFixed(0)}',
                       style: const TextStyle(
                         fontSize: 28,
-                        fontWeight: FontWeight.w900,
-                        color: Color(0xFF4F46E5),
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0F766E),
                         letterSpacing: -0.5,
                       ),
                     ),
@@ -3374,7 +3376,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: const Color(0xFFE2E8F0)),
                       ),
-                      child: const Icon(PhosphorIconsRegular.wallet, size: 16, color: Color(0xFF4F46E5)),
+                      child: const Icon(PhosphorIconsRegular.wallet, size: 16, color: Color(0xFF0F766E)),
                     ),
                     const SizedBox(width: 10),
                     const Expanded(
@@ -3391,7 +3393,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                       '₹${displayBase.toStringAsFixed(0)}',
                       style: const TextStyle(
                         fontSize: 14,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         color: Color(0xFF0F172A),
                       ),
                     ),
@@ -3410,7 +3412,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: const Color(0xFFE2E8F0)),
                       ),
-                      child: const Icon(PhosphorIconsRegular.trendUp, size: 16, color: Color(0xFF4F46E5)),
+                      child: const Icon(PhosphorIconsRegular.trendUp, size: 16, color: Color(0xFF0F766E)),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -3440,8 +3442,8 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                       '₹${displayPendingComm.toStringAsFixed(0)}',
                       style: const TextStyle(
                         fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF4F46E5),
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0F766E),
                       ),
                     ),
                   ],
@@ -3478,10 +3480,10 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                           Container(
                             padding: const EdgeInsets.all(6),
                             decoration: const BoxDecoration(
-                              color: Color(0xFFEEF2FF),
+                              color: Color(0xFFF0FDFA),
                               shape: BoxShape.circle,
                             ),
-                            child: const Icon(PhosphorIconsRegular.scissors, size: 14, color: Color(0xFF4F46E5)),
+                            child: const Icon(PhosphorIconsRegular.scissors, size: 14, color: Color(0xFF0F766E)),
                           ),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -3514,7 +3516,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                         '₹${serviceCommission.toStringAsFixed(0)}',
                         style: const TextStyle(
                           fontSize: 17,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w700,
                           color: Color(0xFF0F172A),
                         ),
                       ),
@@ -3563,7 +3565,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFEEF2FF),
+                              color: const Color(0xFFF0FDFA),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
@@ -3571,7 +3573,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                               style: TextStyle(
                                 fontSize: 9.5,
                                 fontWeight: FontWeight.w700,
-                                color: Color(0xFF4F46E5),
+                                color: Color(0xFF0F766E),
                               ),
                             ),
                           ),
@@ -3591,7 +3593,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                         '₹${productCommission.toStringAsFixed(0)}',
                         style: const TextStyle(
                           fontSize: 17,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w700,
                           color: Color(0xFF0F172A),
                         ),
                       ),
@@ -3622,7 +3624,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                     'Payout History',
                     style: TextStyle(
                       fontSize: 14.5,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                       color: Color(0xFF0F172A),
                     ),
                   ),
@@ -3655,7 +3657,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: Color(0xFF4F46E5),
+                        color: Color(0xFF0F766E),
                       ),
                     ),
                   ),
@@ -3777,7 +3779,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                       paid ? 'PAID' : 'DRAFT',
                       style: TextStyle(
                         fontSize: 8.5,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         color: paid ? const Color(0xFF10B981) : const Color(0xFF64748B),
                       ),
                     ),
@@ -3797,7 +3799,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
           amount,
           style: const TextStyle(
             fontSize: 14,
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w700,
             color: Color(0xFF0F172A),
           ),
         ),
@@ -3834,9 +3836,9 @@ class _AllPayoutsView extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFFEEF2FF),
+              color: const Color(0xFFF0FDFA),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFE0E7FF)),
+              border: Border.all(color: const Color(0xFFCCFBF1)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -3845,9 +3847,9 @@ class _AllPayoutsView extends StatelessWidget {
                   'PAID OUT TO DATE',
                   style: TextStyle(
                     fontSize: 10,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     letterSpacing: 0.6,
-                    color: Color(0xFF4F46E5),
+                    color: Color(0xFF0F766E),
                   ),
                 ),
                 const SizedBox(height: 3),
@@ -3855,9 +3857,9 @@ class _AllPayoutsView extends StatelessWidget {
                   '\u20B9${total.toStringAsFixed(0)}',
                   style: const TextStyle(
                     fontSize: 24,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     letterSpacing: -0.6,
-                    color: Color(0xFF1E1B4B),
+                    color: Color(0xFF134E4A),
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -3918,7 +3920,7 @@ class _AllPayoutsView extends StatelessWidget {
           children: [
             Text(
               '\u20B9${r.totalPaid.toStringAsFixed(0)}',
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
             ),
             const SizedBox(height: 2),
             Text(
@@ -3973,15 +3975,11 @@ class TargetHeroCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF1E1B4B), Color(0xFF4338CA)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        color: Color(0xFF134E4A),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF1E1B4B).withValues(alpha: 0.25),
+            color: const Color(0xFF134E4A).withValues(alpha: 0.06),
             blurRadius: 16,
             offset: const Offset(0, 6),
           ),
@@ -4004,7 +4002,7 @@ class TargetHeroCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   _targetTypeLabel(target.type).toUpperCase(),
-                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFFC7D2FE), letterSpacing: 1.1),
+                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF99F6E4), letterSpacing: 1.1),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -4017,7 +4015,7 @@ class TargetHeroCard extends StatelessWidget {
                 ),
                 child: const Text(
                   'ACTIVE',
-                  style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: Colors.white),
+                  style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: Colors.white),
                 ),
               ),
             ],
@@ -4029,12 +4027,12 @@ class TargetHeroCard extends StatelessWidget {
             children: [
               Text(
                 _fmt(target.type, target.progressValue),
-                style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: -1),
+                style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -1),
               ),
               const SizedBox(width: 6),
               Text(
                 'of ${_fmt(target.type, target.targetValue)}',
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFFC7D2FE)),
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF99F6E4)),
               ),
             ],
           ),
@@ -4077,11 +4075,11 @@ class TargetHeroCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600, color: Color(0xFFC7D2FE))),
+            Text(label, style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600, color: Color(0xFF99F6E4))),
             const SizedBox(height: 2),
             Text(
               value,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white),
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -4158,7 +4156,7 @@ class _EmployeeTargetTab extends StatelessWidget {
                   children: [
                     const Text(
                       'All Targets',
-                      style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                      style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
                     ),
                     Text(
                       '$achieved of ${targets.length} achieved',
@@ -4255,7 +4253,7 @@ class _EmployeeTargetTab extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     _fmt(target.type, target.progressValue),
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: statusColor, letterSpacing: -0.5),
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: statusColor, letterSpacing: -0.5),
                   ),
                 ],
               ),
@@ -4269,7 +4267,7 @@ class _EmployeeTargetTab extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     _fmt(target.type, target.targetValue),
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
                   ),
                 ],
               ),
@@ -4414,7 +4412,7 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Account & Preferences', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22, color: AppTheme.slateDark, letterSpacing: -0.5)),
+              const Text('Account & Preferences', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 22, color: AppTheme.slateDark, letterSpacing: -0.5)),
               const SizedBox(height: 18),
 
               // Profile card
@@ -4434,18 +4432,14 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
                           width: 80,
                           height: 80,
                           decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
+                            color: Color(0xFF0F766E),
                             shape: BoxShape.circle,
                             boxShadow: [
-                              BoxShadow(color: AppTheme.primaryBlue.withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 4)),
+                              BoxShadow(color: AppTheme.primaryBlue.withValues(alpha: 0.06), blurRadius: 12, offset: const Offset(0, 4)),
                             ],
                           ),
                           child: Center(
-                            child: Text(initials, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w900)),
+                            child: Text(initials, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w700)),
                           ),
                         ),
                         Container(
@@ -4460,7 +4454,7 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
                       ],
                     ),
                     const SizedBox(height: 14),
-                    Text(profile.name, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 20, color: AppTheme.slateDark)),
+                    Text(profile.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 20, color: AppTheme.slateDark)),
                     const SizedBox(height: 4),
                     Text(profile.email, style: const TextStyle(fontSize: 12, color: AppTheme.slateLight)),
                     const SizedBox(height: 10),
@@ -4614,7 +4608,7 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
   Widget _buildStatCol(String label, String val, Color color) {
     return Column(
       children: [
-        Text(val, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: color)),
+        Text(val, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: color)),
         const SizedBox(height: 2),
         Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.slateLight)),
       ],
@@ -4820,23 +4814,23 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
             ),
             child: Row(
               children: [
-                const Icon(PhosphorIconsRegular.tag, size: 15, color: Color(0xFF4F46E5)),
+                const Icon(PhosphorIconsRegular.tag, size: 15, color: Color(0xFF0F766E)),
                 const SizedBox(width: 8),
                 Text(
                   '₹${req.requestedDiscount.toStringAsFixed(0)} off',
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
                 ),
                 if (req.overridePrice != null) ...[
                   const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFEEF2FF),
+                      color: const Color(0xFFF0FDFA),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
                       'Override ₹${req.overridePrice!.toStringAsFixed(0)}',
-                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF4F46E5)),
+                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF0F766E)),
                     ),
                   ),
                 ],
@@ -4872,7 +4866,7 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
                         ),
                         Text(
                           req.authorizedCode!,
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF0F172A), letterSpacing: 1),
+                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF0F172A), letterSpacing: 1),
                         ),
                       ],
                     ),
@@ -4921,7 +4915,7 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
               child: Icon(icon, size: 14, color: iconColor),
             ),
             const SizedBox(height: 8),
-            Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
+            Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
             Text(label, style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: Color(0xFF64748B))),
           ],
         ),
@@ -4960,15 +4954,11 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8.5),
                         decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
+                          color: Color(0xFF0F766E),
                           borderRadius: BorderRadius.circular(22),
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFF4F46E5).withValues(alpha: 0.35),
+                              color: const Color(0xFF0F766E).withValues(alpha: 0.06),
                               blurRadius: 10,
                               offset: const Offset(0, 3),
                             ),
@@ -5048,7 +5038,7 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
                 else ...[
                   const Text(
                     'Your Requests',
-                    style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                    style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
                   ),
                   const SizedBox(height: 10),
                   for (final req in requests) _buildRequestCard(context, req),

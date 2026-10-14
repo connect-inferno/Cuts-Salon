@@ -167,15 +167,11 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
       key: const Key('addCustomerPreview'),
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [AppTheme.primaryBlue, Color(0xFF6366F1)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        color: AppTheme.primaryBlue,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: AppTheme.primaryBlue.withValues(alpha: 0.28),
+            color: AppTheme.primaryBlue.withValues(alpha: 0.06),
             blurRadius: 18,
             offset: const Offset(0, 6),
           ),
@@ -197,7 +193,7 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
                     _initials,
                     style: const TextStyle(
                       fontSize: 17,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                       color: Colors.white,
                       letterSpacing: 0.5,
                     ),
@@ -220,7 +216,7 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 17,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     color: Colors.white,
                     letterSpacing: -0.3,
                   ),
@@ -282,7 +278,7 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 13,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     color: AppTheme.slateDark,
                     letterSpacing: -0.2,
                   ),
@@ -530,7 +526,7 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
                 gradient: _submitting
                     ? null
                     : const LinearGradient(
-                        colors: [AppTheme.primaryBlue, Color(0xFF6366F1)],
+                        colors: [AppTheme.primaryBlue, Color(0xFF0D9488)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
@@ -539,7 +535,7 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
                     ? null
                     : [
                         BoxShadow(
-                          color: AppTheme.primaryBlue.withValues(alpha: 0.32),
+                          color: AppTheme.primaryBlue.withValues(alpha: 0.06),
                           blurRadius: 12,
                           offset: const Offset(0, 4),
                         ),
@@ -551,7 +547,7 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
                   backgroundColor: Colors.transparent,
                   shadowColor: Colors.transparent,
                   foregroundColor: Colors.white,
-                  disabledBackgroundColor: const Color(0xFFC7D2FE),
+                  disabledBackgroundColor: const Color(0xFF99F6E4),
                   padding: const EdgeInsets.symmetric(vertical: 15),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
@@ -581,7 +577,7 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontSize: 13.5,
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),

@@ -187,7 +187,7 @@ class _DuesViewState extends ConsumerState<DuesView> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(16),
-                    borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                    borderSide: const BorderSide(color: Color(0xFF0F766E), width: 1.5),
                   ),
                 ),
               ),
@@ -223,11 +223,7 @@ class _DuesViewState extends ConsumerState<DuesView> {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFFFFBEB), Color(0xFFFEF3C7)],
-        ),
+        color: Color(0xFFFFFBEB),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFFDE68A)),
       ),
@@ -248,12 +244,12 @@ class _DuesViewState extends ConsumerState<DuesView> {
               children: [
                 const Text(
                   'TOTAL OUTSTANDING',
-                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.6, color: Color(0xFF92400E)),
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.6, color: Color(0xFF92400E)),
                 ),
                 const SizedBox(height: 3),
                 Text(
                   _rupees(grandTotal),
-                  style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: -0.8, color: Color(0xFF78350F)),
+                  style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700, letterSpacing: -0.8, color: Color(0xFF78350F)),
                 ),
                 if (staleCount > 0) ...[
                   const SizedBox(height: 3),
@@ -354,7 +350,7 @@ class _DuesViewState extends ConsumerState<DuesView> {
                 backgroundColor: const Color(0xFFFEF3C7),
                 child: Text(
                   due.customer.name.isNotEmpty ? due.customer.name[0].toUpperCase() : '?',
-                  style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFFB45309), fontSize: 14),
+                  style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFFB45309), fontSize: 14),
                 ),
               ),
               const SizedBox(width: 11),
@@ -364,7 +360,7 @@ class _DuesViewState extends ConsumerState<DuesView> {
                   children: [
                     Text(
                       due.customer.name,
-                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 1),
@@ -380,7 +376,7 @@ class _DuesViewState extends ConsumerState<DuesView> {
                 children: [
                   Text(
                     _rupees(due.total),
-                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Color(0xFFB45309), letterSpacing: -0.4),
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Color(0xFFB45309), letterSpacing: -0.4),
                   ),
                   Text(
                     '${due.unpaidBills.length} bill${due.unpaidBills.length == 1 ? '' : 's'}',
@@ -449,7 +445,7 @@ class _DuesViewState extends ConsumerState<DuesView> {
                         partial ? 'PART PAID' : 'UNPAID',
                         style: TextStyle(
                           fontSize: 8.5,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                           color: partial ? const Color(0xFF2563EB) : const Color(0xFFB45309),
                         ),
                       ),
@@ -469,7 +465,7 @@ class _DuesViewState extends ConsumerState<DuesView> {
           const SizedBox(width: 8),
           Text(
             _rupees(bill.amountDue),
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
           ),
           const SizedBox(width: 8),
           InkWell(
@@ -480,12 +476,12 @@ class _DuesViewState extends ConsumerState<DuesView> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: widget.requestOnly ? const Color(0xFF0F172A) : const Color(0xFF4F46E5),
+                color: widget.requestOnly ? const Color(0xFF0F172A) : const Color(0xFF0F766E),
                 borderRadius: BorderRadius.circular(9),
               ),
               child: Text(
                 widget.requestOnly ? 'Request' : 'Collect',
-                style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Colors.white),
+                style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Colors.white),
               ),
             ),
           ),
@@ -532,7 +528,7 @@ class _DuesViewState extends ConsumerState<DuesView> {
                     ),
                     Text(
                       _rupees(bill.amountDue),
-                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFFB45309)),
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFFB45309)),
                     ),
                   ],
                 ),
@@ -565,9 +561,9 @@ class _DuesViewState extends ConsumerState<DuesView> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 9),
                           decoration: BoxDecoration(
-                            color: isSel ? const Color(0xFFEEF2FF) : Colors.white,
+                            color: isSel ? const Color(0xFFF0FDFA) : Colors.white,
                             border: Border.all(
-                              color: isSel ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0),
+                              color: isSel ? const Color(0xFF0F766E) : const Color(0xFFE2E8F0),
                               width: isSel ? 1.6 : 1,
                             ),
                             borderRadius: BorderRadius.circular(10),
@@ -577,8 +573,8 @@ class _DuesViewState extends ConsumerState<DuesView> {
                               m,
                               style: TextStyle(
                                 fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                                color: isSel ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+                                fontWeight: FontWeight.w700,
+                                color: isSel ? const Color(0xFF0F766E) : const Color(0xFF64748B),
                               ),
                             ),
                           ),
@@ -694,7 +690,7 @@ class _DuesViewState extends ConsumerState<DuesView> {
                     ),
                     Text(
                       _rupees(bill.amountDue),
-                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFFB45309)),
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFFB45309)),
                     ),
                   ],
                 ),
@@ -727,9 +723,9 @@ class _DuesViewState extends ConsumerState<DuesView> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 9),
                           decoration: BoxDecoration(
-                            color: isSel ? const Color(0xFFEEF2FF) : Colors.white,
+                            color: isSel ? const Color(0xFFF0FDFA) : Colors.white,
                             border: Border.all(
-                              color: isSel ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0),
+                              color: isSel ? const Color(0xFF0F766E) : const Color(0xFFE2E8F0),
                               width: isSel ? 1.6 : 1,
                             ),
                             borderRadius: BorderRadius.circular(10),
@@ -739,8 +735,8 @@ class _DuesViewState extends ConsumerState<DuesView> {
                               m,
                               style: TextStyle(
                                 fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                                color: isSel ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+                                fontWeight: FontWeight.w700,
+                                color: isSel ? const Color(0xFF0F766E) : const Color(0xFF64748B),
                               ),
                             ),
                           ),

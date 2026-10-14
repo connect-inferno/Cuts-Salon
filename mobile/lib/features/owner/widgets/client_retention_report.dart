@@ -172,7 +172,7 @@ class ClientRetentionReport extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 14.5,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     color: Color(0xFF0F172A),
                   ),
                 ),
@@ -202,7 +202,7 @@ class ClientRetentionReport extends StatelessWidget {
                 badge,
                 style: const TextStyle(
                   fontSize: 10.5,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                   color: AppTheme.primaryBlue,
                 ),
               ),
@@ -232,7 +232,7 @@ class ClientRetentionReport extends StatelessWidget {
                 '$pct%',
                 style: const TextStyle(
                   fontSize: 34,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                   color: Color(0xFF0F172A),
                   letterSpacing: -1.2,
                 ),
@@ -336,7 +336,7 @@ class ClientRetentionReport extends StatelessWidget {
                   value,
                   style: const TextStyle(
                     fontSize: 15,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     color: Color(0xFF0F172A),
                   ),
                 ),
@@ -388,7 +388,7 @@ class ClientRetentionReport extends StatelessWidget {
                             maxLines: 1,
                             style: const TextStyle(
                               fontSize: 12,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w700,
                               color: Color(0xFF0F172A),
                             ),
                           ),
@@ -412,7 +412,7 @@ class ClientRetentionReport extends StatelessWidget {
                                       ]
                                     : [
                                         AppTheme.primaryBlue,
-                                        const Color(0xFF6366F1),
+                                        const Color(0xFF0D9488),
                                       ],
                               ),
                               borderRadius: BorderRadius.circular(8),
@@ -531,7 +531,7 @@ class ClientRetentionReport extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 12.5,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         color: Color(0xFF0F172A),
                       ),
                     ),
@@ -540,7 +540,7 @@ class ClientRetentionReport extends StatelessWidget {
                     '$count',
                     style: TextStyle(
                       fontSize: 13.5,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                       color: color,
                     ),
                   ),

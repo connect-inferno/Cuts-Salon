@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../../../widgets/liquid_nav_bar.dart';
@@ -11,6 +9,7 @@ import '../../../theme.dart';
 import '../../../widgets/app_page_header.dart';
 import '../../../widgets/app_settings_page.dart';
 import '../../../widgets/async_state_views.dart';
+import '../../../widgets/ds.dart';
 
 class OwnerDashboardTab extends ConsumerWidget {
   // Named for where they go rather than for a tab index. The old
@@ -121,7 +120,7 @@ class OwnerDashboardTab extends ConsumerWidget {
       loading: () => const AppLoadingView(),
       error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
       data: (state) => Container(
-        color: const Color(0xFFF4F6FB),
+        color: const Color(0xFFFAFAFA),
         child: Column(
           children: [
             // The same header every other page wears. This page used to
@@ -134,8 +133,8 @@ class OwnerDashboardTab extends ConsumerWidget {
               actions: [
                 AppPageAction(
                   icon: PhosphorIconsRegular.bell,
-                  tooltip: 'Notifications',
-                  badgeCount: state.pendingDiscountCount,
+                  tooltip: 'Requests',
+                  badgeCount: state.pendingDiscountCount + state.pendingPaymentRequestCount,
                   onTap: () => onOpenNotifications?.call(),
                 ),
                 appSettingsAction(
@@ -164,433 +163,306 @@ class OwnerDashboardTab extends ConsumerWidget {
   Widget _buildContent(BuildContext context, WidgetRef ref, AppData state) {
     final dashboard = _scopedSummary(state);
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 900;
-
-        return RefreshIndicator(
-          color: AppTheme.primaryBlue,
-          onRefresh: () => ref.read(appDataProvider.notifier).refresh(),
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: EdgeInsets.only(bottom: 20.0 + LiquidNavBar.barInset),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: isWide ? 1160 : 540),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // 1. Hero gradient banner with today's revenue
-                    _buildHeroBanner(context, ref, dashboard, state),
-
-                    Padding(
-                      padding: EdgeInsets.symmetric(horizontal: isWide ? 32.0 : 16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SizedBox(height: 20),
-
-                          // Billing is the job this screen is opened for
-                          // most, so its button sits right under the
-                          // takings - it used to be the last thing on the
-                          // page, below three cards of numbers.
-                          _buildQuickActionsCard(),
-                          const SizedBox(height: 20),
-
-                          // Until a new salon is set up, what to do next.
-                          ..._buildSetupChecklist(state),
-
-                          // 2. Metric Cards grid
-                          _buildMetricGrid(dashboard, state),
-                          const SizedBox(height: 20),
-
-                          // 3. Revenue Progress Card
-                          _buildRevenueProgressCard(context, ref, dashboard, state),
-                          const SizedBox(height: 20),
-
-                          // 4. Payment Breakdown Card
-                          _buildPaymentBreakdownCard(dashboard),
-                          const SizedBox(height: 88),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+    // One calm column: today's takings, the two jobs people open this page
+    // for, what still needs setting up, then the numbers. The old layout was
+    // a purple gradient banner, four cards in four different colours with
+    // glowing icon tiles and badges, a ring gauge and a second gradient
+    // card - lots of decoration, and the eye had nowhere to land.
+    return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: EdgeInsets.only(bottom: 24.0 + LiquidNavBar.barInset),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildTodaySummary(dashboard, state),
+                const SizedBox(height: 16),
+                ..._buildSetupChecklist(state),
+                _buildStatsCard(dashboard),
+                const SizedBox(height: 16),
+                _buildTargetCard(context, ref, dashboard, state),
+                const SizedBox(height: 16),
+                _buildPaymentsCard(dashboard),
+              ],
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
+  // ─── Today ─────────────────────────────────────────────────────────────────
 
-  // ─── Hero Banner ────────────────────────────────────────────────────────────
-
-  Widget _buildHeroBanner(
-    BuildContext context,
-    WidgetRef ref,
-    DashboardSummary dashboard,
-    AppData state,
-  ) {
+  /// Today's takings on a solid brand-teal card, with the two jobs this
+  /// page is opened for right on it. Flat colour, no gradient, no decorative
+  /// circles - the colour alone makes it the first thing you read.
+  Widget _buildTodaySummary(DashboardSummary dashboard, AppData state) {
+    final bills = dashboard.todayBillCount;
     return Container(
-      width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFF3730A3), Color(0xFF4F46E5), Color(0xFF6D28D9)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryBlue,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  "Today's revenue",
+                  style: TextStyle(fontSize: 13, color: Colors.white.withValues(alpha: 0.78)),
+                ),
+              ),
+              if (state.branches.length > 1) _buildBranchSelector(state),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _formatCurrency(dashboard.todaySales),
+            style: const TextStyle(
+              fontSize: 34,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+              letterSpacing: -1,
+              height: 1.15,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${_formatCurrency(dashboard.weekSales)} this week  ·  $bills bill${bills == 1 ? '' : 's'} today',
+            style: TextStyle(fontSize: 13, color: Colors.white.withValues(alpha: 0.78)),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: onOpenBilling,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: AppTheme.primaryDarker,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                  ),
+                  icon: const Icon(PhosphorIconsBold.receipt, size: 18),
+                  label: const Text('New bill', style: TextStyle(fontWeight: FontWeight.w700)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: onOpenAttendance,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    backgroundColor: Colors.white.withValues(alpha: 0.10),
+                    side: BorderSide(color: Colors.white.withValues(alpha: 0.35)),
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                  ),
+                  icon: const Icon(PhosphorIconsRegular.calendarCheck, size: 18),
+                  label: const Text('Attendance'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBranchSelector(AppData state) {
+    final selected = state.branches.where((b) => b.id == selectedBranchId);
+    final label = selected.isNotEmpty ? selected.first.name : 'All branches';
+    return InkWell(
+      onTap: onSelectBranch,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Colors.white)),
+            const SizedBox(width: 4),
+            const Icon(PhosphorIconsRegular.caretDown, size: 12, color: Colors.white),
+          ],
         ),
       ),
-      child: Stack(
-        children: [
-          // Decorative circles for depth
-          Positioned(
-            top: -28,
-            right: -28,
-            child: Container(
-              width: 150,
-              height: 150,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.07),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: -18,
-            left: -18,
-            child: Container(
-              width: 100,
-              height: 100,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.05),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 8,
-            right: 80,
-            child: Container(
-              width: 55,
-              height: 55,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.04),
-              ),
-            ),
-          ),
-          // Content
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 22, 20, 26),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (state.branches.length > 1) ...[
-                  _buildBranchPill(state),
-                  const SizedBox(height: 18),
-                ],
-                Text(
-                  "TODAY'S REVENUE",
-                  style: TextStyle(
-                    fontFamily: 'Plus Jakarta Sans',
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white.withValues(alpha: 0.65),
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  _formatCurrency(dashboard.todaySales),
-                  style: const TextStyle(
-                    fontFamily: 'Plus Jakarta Sans',
-                    fontSize: 38,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                    letterSpacing: -1.2,
-                    height: 1.1,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(30),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-                  ),
+    );
+  }
+
+  // ─── Setup checklist ──────────────────────────────────────────────────────
+
+  /// "Get your salon ready": the four things a salon fresh from Add Salon
+  /// needs before the app is useful. A brand-new owner used to land on a
+  /// dashboard of zeros with nothing saying where to start. Each step ticks
+  /// itself off from the salon's real data, and the card disappears for good
+  /// once all four are done - there's nothing to dismiss or store.
+  List<Widget> _buildSetupChecklist(AppData state) {
+    final settings = state.settings;
+    final steps = [
+      (
+        done: (settings?.phone?.trim().isNotEmpty ?? false) && (settings?.address?.trim().isNotEmpty ?? false),
+        title: "Add your salon's phone and address",
+        detail: 'They appear on bills',
+        onTap: onOpenSettings,
+      ),
+      (
+        done: state.services.isNotEmpty,
+        title: 'Add your services and prices',
+        detail: 'Haircut, colour, facial...',
+        onTap: onOpenServices,
+      ),
+      (
+        done: state.employees.length > 1,
+        title: 'Add your staff',
+        detail: 'So they can log in, clock in and bill',
+        onTap: onOpenTeam,
+      ),
+      (
+        done: state.bills.isNotEmpty,
+        title: 'Make your first bill',
+        detail: 'Pick a client, tick services, take payment',
+        onTap: onOpenBilling,
+      ),
+    ];
+    final doneCount = steps.where((s) => s.done).length;
+    if (doneCount == steps.length) return const [];
+
+    return [
+      DsCard(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            DsSectionTitle('Get your salon ready', actionLabel: '$doneCount of ${steps.length}'),
+            const SizedBox(height: 10),
+            DsProgressBar(value: doneCount / steps.length),
+            const SizedBox(height: 6),
+            for (final step in steps)
+              InkWell(
+                onTap: step.done ? null : step.onTap,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
                   child: Row(
-                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(PhosphorIconsBold.calendarBlank, size: 12, color: Colors.white.withValues(alpha: 0.85)),
-                      const SizedBox(width: 6),
-                      Text(
-                        'This week  ${_formatCurrency(dashboard.weekSales)}',
-                        style: TextStyle(
-                          fontFamily: 'Plus Jakarta Sans',
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white.withValues(alpha: 0.92),
+                      Icon(
+                        step.done ? PhosphorIconsFill.checkCircle : PhosphorIconsRegular.circle,
+                        size: 20,
+                        color: step.done ? AppTheme.accentGreen : AppTheme.borderStrong,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              step.title,
+                              style: TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w500,
+                                color: step.done ? AppTheme.textMuted : AppTheme.slateDark,
+                              ),
+                            ),
+                            if (!step.done)
+                              Text(step.detail, style: const TextStyle(fontSize: 12, color: AppTheme.slateLight)),
+                          ],
                         ),
                       ),
+                      if (!step.done)
+                        const Icon(PhosphorIconsRegular.caretRight, size: 14, color: AppTheme.textMuted),
                     ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 16),
+    ];
+  }
+
+  // ─── Numbers ──────────────────────────────────────────────────────────────
+
+  /// Four figures in one card, split by hairlines - instead of four cards
+  /// that each wore their own colour, icon tile and badge.
+  Widget _buildStatsCard(DashboardSummary dashboard) {
+    final avgTicket = dashboard.todayBillCount > 0 ? dashboard.todaySales / dashboard.todayBillCount : 0.0;
+    final lowStock = dashboard.lowStockItemCount;
+    const divider = VerticalDivider(width: 1, thickness: 1, color: AppTheme.borderSubtle);
+    return DsCard(
+      padding: EdgeInsets.zero,
+      child: Column(
+        children: [
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: DsStat(
+                    icon: PhosphorIconsRegular.users,
+                    label: 'Clients today',
+                    value: '${dashboard.todayCustomersCount}',
+                    onTap: onOpenClients,
+                  ),
+                ),
+                divider,
+                Expanded(
+                  child: DsStat(
+                    icon: PhosphorIconsRegular.receipt,
+                    tint: AppTheme.tintBlue,
+                    tintBg: AppTheme.tintBlueBg,
+                    label: 'Bills today',
+                    value: '${dashboard.todayBillCount}',
+                    caption: avgTicket > 0 ? 'Avg ${_formatCurrency(avgTicket)}' : null,
+                    onTap: onOpenBilling,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: AppTheme.borderSubtle),
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: DsStat(
+                    icon: PhosphorIconsRegular.userCheck,
+                    tint: AppTheme.tintAmber,
+                    tintBg: AppTheme.tintAmberBg,
+                    label: 'Staff in',
+                    value: '${dashboard.todayAttendanceCount}',
+                    onTap: onOpenAttendance,
+                  ),
+                ),
+                divider,
+                Expanded(
+                  child: DsStat(
+                    icon: PhosphorIconsRegular.package,
+                    tint: AppTheme.tintRose,
+                    tintBg: AppTheme.tintRoseBg,
+                    label: 'Low stock',
+                    value: '$lowStock',
+                    // Red only when something actually is low.
+                    tone: lowStock > 0 ? AppTheme.accentRed : null,
+                    caption: lowStock > 0 ? 'Needs restocking' : 'All stocked',
+                    onTap: onOpenServices ?? onOpenReports,
                   ),
                 ),
               ],
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildBranchPill(AppData state) {
-    final selected = state.branches.where((b) => b.id == selectedBranchId);
-    final label = selected.isNotEmpty ? selected.first.name : 'All branches';
-
-    return InkWell(
-      onTap: onSelectBranch,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(PhosphorIconsFill.mapPin, size: 13, color: Colors.white),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: const TextStyle(
-                fontFamily: 'Plus Jakarta Sans',
-                fontSize: 12.5,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(width: 5),
-            Icon(PhosphorIconsBold.caretDown, size: 11, color: Colors.white.withValues(alpha: 0.7)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMetricGrid(DashboardSummary dashboard, AppData state) {
-    final avgTicket = dashboard.todayBillCount > 0
-        ? (dashboard.todaySales / dashboard.todayBillCount).round()
-        : 0;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final cardWidth = (constraints.maxWidth - 12) / 2;
-
-        return Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            // 1. Today's Customers
-            SizedBox(
-              width: cardWidth,
-              child: _buildMetricCard(
-                icon: PhosphorIconsBold.users,
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF0D9488), Color(0xFF14B8A6)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                accentColor: const Color(0xFF0D9488),
-                accentBg: const Color(0xFFE6FFFA),
-                badgeText: '${dashboard.todayCustomersCount} Visited',
-                title: "Today's Clients",
-                value: '${dashboard.todayCustomersCount}',
-                onTap: onOpenClients,
-              ),
-            ),
-            // 2. Bills Today
-            SizedBox(
-              width: cardWidth,
-              child: _buildMetricCard(
-                icon: PhosphorIconsBold.receipt,
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFD97706), Color(0xFFF59E0B)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                accentColor: const Color(0xFFD97706),
-                accentBg: const Color(0xFFFFFBEB),
-                badgeText: avgTicket > 0 ? 'Avg ₹$avgTicket' : '0 Bills',
-                title: 'Bills Today',
-                value: '${dashboard.todayBillCount}',
-                onTap: onOpenBilling,
-              ),
-            ),
-            // 3. Attendance
-            SizedBox(
-              width: cardWidth,
-              child: _buildMetricCard(
-                icon: PhosphorIconsBold.identificationCard,
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF7C3AED), Color(0xFF8B5CF6)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                accentColor: const Color(0xFF7C3AED),
-                accentBg: const Color(0xFFF5F3FF),
-                badgeText: 'Staff In',
-                title: 'Attendance',
-                value: '${dashboard.todayAttendanceCount}',
-                onTap: onOpenAttendance,
-              ),
-            ),
-            // 4. Low Stock - red only when something actually is low. It
-            // used to be red with a red "All Good" badge at zero, which read
-            // as an alarm on a day with nothing wrong.
-            SizedBox(
-              width: cardWidth,
-              child: _buildMetricCard(
-                icon: dashboard.lowStockItemCount > 0
-                    ? PhosphorIconsBold.warningCircle
-                    : PhosphorIconsBold.checkCircle,
-                gradient: dashboard.lowStockItemCount > 0
-                    ? const LinearGradient(
-                        colors: [Color(0xFFDC2626), Color(0xFFEF4444)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      )
-                    : const LinearGradient(
-                        colors: [Color(0xFF16A34A), Color(0xFF22C55E)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                accentColor: dashboard.lowStockItemCount > 0
-                    ? const Color(0xFFDC2626)
-                    : const Color(0xFF16A34A),
-                accentBg: dashboard.lowStockItemCount > 0
-                    ? const Color(0xFFFEF2F2)
-                    : const Color(0xFFF0FDF4),
-                badgeText: dashboard.lowStockItemCount > 0 ? 'Low Stock' : 'All Good',
-                title: 'Low Stock',
-                value: '${dashboard.lowStockItemCount}',
-                onTap: onOpenReports,
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildMetricCard({
-    required IconData icon,
-    required LinearGradient gradient,
-    required Color accentColor,
-    required Color accentBg,
-    required String badgeText,
-    required String title,
-    required String value,
-    VoidCallback? onTap,
-  }) {
-    final card = Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-            color: accentColor.withValues(alpha: 0.10),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 4,
-            offset: const Offset(0, 1),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  gradient: gradient,
-                  borderRadius: BorderRadius.circular(13),
-                  boxShadow: [
-                    BoxShadow(
-                      color: accentColor.withValues(alpha: 0.35),
-                      blurRadius: 8,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: Icon(icon, color: Colors.white, size: 20),
-              ),
-              Flexible(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: accentBg,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    badgeText,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontFamily: 'Plus Jakarta Sans',
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: accentColor,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Text(
-            title,
-            style: const TextStyle(
-              fontFamily: 'Plus Jakarta Sans',
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF64748B),
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            value,
-            style: TextStyle(
-              fontFamily: 'Plus Jakarta Sans',
-              fontSize: 26,
-              fontWeight: FontWeight.w800,
-              color: accentColor,
-              letterSpacing: -0.8,
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (onTap == null) return card;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(22),
-        child: card,
       ),
     );
   }
@@ -612,7 +484,7 @@ class OwnerDashboardTab extends ConsumerWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: const Text(
             'Daily revenue target',
-            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: Color(0xFF0A0A0A)),
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -621,7 +493,7 @@ class OwnerDashboardTab extends ConsumerWidget {
               const Text(
                 'What the salon aims to take in a day. Leave it empty to go '
                 'back to showing the running daily average instead.',
-                style: TextStyle(fontSize: 12.5, color: Color(0xFF64748B), height: 1.4),
+                style: TextStyle(fontSize: 12.5, color: Color(0xFF71717A), height: 1.4),
               ),
               const SizedBox(height: 16),
               TextField(
@@ -692,757 +564,117 @@ class OwnerDashboardTab extends ConsumerWidget {
     );
   }
 
-  Widget _buildRevenueProgressCard(
+  Widget _buildTargetCard(
     BuildContext context,
     WidgetRef ref,
     DashboardSummary dashboard,
     AppData state,
   ) {
     final actual = dashboard.todaySales;
-    // The target the owner set, if they set one. Before this existed the
-    // "planned" figure was this month's takings divided by the days elapsed -
-    // a running average dressed up as a goal, which meant the card could
-    // never be beaten by much and there was nowhere to change it. An explicit
-    // target of 0 means "not set", and the old average is the fallback so the
-    // card still says something useful on day one.
-    final configured = state.settings?.dailyRevenueTarget ?? 0;
-    final isConfigured = configured > 0;
-    final planned = isConfigured
-        ? configured
-        : (dashboard.monthSales > 0
-            ? (dashboard.monthSales / (DateTime.now().day > 0 ? DateTime.now().day : 1)).roundToDouble()
-            : actual);
-    final progress = planned > 0 ? (actual / planned).clamp(0.0, 1.0) : (actual > 0 ? 1.0 : 0.0);
-    final percentage = (progress * 100).round();
-    final remaining = (planned - actual).clamp(0.0, double.infinity);
+    final target = state.settings?.dailyRevenueTarget ?? 0;
 
-    final isAchieved = planned > 0 && actual >= planned;
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.primaryBlue.withValues(alpha: 0.08),
-            blurRadius: 20,
-            offset: const Offset(0, 6),
-          ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 4,
-            offset: const Offset(0, 1),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header Row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(PhosphorIconsBold.target, color: Colors.white, size: 19),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Revenue Progress',
-                        style: TextStyle(
-                          fontFamily: 'Plus Jakarta Sans',
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF0F172A),
-                          letterSpacing: -0.3,
-                        ),
-                      ),
-                      Text(
-                        isConfigured ? 'Daily Target Overview' : 'Daily average so far',
-                        style: const TextStyle(
-                          fontFamily: 'Plus Jakarta Sans',
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w500,
-                          color: Color(0xFF64748B),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              // The badge judges the day against `planned`, so the control
-              // that sets `planned` belongs next to it.
-              InkWell(
-                onTap: () => _showDailyTargetDialog(context, ref, configured),
-                borderRadius: BorderRadius.circular(20),
-                child: Container(
-                  padding: const EdgeInsets.fromLTRB(10, 5, 8, 5),
-                  decoration: BoxDecoration(
-                    gradient: isAchieved
-                        ? const LinearGradient(colors: [Color(0xFF10B981), Color(0xFF34D399)])
-                        : const LinearGradient(colors: [Color(0xFF4F46E5), Color(0xFF6366F1)]),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        !isConfigured
-                            ? 'Set target'
-                            : (isAchieved ? '🎯 Met!' : 'In Progress'),
-                        style: const TextStyle(
-                          fontFamily: 'Plus Jakarta Sans',
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(width: 3),
-                      const Icon(PhosphorIconsBold.caretRight, size: 9, color: Colors.white),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 22),
-
-          // Arc gauge + stat column
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              _buildArcGauge(percentage, isAchieved),
-              const SizedBox(width: 20),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildProgressStat('Actual', _formatCurrency(actual), const Color(0xFF4F46E5)),
-                    const SizedBox(height: 10),
-                    _buildProgressStat('Target', _formatCurrency(planned), const Color(0xFF94A3B8)),
-                    const SizedBox(height: 14),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: SizedBox(
-                        height: 7,
-                        child: LinearProgressIndicator(
-                          value: progress,
-                          backgroundColor: const Color(0xFFE2E8F0),
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            isAchieved ? const Color(0xFF10B981) : const Color(0xFF4F46E5),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      planned <= 0 && actual <= 0
-                          ? 'No sales recorded yet today'
-                          : remaining > 0
-                              ? '${_formatCurrency(remaining)} to go'
-                              : '🎯 Daily target achieved!',
-                      style: TextStyle(
-                        fontFamily: 'Plus Jakarta Sans',
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w600,
-                        color: isAchieved ? const Color(0xFF10B981) : const Color(0xFF64748B),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildArcGauge(int percentage, bool achieved) {
-    return SizedBox(
-      width: 80,
-      height: 80,
-      child: CustomPaint(
-        painter: _ArcGaugePainter(
-          progress: (percentage / 100).clamp(0.0, 1.0),
-          achieved: achieved,
-        ),
-        child: Center(
-          child: Text(
-            '$percentage%',
-            style: TextStyle(
-              fontFamily: 'Plus Jakarta Sans',
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-              color: achieved ? const Color(0xFF10B981) : const Color(0xFF4F46E5),
-              letterSpacing: -0.5,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildProgressStat(String label, String value, Color valueColor) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontFamily: 'Plus Jakarta Sans',
-            fontSize: 12.5,
-            fontWeight: FontWeight.w500,
-            color: Color(0xFF94A3B8),
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontFamily: 'Plus Jakarta Sans',
-            fontSize: 13.5,
-            fontWeight: FontWeight.w800,
-            color: valueColor,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPaymentBreakdownCard(DashboardSummary dashboard) {
-    final cash = dashboard.todayCash;
-    final upi = dashboard.todayUpi;
-    // Card isn't offered at checkout any more, but a pay-later balance can
-    // still be settled by card (Clients > Pending > Collect), so card money
-    // does arrive. It used to be left out of every figure here - a balance
-    // cleared by card vanished from the dashboard - so it is counted, and
-    // its row shown only on a day that actually has some.
-    final card = dashboard.todayCard;
-    // Pending: billed today but not handed over. It is deliberately kept out
-    // of "Total Collected" - it is money owed, not money taken.
-    final pending = dashboard.todayOutstanding;
-
-    final collected = cash + upi + card;
-    // Shares of everything billed today, so the rows use one base and add up.
-    final billedTotal = collected + pending;
-
-    final cashPct = billedTotal > 0 ? (cash / billedTotal * 100).round() : 0;
-    final upiPct = billedTotal > 0 ? (upi / billedTotal * 100).round() : 0;
-    final cardPct = billedTotal > 0 ? (card / billedTotal * 100).round() : 0;
-    final pendingPct =
-        billedTotal > 0 ? (pending / billedTotal * 100).round() : 0;
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF10B981), Color(0xFF34D399)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(PhosphorIconsBold.wallet, color: Colors.white, size: 18),
-              ),
-              const SizedBox(width: 12),
-              Column(
+    // No target set: say so and offer to set one. This used to fall back to
+    // "this month's daily average" and draw progress against it, so a salon
+    // with no goal was told "Target reached" on almost any normal day.
+    if (target <= 0) {
+      return DsCard(
+        onTap: () => _showDailyTargetDialog(context, ref, target),
+        child: Row(
+          children: [
+            const Expanded(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Payment Breakdown',
-                    style: TextStyle(
-                      fontFamily: 'Plus Jakarta Sans',
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
-                      letterSpacing: -0.3,
-                    ),
-                  ),
-                  Text(
-                    'Collected: ${_formatCurrency(collected)}',
-                    style: const TextStyle(
-                      fontFamily: 'Plus Jakarta Sans',
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFF64748B),
-                    ),
-                  ),
+                  Text('Daily target', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.slateDark)),
+                  SizedBox(height: 2),
+                  Text('Set a goal to track each day against', style: TextStyle(fontSize: 12.5, color: AppTheme.slateLight)),
                 ],
               ),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          // Stacked bar
-          if (billedTotal > 0) ...[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: SizedBox(
-                height: 10,
-                child: Row(
-                  children: [
-                    if (cashPct > 0)
-                      Flexible(flex: cashPct, child: Container(color: const Color(0xFF10B981))),
-                    if (upiPct > 0)
-                      Flexible(flex: upiPct, child: Container(color: const Color(0xFF8B5CF6))),
-                    if (cardPct > 0)
-                      Flexible(flex: cardPct, child: Container(color: const Color(0xFF0EA5E9))),
-                    if (pendingPct > 0)
-                      Flexible(flex: pendingPct, child: Container(color: const Color(0xFFD97706))),
-                    if (100 - cashPct - upiPct - cardPct - pendingPct > 0)
-                      Flexible(
-                        flex: math.max(1, 100 - cashPct - upiPct - cardPct - pendingPct),
-                        child: Container(color: const Color(0xFFE2E8F0)),
-                      ),
-                  ],
-                ),
-              ),
             ),
-            const SizedBox(height: 18),
-          ],
-
-          // 1. Cash Row
-          _buildPaymentChannelRow(
-            icon: PhosphorIconsBold.money,
-            iconColor: const Color(0xFF10B981),
-            iconBg: const Color(0xFFECFDF5),
-            barColor: const Color(0xFF10B981),
-            label: 'Cash',
-            collectedText: '${_formatCurrency(cash)} collected',
-            percent: cashPct,
-          ),
-          const SizedBox(height: 14),
-
-          // 2. UPI / QR Row
-          _buildPaymentChannelRow(
-            icon: PhosphorIconsBold.qrCode,
-            iconColor: const Color(0xFF8B5CF6),
-            iconBg: const Color(0xFFF5F3FF),
-            barColor: const Color(0xFF8B5CF6),
-            label: 'UPI / QR',
-            collectedText: '${_formatCurrency(upi)} collected',
-            percent: upiPct,
-          ),
-          const SizedBox(height: 14),
-
-          if (card > 0) ...[
-            _buildPaymentChannelRow(
-              icon: PhosphorIconsBold.creditCard,
-              iconColor: const Color(0xFF0EA5E9),
-              iconBg: const Color(0xFFF0F9FF),
-              barColor: const Color(0xFF0EA5E9),
-              label: 'Card',
-              collectedText: '${_formatCurrency(card)} collected',
-              percent: cardPct,
-            ),
-            const SizedBox(height: 14),
-          ],
-
-          // 3. Pending Row - reads "outstanding", not "collected", because
-          // this is the one channel where nothing has been handed over.
-          _buildPaymentChannelRow(
-            icon: PhosphorIconsBold.clockCountdown,
-            iconColor: const Color(0xFFD97706),
-            iconBg: const Color(0xFFFFFBEB),
-            barColor: const Color(0xFFD97706),
-            label: 'Pending',
-            collectedText: '${_formatCurrency(pending)} outstanding',
-            percent: pendingPct,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPaymentChannelRow({
-    required IconData icon,
-    required Color iconColor,
-    required Color iconBg,
-    required Color barColor,
-    required String label,
-    required String collectedText,
-    required int percent,
-  }) {
-    return Row(
-      children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: iconBg,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(icon, color: iconColor, size: 18),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: const TextStyle(
-                  fontFamily: 'Plus Jakarta Sans',
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF0F172A),
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                collectedText,
-                style: const TextStyle(
-                  fontFamily: 'Plus Jakarta Sans',
-                  fontSize: 11.5,
-                  color: Color(0xFF64748B),
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              '$percent%',
-              style: TextStyle(
-                fontFamily: 'Plus Jakarta Sans',
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
-                color: barColor,
-              ),
-            ),
-            const SizedBox(height: 5),
-            SizedBox(
-              width: 54,
-              height: 5,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(3),
-                child: LinearProgressIndicator(
-                  value: (percent / 100).clamp(0.0, 1.0),
-                  backgroundColor: const Color(0xFFF1F5F9),
-                  valueColor: AlwaysStoppedAnimation<Color>(barColor),
-                ),
-              ),
-            ),
+            const Text('Set target', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.slateDark)),
+            const SizedBox(width: 2),
+            const Icon(PhosphorIconsRegular.caretRight, size: 14, color: AppTheme.slateDark),
           ],
         ),
-      ],
-    );
-  }
+      );
+    }
 
-  /// "Get your salon ready": the four things a salon fresh from Add Salon
-  /// needs before the app is useful. A brand-new owner used to land on a
-  /// dashboard of zeros with nothing saying where to start. Each step ticks
-  /// itself off from the salon's real data, and the card disappears for good
-  /// once all four are done - there's nothing to dismiss or store.
-  List<Widget> _buildSetupChecklist(AppData state) {
-    final settings = state.settings;
-    final steps = [
-      (
-        done: (settings?.phone?.trim().isNotEmpty ?? false) && (settings?.address?.trim().isNotEmpty ?? false),
-        icon: PhosphorIconsRegular.storefront,
-        title: 'Add your salon\'s phone and address',
-        detail: 'They appear on bills',
-        onTap: onOpenSettings,
-      ),
-      (
-        done: state.services.isNotEmpty,
-        icon: PhosphorIconsRegular.scissors,
-        title: 'Add your services and prices',
-        detail: 'Haircut, colour, facial...',
-        onTap: onOpenServices,
-      ),
-      (
-        done: state.employees.length > 1,
-        icon: PhosphorIconsRegular.usersThree,
-        title: 'Add your staff',
-        detail: 'So they can log in, clock in and bill',
-        onTap: onOpenTeam,
-      ),
-      (
-        done: state.bills.isNotEmpty,
-        icon: PhosphorIconsRegular.receipt,
-        title: 'Make your first bill',
-        detail: 'Pick a client, tick services, take payment',
-        onTap: onOpenBilling,
-      ),
-    ];
-    final doneCount = steps.where((s) => s.done).length;
-    if (doneCount == steps.length) return const [];
+    final progress = (actual / target).clamp(0.0, 1.0);
+    final remaining = (target - actual).clamp(0.0, double.infinity);
+    final isAchieved = actual >= target;
 
-    return [
-      Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xFFC7D2FE), width: 1.2),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return DsCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          DsSectionTitle(
+            'Daily target',
+            actionLabel: 'Edit',
+            onAction: () => _showDailyTargetDialog(context, ref, target),
+          ),
+          const SizedBox(height: 12),
+          Text.rich(
+            TextSpan(
               children: [
-                const Expanded(
-                  child: Text(
-                    'Get your salon ready',
-                    style: TextStyle(
-                      fontFamily: 'Plus Jakarta Sans',
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
-                      letterSpacing: -0.3,
-                    ),
-                  ),
+                TextSpan(
+                  text: _formatCurrency(actual),
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: AppTheme.slateDark, letterSpacing: -0.4),
                 ),
-                Text(
-                  '$doneCount of ${steps.length} done',
-                  style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF4F46E5)),
+                TextSpan(
+                  text: '  of ${_formatCurrency(target)}',
+                  style: const TextStyle(fontSize: 13.5, color: AppTheme.slateLight),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: doneCount / steps.length,
-                minHeight: 6,
-                backgroundColor: const Color(0xFFEEF2FF),
-                color: const Color(0xFF4F46E5),
-              ),
+          ),
+          const SizedBox(height: 12),
+          DsProgressBar(value: progress),
+          const SizedBox(height: 8),
+          Text(
+            isAchieved ? 'Target reached' : '${_formatCurrency(remaining)} to go',
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: isAchieved ? FontWeight.w600 : FontWeight.w400,
+              color: isAchieved ? AppTheme.accentGreen : AppTheme.slateLight,
             ),
-            const SizedBox(height: 8),
-            for (final step in steps)
-              InkWell(
-                onTap: step.done ? null : step.onTap,
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 2),
-                  child: Row(
-                    children: [
-                      Icon(
-                        step.done ? PhosphorIconsFill.checkCircle : step.icon,
-                        size: 20,
-                        color: step.done ? const Color(0xFF16A34A) : const Color(0xFF4F46E5),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              step.title,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: step.done ? const Color(0xFF94A3B8) : const Color(0xFF0F172A),
-                                decoration: step.done ? TextDecoration.lineThrough : null,
-                              ),
-                            ),
-                            if (!step.done)
-                              Text(
-                                step.detail,
-                                style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
-                              ),
-                          ],
-                        ),
-                      ),
-                      if (!step.done) const Icon(PhosphorIconsRegular.caretRight, size: 15, color: Color(0xFF94A3B8)),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        ),
+          ),
+        ],
       ),
-      const SizedBox(height: 20),
-    ];
-  }
-
-  Widget _buildQuickActionsCard() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: InkWell(
-                onTap: onOpenBilling,
-                borderRadius: BorderRadius.circular(18),
-                child: Container(
-                  height: 54,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF4F46E5), Color(0xFF4338CA)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(18),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF4F46E5).withValues(alpha: 0.35),
-                        blurRadius: 14,
-                        offset: const Offset(0, 5),
-                      ),
-                    ],
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(PhosphorIconsBold.shoppingCart, color: Colors.white, size: 19),
-                      SizedBox(width: 9),
-                      Text(
-                        'Start Billing',
-                        style: TextStyle(
-                          fontFamily: 'Plus Jakarta Sans',
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: InkWell(
-                onTap: onOpenAttendance,
-                borderRadius: BorderRadius.circular(18),
-                child: Container(
-                  height: 54,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.03),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(PhosphorIconsRegular.calendarBlank, color: Color(0xFF475467), size: 19),
-                      SizedBox(width: 9),
-                      Text(
-                        'Attendance',
-                        style: TextStyle(
-                          fontFamily: 'Plus Jakarta Sans',
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF475467),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
     );
   }
-}
 
-// ─── Arc Gauge Painter ────────────────────────────────────────────────────────
+  Widget _buildPaymentsCard(DashboardSummary dashboard) {
+    final cash = dashboard.todayCash;
+    final upi = dashboard.todayUpi;
+    // Card isn't offered at checkout any more, but a pay-later balance can
+    // still be settled by card (Clients > Pending > Collect), so its row
+    // shows on a day that actually has some.
+    final card = dashboard.todayCard;
+    // Billed today but not handed over - money owed, so it stays out of
+    // the collected total.
+    final pending = dashboard.todayOutstanding;
+    final collected = cash + upi + card;
 
-class _ArcGaugePainter extends CustomPainter {
-  final double progress;
-  final bool achieved;
-
-  const _ArcGaugePainter({required this.progress, required this.achieved});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final cy = size.height / 2;
-    final radius = (size.width / 2) - 6;
-    const strokeWidth = 7.0;
-
-    final trackPaint = Paint()
-      ..color = const Color(0xFFEEF2FF)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round;
-
-    final progressPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round
-      ..shader = achieved
-          ? const LinearGradient(
-              colors: [Color(0xFF10B981), Color(0xFF34D399)],
-            ).createShader(Rect.fromCircle(center: Offset(cx, cy), radius: radius))
-          : const LinearGradient(
-              colors: [Color(0xFF4F46E5), Color(0xFF818CF8)],
-            ).createShader(Rect.fromCircle(center: Offset(cx, cy), radius: radius));
-
-    const startAngle = math.pi * 0.75;
-    const sweepMax = math.pi * 1.5;
-
-    canvas.drawArc(
-      Rect.fromCircle(center: Offset(cx, cy), radius: radius),
-      startAngle,
-      sweepMax,
-      false,
-      trackPaint,
+    return DsCard(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const DsSectionTitle('Payments today'),
+          const SizedBox(height: 6),
+          DsValueRow(label: 'Cash', value: _formatCurrency(cash), dot: AppTheme.accentGreen),
+          DsValueRow(label: 'UPI', value: _formatCurrency(upi), dot: AppTheme.tintBlue),
+          if (card > 0) DsValueRow(label: 'Card', value: _formatCurrency(card), dot: AppTheme.tintTeal),
+          const Divider(height: 12, color: AppTheme.borderSubtle),
+          DsValueRow(label: 'Collected', value: _formatCurrency(collected), emphasise: true),
+          DsValueRow(
+            dot: AppTheme.accentAmber,
+            label: 'Still to collect',
+            value: _formatCurrency(pending),
+            valueColor: pending > 0 ? AppTheme.accentAmber : AppTheme.slateLight,
+          ),
+        ],
+      ),
     );
-
-    if (progress > 0) {
-      canvas.drawArc(
-        Rect.fromCircle(center: Offset(cx, cy), radius: radius),
-        startAngle,
-        sweepMax * progress,
-        false,
-        progressPaint,
-      );
-    }
   }
-
-  @override
-  bool shouldRepaint(_ArcGaugePainter old) =>
-      old.progress != progress || old.achieved != achieved;
 }

@@ -70,7 +70,7 @@ class _EmptyArchive extends StatelessWidget {
               'Nothing archived',
               style: TextStyle(
                 fontSize: 15,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
                 color: AppTheme.slateDark,
               ),
             ),
@@ -180,7 +180,7 @@ class _ArchivedRowState extends ConsumerState<_ArchivedRow> {
                   cust.name,
                   style: const TextStyle(
                     fontSize: 14,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     color: AppTheme.slateDark,
                   ),
                   maxLines: 1,

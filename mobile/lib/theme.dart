@@ -21,12 +21,17 @@ TextStyle _pjs({
 }
 
 class AppTheme {
-  // Brand — refined indigo, modern SaaS.
-  static const Color primaryBlue = Color(0xFF4F46E5);
-  static const Color primaryDark = Color(0xFF4338CA);
-  static const Color primaryDarker = Color(0xFF3730A3);
-  static const Color primaryLight = Color(0xFFEEF2FF);
-  static const Color primarySoft = Color(0xFFE0E7FF);
+  // Deep teal, professional: teal is the brand - buttons, the current tab,
+  // links, progress and selection - on slate neutrals, with green / amber /
+  // red only for status. Colour is used flat: no gradients and no coloured
+  // glows, which were most of what made the old indigo design read as
+  // machine-made. The names are kept from that design (primaryBlue is now
+  // teal) so every screen picks the palette up from here.
+  static const Color primaryBlue = Color(0xFF0F766E);
+  static const Color primaryDark = Color(0xFF115E59);
+  static const Color primaryDarker = Color(0xFF134E4A);
+  static const Color primaryLight = Color(0xFFF0FDFA);
+  static const Color primarySoft = Color(0xFFCCFBF1);
 
   // Neutrals.
   static const Color slateDark = Color(0xFF0F172A);
@@ -35,31 +40,39 @@ class AppTheme {
   static const Color textMuted = Color(0xFF98A2B3);
   static const Color borderSubtle = Color(0xFFE4E8EF);
   static const Color borderStrong = Color(0xFFD0D5DD);
-  static const Color bgSurface = Color(0xFFF8F9FC);
+  static const Color bgSurface = Color(0xFFF6F8FA);
   static const Color cardBg = Color(0xFFFFFFFF);
 
   // Status.
-  static const Color accentGreen = Color(0xFF12B76A);
-  static const Color accentGreenBg = Color(0xFFECFDF3);
-  static const Color accentRed = Color(0xFFF04438);
-  static const Color accentRedBg = Color(0xFFFEF3F2);
-  static const Color accentAmber = Color(0xFFF79009);
-  static const Color accentAmberBg = Color(0xFFFFFAEB);
-  static const Color accentGold = Color(0xFFFBBF24);
+  static const Color accentGreen = Color(0xFF16A34A);
+  static const Color accentGreenBg = Color(0xFFF0FDF4);
+  static const Color accentRed = Color(0xFFDC2626);
+  static const Color accentRedBg = Color(0xFFFEF2F2);
+  static const Color accentAmber = Color(0xFFD97706);
+  static const Color accentAmberBg = Color(0xFFFFFBEB);
+  static const Color accentGold = Color(0xFFF59E0B);
 
-  // Data/stat accents — sibling hues to the primary indigo, for
-  // color-coding distinct metrics (kept off the status palette above).
-  static const Color statViolet = Color(0xFF7C3AED);
+  // Supporting tints for icons beside figures (see DsStat): one hue per
+  // kind of number, always as a soft tile, never as a gradient.
+  static const Color statViolet = Color(0xFF2563EB);
   static const Color statTeal = Color(0xFF0D9488);
+  static const Color tintTeal = Color(0xFF0F766E);
+  static const Color tintTealBg = Color(0xFFF0FDFA);
+  static const Color tintBlue = Color(0xFF2563EB);
+  static const Color tintBlueBg = Color(0xFFEFF6FF);
+  static const Color tintAmber = Color(0xFFD97706);
+  static const Color tintAmberBg = Color(0xFFFFF7ED);
+  static const Color tintRose = Color(0xFFE11D48);
+  static const Color tintRoseBg = Color(0xFFFFF1F2);
 
   static List<BoxShadow> get shadowSm => [
         BoxShadow(color: slateDark.withValues(alpha: 0.04), blurRadius: 2, offset: const Offset(0, 1)),
-        BoxShadow(color: slateDark.withValues(alpha: 0.06), blurRadius: 4, offset: const Offset(0, 1)),
+        BoxShadow(color: slateDark.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 1)),
       ];
 
   static List<BoxShadow> get shadowMd => [
         BoxShadow(color: slateDark.withValues(alpha: 0.05), blurRadius: 8, offset: const Offset(0, 2)),
-        BoxShadow(color: slateDark.withValues(alpha: 0.08), blurRadius: 16, offset: const Offset(0, 4)),
+        BoxShadow(color: slateDark.withValues(alpha: 0.05), blurRadius: 16, offset: const Offset(0, 4)),
       ];
 
   static ThemeData get lightTheme {
@@ -81,7 +94,7 @@ class AppTheme {
       labelMedium: _pjs(fontSize: 12.5, fontWeight: FontWeight.w600, letterSpacing: 0.1, color: slateMedium),
     );
 
-    final buttonShape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(14));
+    final buttonShape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(10));
     const buttonPadding = EdgeInsets.symmetric(horizontal: 22, vertical: 15);
 
     return ThemeData(
@@ -125,11 +138,11 @@ class AppTheme {
       ),
       cardTheme: CardThemeData(
         color: cardBg,
-        elevation: 2,
-        shadowColor: slateDark.withValues(alpha: 0.10),
+        elevation: 0,
+        shadowColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(14),
           side: const BorderSide(color: borderSubtle, width: 1),
         ),
         margin: EdgeInsets.zero,
@@ -148,13 +161,10 @@ class AppTheme {
             return Colors.white;
           }),
           overlayColor: WidgetStateProperty.all(Colors.white.withValues(alpha: 0.08)),
-          elevation: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.disabled)) return 0;
-            if (states.contains(WidgetState.pressed)) return 1;
-            if (states.contains(WidgetState.hovered)) return 6;
-            return 2;
-          }),
-          shadowColor: WidgetStateProperty.all(primaryBlue.withValues(alpha: 0.35)),
+          // Flat: a solid black button needs no shadow to read as the
+          // primary action.
+          elevation: WidgetStateProperty.all(0),
+          shadowColor: WidgetStateProperty.all(Colors.transparent),
           shape: WidgetStateProperty.all(buttonShape),
           padding: WidgetStateProperty.all(buttonPadding),
           textStyle: WidgetStateProperty.all(_pjs(fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: 0.1)),
@@ -215,7 +225,7 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: const Color(0xFFF9FAFB),
+        fillColor: const Color(0xFFFAFAFA),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
@@ -279,10 +289,10 @@ class AppTheme {
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: Colors.white,
-        elevation: 8,
+        elevation: 3,
         surfaceTintColor: Colors.transparent,
-        shadowColor: slateDark.withValues(alpha: 0.2),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shadowColor: slateDark.withValues(alpha: 0.12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         titleTextStyle: _pjs(fontSize: 18, fontWeight: FontWeight.w700, color: slateDark),
         contentTextStyle: _pjs(fontSize: 14, color: slateMedium),
       ),
@@ -337,7 +347,7 @@ class AppTheme {
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
         elevation: 8,
-        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
       ),
       listTileTheme: ListTileThemeData(
         iconColor: slateLight,

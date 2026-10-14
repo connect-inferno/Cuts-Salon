@@ -10,7 +10,6 @@ import '../../../data/salary_provider.dart';
 import '../../../data/models.dart';
 import '../../../widgets/app_page_header.dart';
 import '../../../widgets/app_page_switcher.dart';
-import '../../../widgets/app_settings_page.dart';
 import '../../../widgets/add_customer_page.dart';
 import '../../../widgets/app_sub_page.dart';
 import '../../../widgets/pay_period_picker.dart';
@@ -23,8 +22,6 @@ import '../../../data/birthday.dart';
 import '../../auth/auth_provider.dart';
 import 'add_employee_page.dart';
 import 'owner_shift_card.dart';
-import 'owner_archived_clients.dart';
-import 'owner_management_tabs.dart';
 import 'owner_payroll_view.dart';
 
 /// How overdue a client is for their next appointment.
@@ -90,10 +87,6 @@ int daysSinceVisit(DateTime last, DateTime now) {
 
 String _initials(String name) => name.split(' ').where((n) => n.isNotEmpty).map((n) => n[0]).take(2).join();
 
-const _kMonthNamesLong = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
 
 String _formatDate(DateTime? d) {
   if (d == null) return '-';
@@ -192,32 +185,6 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
     );
   }
 
-  /// Everything client-related, on one screen - the same shape as Billing's
-  /// settings, so the gear means the same thing on every page.
-  void _openClientSettings(BuildContext context, AppData state) {
-    final archived = state.archivedCustomers.length;
-    // Outstanding used to be a second section here. "Who owes us money" is a
-    // daily question, not a setting, and the directory already carries a
-    // Pending Payments button that opens the same DuesView - two doors onto
-    // one page, one of them behind a gear, is what made it hard to find.
-
-    openAppSettings(
-      context,
-      title: 'Client Settings',
-      subtitle: 'Client records and their money',
-      sections: [
-        AppSettingsSection(
-          icon: PhosphorIconsRegular.archive,
-          label: 'Archived',
-          description: archived > 0
-              ? '$archived archived client${archived == 1 ? '' : 's'}. They are hidden from the directory and from billing until restored.'
-              : 'No archived clients. Archiving hides a client everywhere without deleting their history.',
-          builder: (_) => const OwnerArchivedClientsView(),
-        ),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Consumer(
@@ -234,15 +201,14 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                   title: 'Clients',
                   subtitle: '${state.customers.length} on the books',
                   actions: [
+                    // Bell only. The gear here opened "Client Settings",
+                    // which held nothing but the archived list - already the
+                    // Archived filter chip on this page.
                     AppPageAction(
                       icon: PhosphorIconsRegular.bell,
-                      tooltip: 'Notifications',
-                      badgeCount: state.pendingDiscountCount,
+                      tooltip: 'Requests',
+                      badgeCount: state.pendingDiscountCount + state.pendingPaymentRequestCount,
                       onTap: () => widget.onOpenNotifications?.call(),
-                    ),
-                    appSettingsAction(
-                      tooltip: 'Client settings',
-                      onTap: () => _openClientSettings(context, state),
                     ),
                   ],
                 ),
@@ -305,17 +271,17 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
               backgroundColor: switch (followUp) {
                 FollowUp.overdue => const Color(0xFFFEE2E2),
                 FollowUp.dueSoon => const Color(0xFFFEF3C7),
-                FollowUp.none => const Color(0xFFEEF2FF),
+                FollowUp.none => const Color(0xFFF0FDFA),
               },
               child: Text(
                 _initials(cust.name),
                 style: TextStyle(
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                   fontSize: 12,
                   color: switch (followUp) {
                     FollowUp.overdue => _kOverdueColor,
                     FollowUp.dueSoon => _kDueSoonColor,
-                    FollowUp.none => const Color(0xFF4F46E5),
+                    FollowUp.none => const Color(0xFF0F766E),
                   },
                 ),
               ),
@@ -426,7 +392,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                 '${days}d',
                 style: TextStyle(
                   fontSize: 10.5,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                   color: color,
                 ),
               ),
@@ -582,13 +548,13 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                     OutlinedButton.icon(
                       onPressed: () => openAppSubPage(
                         context,
-                        title: 'Pending Payments',
-                        subtitle: 'Outstanding balances by client',
+                        title: 'Dues',
+                        subtitle: 'What clients still owe, by client',
                         child: const DuesView(),
                       ),
                       icon: const Icon(PhosphorIconsRegular.handCoins, size: 15),
                       label: Text(
-                        owingCount > 0 ? 'Pending ($owingCount)' : 'Pending',
+                        owingCount > 0 ? 'Dues ($owingCount)' : 'Dues',
                         style: const TextStyle(
                           fontSize: 12.5,
                           fontWeight: FontWeight.w700,
@@ -613,15 +579,11 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                     const SizedBox(width: 20),
                     DecoratedBox(
                       decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
+                        color: Color(0xFF0F766E),
                         borderRadius: BorderRadius.circular(20),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFF4F46E5).withValues(alpha: 0.35),
+                            color: const Color(0xFF0F766E).withValues(alpha: 0.06),
                             blurRadius: 10,
                             offset: const Offset(0, 3),
                           ),
@@ -673,7 +635,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(16),
-                      borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.5),
+                      borderSide: const BorderSide(color: Color(0xFF0F766E), width: 1.5),
                     ),
                   ),
                 ),
@@ -739,7 +701,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                       'Customer Directory',
                       style: TextStyle(
                         fontSize: 15,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         color: Color(0xFF0F172A),
                         letterSpacing: -0.2,
                       ),
@@ -826,9 +788,9 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
     Color? accent,
     Color? accentBg,
   }) {
-    final fg = accent ?? const Color(0xFF4F46E5);
-    final selectedBg = accentBg ?? const Color(0xFFEEF2FF);
-    final selectedBorder = accent ?? const Color(0xFFC7D2FE);
+    final fg = accent ?? const Color(0xFF0F766E);
+    final selectedBg = accentBg ?? const Color(0xFFF0FDFA);
+    final selectedBorder = accent ?? const Color(0xFF99F6E4);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(20),
@@ -857,7 +819,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
               label,
               style: TextStyle(
                 fontSize: 11.5,
-                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
                 color: isSelected ? fg : const Color(0xFF64748B),
               ),
             ),
@@ -971,10 +933,10 @@ class _OwnerCustomerDetailPageState extends ConsumerState<OwnerCustomerDetailPag
                 if (cust != null) ...[
                   CircleAvatar(
                     radius: 19,
-                    backgroundColor: const Color(0xFFEEF2FF),
+                    backgroundColor: const Color(0xFFF0FDFA),
                     child: Text(
                       _initials(cust.name),
-                      style: const TextStyle(color: Color(0xFF4F46E5), fontWeight: FontWeight.w800, fontSize: 13),
+                      style: const TextStyle(color: Color(0xFF0F766E), fontWeight: FontWeight.w700, fontSize: 13),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -985,7 +947,7 @@ class _OwnerCustomerDetailPageState extends ConsumerState<OwnerCustomerDetailPag
                       children: [
                         Text(
                           cust.name,
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF0F172A), letterSpacing: -0.3),
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A), letterSpacing: -0.3),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -1007,7 +969,7 @@ class _OwnerCustomerDetailPageState extends ConsumerState<OwnerCustomerDetailPag
                       ),
                       child: const Text(
                         '★ VIP',
-                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFFD97706)),
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFFD97706)),
                       ),
                     ),
                 ] else
@@ -1049,15 +1011,15 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                 Row(
                   children: [
                     CircleAvatar(
-                      backgroundColor: const Color(0xFFEEF2FF),
-                      child: Text(_initials(cust.name), style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF4F46E5))),
+                      backgroundColor: const Color(0xFFF0FDFA),
+                      child: Text(_initials(cust.name), style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF0F766E))),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(cust.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                          Text(cust.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
                           Text(cust.phone, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
                         ],
                       ),
@@ -1066,7 +1028,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                 ),
                 const SizedBox(height: 20),
                 ListTile(
-                  leading: const Icon(PhosphorIconsRegular.receipt, color: Color(0xFF4F46E5)),
+                  leading: const Icon(PhosphorIconsRegular.receipt, color: Color(0xFF0F766E)),
                   title: const Text('Start New Bill', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
                   onTap: () {
                     Navigator.pop(ctx);
@@ -1090,7 +1052,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                   },
                 ),
                 ListTile(
-                  leading: const Icon(PhosphorIconsRegular.clockCounterClockwise, color: Color(0xFF4F46E5)),
+                  leading: const Icon(PhosphorIconsRegular.clockCounterClockwise, color: Color(0xFF0F766E)),
                   title: const Text('View All Visits', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                   onTap: () {
                     Navigator.pop(ctx);
@@ -1291,7 +1253,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('${cust.name} — Visit History', overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: Color(0xFF0F172A))),
+                            Text('${cust.name} — Visit History', overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: Color(0xFF0F172A))),
                             Text('${bills.length} total visits', style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
                           ],
                         ),
@@ -1315,12 +1277,12 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                                 leading: Container(
                                   width: 38,
                                   height: 38,
-                                  decoration: BoxDecoration(color: const Color(0xFFEEF2FF), borderRadius: BorderRadius.circular(10)),
-                                  child: const Icon(PhosphorIconsBold.receipt, color: Color(0xFF4F46E5), size: 18),
+                                  decoration: BoxDecoration(color: const Color(0xFFF0FDFA), borderRadius: BorderRadius.circular(10)),
+                                  child: const Icon(PhosphorIconsBold.receipt, color: Color(0xFF0F766E), size: 18),
                                 ),
                                 title: Text('#${bill.invoiceNumber} • ${_formatShortDate(bill.createdAt)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF0F172A))),
                                 subtitle: Text(itemNames.isNotEmpty ? itemNames : 'Standard Visit', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
-                                trailing: Text('₹${bill.finalAmount.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Color(0xFF0F172A))),
+                                trailing: Text('₹${bill.finalAmount.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF0F172A))),
                               );
                             },
                           ),
@@ -1386,13 +1348,13 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
             children: [
               CircleAvatar(
                 radius: 22,
-                backgroundColor: const Color(0xFFEEF2FF),
+                backgroundColor: const Color(0xFFF0FDFA),
                 child: Text(
                   _initials(cust.name),
                   style: const TextStyle(
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w700,
                     fontSize: 16,
-                    color: Color(0xFF4F46E5),
+                    color: Color(0xFF0F766E),
                   ),
                 ),
               ),
@@ -1408,7 +1370,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                             cust.name,
                             style: const TextStyle(
                               fontSize: 16,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w700,
                               color: Color(0xFF0F172A),
                               letterSpacing: -0.2,
                             ),
@@ -1420,15 +1382,15 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFEEF2FF),
+                              color: const Color(0xFFF0FDFA),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: const Text(
                               '★ VIP',
                               style: TextStyle(
                                 fontSize: 9.5,
-                                fontWeight: FontWeight.w800,
-                                color: Color(0xFF4F46E5),
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF0F766E),
                               ),
                             ),
                           ),
@@ -1495,8 +1457,8 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                   icon: const Icon(PhosphorIconsBold.receipt, size: 14, color: Colors.white),
                   label: const Text('New Bill', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white)),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF4F46E5),
-                    shadowColor: const Color(0xFF4F46E5).withValues(alpha: 0.3),
+                    backgroundColor: const Color(0xFF0F766E),
+                    shadowColor: const Color(0xFF0F766E).withValues(alpha: 0.3),
                     elevation: 3,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     padding: const EdgeInsets.symmetric(vertical: 8),
@@ -1558,7 +1520,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                     ),
                     Text(
                       '₹${outstanding.toStringAsFixed(0)}',
-                      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Color(0xFF78350F)),
+                      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Color(0xFF78350F)),
                     ),
                     const SizedBox(width: 6),
                     const Icon(PhosphorIconsBold.caretRight, size: 13, color: Color(0xFFB45309)),
@@ -1575,8 +1537,8 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
               Expanded(
                 child: _buildMetricTile(
                   icon: PhosphorIconsFill.wallet,
-                  iconBg: const Color(0xFFEEF2FF),
-                  iconColor: const Color(0xFF4F46E5),
+                  iconBg: const Color(0xFFF0FDFA),
+                  iconColor: const Color(0xFF0F766E),
                   label: 'Total Spent',
                   value: '₹${totalSpent.toStringAsFixed(0)}',
                 ),
@@ -1585,8 +1547,8 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
               Expanded(
                 child: _buildMetricTile(
                   icon: PhosphorIconsFill.calendarBlank,
-                  iconBg: const Color(0xFFE0F2FE),
-                  iconColor: const Color(0xFF0284C7),
+                  iconBg: const Color(0xFFEFF6FF),
+                  iconColor: const Color(0xFF1D4ED8),
                   label: 'Visits',
                   value: '$visits',
                 ),
@@ -1683,7 +1645,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                 'Visit History',
                 style: TextStyle(
                   fontSize: 14,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                   color: Color(0xFF0F172A),
                   letterSpacing: -0.2,
                 ),
@@ -1697,7 +1659,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                     style: TextStyle(
                       fontSize: 11.5,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF4F46E5),
+                      color: Color(0xFF0F766E),
                     ),
                   ),
                 ),
@@ -1714,7 +1676,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                 child: SizedBox(
                   width: 20,
                   height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF4F46E5)),
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0F766E)),
                 ),
               ),
             )
@@ -1739,12 +1701,12 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                       width: 34,
                       height: 34,
                       decoration: BoxDecoration(
-                        color: const Color(0xFFEEF2FF),
+                        color: const Color(0xFFF0FDFA),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: const Icon(
                         PhosphorIconsBold.receipt,
-                        color: Color(0xFF4F46E5),
+                        color: Color(0xFF0F766E),
                         size: 16,
                       ),
                     ),
@@ -1777,7 +1739,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                       '₹${bill.finalAmount.toStringAsFixed(0)}',
                       style: const TextStyle(
                         fontSize: 13.5,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         color: Color(0xFF0F172A),
                       ),
                     ),
@@ -1830,7 +1792,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
             value,
             style: const TextStyle(
               fontSize: 13.5,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
               color: Color(0xFF0F172A),
             ),
             overflow: TextOverflow.ellipsis,
@@ -1918,7 +1880,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
               alignment: Alignment.center,
               child: Text(
                 _initials(emp.name),
-                style: TextStyle(color: fg, fontWeight: FontWeight.w800, fontSize: 12),
+                style: TextStyle(color: fg, fontWeight: FontWeight.w700, fontSize: 12),
               ),
             ),
             const SizedBox(width: 12),
@@ -1997,15 +1959,15 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                         subtitle:
                             '${state.employees.length} staff · $present in today',
                         actions: [
+                          // Bell only - Attendance and Payroll were behind a
+                          // "Team settings" gear; they're buttons on the page
+                          // now (see _buildBody), and discount requests are
+                          // in the bell's inbox.
                           AppPageAction(
                             icon: PhosphorIconsRegular.bell,
-                            tooltip: 'Notifications',
-                            badgeCount: state.pendingDiscountCount,
+                            tooltip: 'Requests',
+                            badgeCount: state.pendingDiscountCount + state.pendingPaymentRequestCount,
                             onTap: () => widget.onOpenNotifications?.call(),
-                          ),
-                          appSettingsAction(
-                            tooltip: 'Team settings',
-                            onTap: () => _openTeamSettings(context, state),
                           ),
                         ],
                       ),
@@ -2018,47 +1980,6 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
           },
         );
       },
-    );
-  }
-
-  /// Everything staff-related, on one screen.
-  ///
-  /// Attendance was its own top-level page and payroll was buried inside an
-  /// individual employee's profile, so "who worked this month" and "what do
-  /// I owe them" lived nowhere near the roster they both describe.
-  void _openTeamSettings(BuildContext context, AppData state) {
-    final now = DateTime.now();
-    final presentToday =
-        state.employees.where((e) => _todayStatus(state, e.id) == 'PRESENT').length;
-
-    openAppSettings(
-      context,
-      title: 'Team Settings',
-      subtitle: 'Attendance, pay and targets',
-      sections: [
-        AppSettingsSection(
-          icon: PhosphorIconsRegular.calendarCheck,
-          label: 'Attendance',
-          description:
-              '$presentToday of ${state.employees.length} marked present today. Late arrivals are penalised at the rate set in Salon Settings.',
-          builder: (_) => const OwnerAttendanceTab(),
-        ),
-        AppSettingsSection(
-          icon: PhosphorIconsRegular.percent,
-          label: 'Discounts',
-          description:
-              'Discount requests your staff have raised against a bill.',
-          badgeCount: state.pendingDiscountCount,
-          builder: (_) => const OwnerDiscountsTab(),
-        ),
-        AppSettingsSection(
-          icon: PhosphorIconsRegular.wallet,
-          label: 'Payroll',
-          description:
-              'Salary slips generated for ${_kMonthNamesLong[now.month - 1]}. A slip pays out the commissions earned since the last one.',
-          builder: (_) => const OwnerPayrollView(),
-        ),
-      ],
     );
   }
 
@@ -2081,7 +2002,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
           color: isSelected ? null : Colors.white,
           gradient: isSelected
               ? const LinearGradient(
-                  colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
+                  colors: [Color(0xFF0F766E), Color(0xFF0D9488)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 )
@@ -2093,7 +2014,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: const Color(0xFF4F46E5).withValues(alpha: 0.25),
+                    color: const Color(0xFF0F766E).withValues(alpha: 0.06),
                     blurRadius: 8,
                     offset: const Offset(0, 3),
                   )
@@ -2113,7 +2034,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
               label,
               style: TextStyle(
                 fontSize: 12.5,
-                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
                 color: isSelected ? Colors.white : const Color(0xFF475467),
               ),
             ),
@@ -2133,7 +2054,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                   '$count',
                   style: TextStyle(
                     fontSize: 11,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     color: isSelected ? Colors.white : const Color(0xFF64748B),
                   ),
                 ),
@@ -2167,7 +2088,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(PhosphorIconsFill.mapPin, size: 14, color: Color(0xFF4F46E5)),
+            const Icon(PhosphorIconsFill.mapPin, size: 14, color: Color(0xFF0F766E)),
             const SizedBox(width: 7),
             // Flexible, because this pill now shares its line with the Add
             // Staff button: a long branch name has to give way rather than
@@ -2215,13 +2136,13 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
             leading: Icon(
               branchId == null ? PhosphorIconsRegular.buildings : PhosphorIconsRegular.storefront,
               size: 19,
-              color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
+              color: isSelected ? const Color(0xFF0F766E) : const Color(0xFF94A3B8),
             ),
             title: Text(
               label,
               style: TextStyle(
                 fontSize: 14,
-                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
                 color: const Color(0xFF0F172A),
               ),
             ),
@@ -2230,7 +2151,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
               style: const TextStyle(fontSize: 11.5, color: Color(0xFF94A3B8)),
             ),
             trailing: isSelected
-                ? const Icon(PhosphorIconsBold.check, size: 17, color: Color(0xFF4F46E5))
+                ? const Icon(PhosphorIconsBold.check, size: 17, color: Color(0xFF0F766E))
                 : null,
             onTap: () {
               setState(() => _branchFilterId = branchId);
@@ -2248,7 +2169,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                 padding: EdgeInsets.fromLTRB(20, 20, 20, 4),
                 child: Text(
                   'Show staff from',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
                 ),
               ),
               option('All branches', null, state.employees.length),
@@ -2318,19 +2239,8 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8.5),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
+                    color: AppTheme.primaryBlue,
                     borderRadius: BorderRadius.circular(22),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF4F46E5).withValues(alpha: 0.35),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
                   ),
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
@@ -2347,6 +2257,41 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                       ),
                     ],
                   ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Attendance and Payroll are daily/monthly team jobs, so they're
+          // on the page - they used to hide behind a "Team settings" gear.
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => openAppSubPage(
+                    context,
+                    title: 'Attendance',
+                    subtitle: "Your shift, and today's roster",
+                    child: const OwnerAttendanceTab(),
+                  ),
+                  icon: const Icon(PhosphorIconsRegular.calendarCheck, size: 17),
+                  label: const Text('Attendance'),
+                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 11)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => openAppSubPage(
+                    context,
+                    title: 'Payroll',
+                    subtitle: 'Salary slips and commission payouts',
+                    child: const OwnerPayrollView(),
+                  ),
+                  icon: const Icon(PhosphorIconsRegular.wallet, size: 17),
+                  label: const Text('Payroll'),
+                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 11)),
                 ),
               ),
             ],
@@ -2411,7 +2356,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                 'Team Roster',
                 style: TextStyle(
                   fontSize: 14,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                   color: Color(0xFF0F172A),
                 ),
               ),
@@ -2484,7 +2429,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
               const Expanded(
                 child: Text(
                   'Staff & Stylists',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.slateDark),
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.slateDark),
                 ),
               ),
               IconButton(
@@ -2543,7 +2488,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(6)),
-                                child: Text(status, style: TextStyle(color: statusColor, fontSize: 9, fontWeight: FontWeight.w800)),
+                                child: Text(status, style: TextStyle(color: statusColor, fontSize: 9, fontWeight: FontWeight.w700)),
                               ),
                             ],
                           ),
@@ -2612,14 +2557,14 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                 CircleAvatar(
                   radius: 32,
                   backgroundColor: AppTheme.primaryBlue,
-                  child: Text(_initials(emp.name), style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900)),
+                  child: Text(_initials(emp.name), style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(emp.name, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.slateDark)),
+                      Text(emp.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.slateDark)),
                       Text(emp.roleTitle, style: const TextStyle(color: AppTheme.primaryBlue, fontWeight: FontWeight.w700, fontSize: 12)),
                       const SizedBox(height: 4),
                       Text('Phone: ${emp.phone}', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
@@ -2646,7 +2591,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Sales Target', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.slateDark)),
+                    const Text('Sales Target', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.slateDark)),
                     TextButton.icon(
                       onPressed: () => _showSetSalesTargetDialog(context, ref, emp),
                       icon: const Icon(PhosphorIconsRegular.target, size: 15),
@@ -2663,7 +2608,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text('${target.type == 'SERVICE_VOLUME' ? 'Service Revenue' : 'Product Units'} target', style: const TextStyle(color: AppTheme.slateLight, fontSize: 11)),
-                      Text('${(target.progressFraction * 100).toStringAsFixed(0)}% Achieved', style: const TextStyle(color: AppTheme.primaryBlue, fontWeight: FontWeight.w800, fontSize: 12)),
+                      Text('${(target.progressFraction * 100).toStringAsFixed(0)}% Achieved', style: const TextStyle(color: AppTheme.primaryBlue, fontWeight: FontWeight.w700, fontSize: 12)),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -2675,7 +2620,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Achieved: ${target.progressValue.toStringAsFixed(0)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppTheme.slateDark)),
+                      Text('Achieved: ${target.progressValue.toStringAsFixed(0)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.slateDark)),
                       Text('Target: ${target.targetValue.toStringAsFixed(0)}', style: const TextStyle(fontSize: 12, color: AppTheme.slateLight, fontWeight: FontWeight.w600)),
                     ],
                   ),
@@ -2688,7 +2633,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
             children: [
               Expanded(child: _buildMetricCard('Attendance (Month)', '${attendancePct.toStringAsFixed(0)}%', PhosphorIconsRegular.calendarBlank, AppTheme.accentGreen)),
               const SizedBox(width: 10),
-              Expanded(child: _buildMetricCard('Base Salary', 'Rs. ${emp.baseSalary.toStringAsFixed(0)}', PhosphorIconsRegular.money, AppTheme.slateDark)),
+              Expanded(child: _buildMetricCard('Base Salary', '₹${emp.baseSalary.toStringAsFixed(0)}', PhosphorIconsRegular.money, AppTheme.slateDark)),
             ],
           ),
           const SizedBox(height: 10),
@@ -2709,11 +2654,11 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                 const Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Projected Payout', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.slateDark)),
+                    Text('Projected Payout', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.slateDark)),
                     Text('Base salary + pending commission', style: TextStyle(color: AppTheme.slateLight, fontSize: 11)),
                   ],
                 ),
-                Text('Rs. ${projectedPayout.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: AppTheme.accentGreen)),
+                Text('₹${projectedPayout.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.accentGreen)),
               ],
             ),
           ),
@@ -2861,11 +2806,11 @@ class _OwnerEmployeeDetailPageState extends State<OwnerEmployeeDetailPage> with 
           Container(
             width: 38,
             height: 38,
-            decoration: const BoxDecoration(color: Color(0xFFEEF2FF), shape: BoxShape.circle),
+            decoration: const BoxDecoration(color: Color(0xFFF0FDFA), shape: BoxShape.circle),
             alignment: Alignment.center,
             child: Text(
               _initials(emp.name),
-              style: const TextStyle(color: Color(0xFF4F46E5), fontWeight: FontWeight.w800, fontSize: 13),
+              style: const TextStyle(color: Color(0xFF0F766E), fontWeight: FontWeight.w700, fontSize: 13),
             ),
           ),
           const SizedBox(width: 10),
@@ -2876,7 +2821,7 @@ class _OwnerEmployeeDetailPageState extends State<OwnerEmployeeDetailPage> with 
               children: [
                 Text(
                   emp.name,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF0F172A), letterSpacing: -0.3),
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A), letterSpacing: -0.3),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -2901,7 +2846,10 @@ class _OwnerEmployeeDetailPageState extends State<OwnerEmployeeDetailPage> with 
               borderRadius: BorderRadius.circular(10),
             ),
             child: Text(
-              isPresent ? 'Present' : isLate ? 'Late' : 'Absent',
+              // "Absent" only when someone was marked absent - before they
+              // have clocked in (or been marked) it is just "Not in yet",
+              // not an accusation at 10 in the morning.
+              isPresent ? 'Present' : isLate ? 'Late' : status == 'ABSENT' ? 'Absent' : 'Not in yet',
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w700,
@@ -3385,15 +3333,15 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                 width: 48,
                 height: 48,
                 decoration: const BoxDecoration(
-                  color: Color(0xFFEDE9FE),
+                  color: Color(0xFFDBEAFE),
                   shape: BoxShape.circle,
                 ),
                 alignment: Alignment.center,
                 child: Text(
                   _initials(emp.name),
                   style: const TextStyle(
-                    color: Color(0xFF6366F1),
-                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0D9488),
+                    fontWeight: FontWeight.w700,
                     fontSize: 16,
                   ),
                 ),
@@ -3410,7 +3358,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                             emp.name,
                             style: const TextStyle(
                               fontSize: 16,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w700,
                               color: Color(0xFF0F172A),
                             ),
                             overflow: TextOverflow.ellipsis,
@@ -3420,7 +3368,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                         const Icon(
                           PhosphorIconsFill.checkCircle,
                           size: 16,
-                          color: Color(0xFF6366F1),
+                          color: Color(0xFF0D9488),
                         ),
                       ],
                     ),
@@ -3428,7 +3376,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFEDE9FE),
+                        color: const Color(0xFFDBEAFE),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
@@ -3436,13 +3384,18 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                         style: const TextStyle(
                           fontSize: 10.5,
                           fontWeight: FontWeight.w700,
-                          color: Color(0xFF6366F1),
+                          color: Color(0xFF0D9488),
                         ),
                       ),
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      emp.branchName != null ? 'Branch: ${emp.branchName}' : 'Chair #01 • Tier 1 Master',
+                      // Real data only - this used to fall back to a made-up
+                      // "Chair #01 • Tier 1 Master" for anyone without a
+                      // branch, the owner included.
+                      emp.branchName != null
+                          ? 'Branch: ${emp.branchName}'
+                          : (emp.roleTitle == 'Owner' ? 'All branches' : 'No branch assigned'),
                       style: const TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w500,
@@ -3462,13 +3415,15 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                 child: _buildStaffActionButton(
                   icon: PhosphorIconsRegular.phone,
                   label: 'Call',
+                  // A real call (tel: link) - this only showed a "Calling..."
+                  // snackbar before.
                   onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Calling ${emp.name} (${emp.phone})...'),
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
+                    final number = emp.phone.replaceAll(RegExp(r'[^\d+]'), '');
+                    if (number.isEmpty || !openLink('tel:$number')) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Could not start a call to ${emp.phone}.'), backgroundColor: AppTheme.accentRed),
+                      );
+                    }
                   },
                 ),
               ),
@@ -3498,7 +3453,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
           const SizedBox(height: 8),
           _buildStaffInfoRow(PhosphorIconsRegular.envelopeSimple, 'Email', emp.email),
           const SizedBox(height: 8),
-          _buildStaffInfoRow(PhosphorIconsRegular.calendarCheck, 'Tenure', 'Active Staff Member'),
+          _buildStaffInfoRow(PhosphorIconsRegular.userCircle, 'Status', emp.active ? 'Active' : 'Deactivated'),
         ],
       ),
     );
@@ -3658,12 +3613,12 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
               Container(
                 padding: const EdgeInsets.all(7),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEDE9FE),
+                  color: const Color(0xFFDBEAFE),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
                   PhosphorIconsRegular.trendUp,
-                  color: Color(0xFF6366F1),
+                  color: Color(0xFF0D9488),
                   size: 18,
                 ),
               ),
@@ -3672,7 +3627,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                 child: Text(
                   '$monthName Sales Target',
                   style: const TextStyle(
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     fontSize: 14,
                     color: Color(0xFF0F172A),
                   ),
@@ -3681,15 +3636,15 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEDE9FE),
+                  color: const Color(0xFFDBEAFE),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
                   '${(targetPct * 100).toInt()}% Goal',
                   style: const TextStyle(
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     fontSize: 11,
-                    color: Color(0xFF6366F1),
+                    color: Color(0xFF0D9488),
                   ),
                 ),
               ),
@@ -3704,7 +3659,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                 '₹${targetAchieved.toStringAsFixed(0)}',
                 style: const TextStyle(
                   fontSize: 22,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                   color: Color(0xFF0F172A),
                   letterSpacing: -0.5,
                 ),
@@ -3729,8 +3684,8 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
             child: LinearProgressIndicator(
               value: targetPct.clamp(0.0, 1.0),
               minHeight: 7,
-              backgroundColor: const Color(0xFFEEF2FF),
-              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+              backgroundColor: const Color(0xFFF0FDFA),
+              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF0D9488)),
             ),
           ),
           const SizedBox(height: 10),
@@ -3748,7 +3703,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEDE9FE),
+                  color: const Color(0xFFDBEAFE),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
@@ -3756,7 +3711,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                   style: const TextStyle(
                     fontSize: 10.5,
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFF6366F1),
+                    color: Color(0xFF0D9488),
                   ),
                 ),
               ),
@@ -3794,22 +3749,22 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
         ),
         _buildMetricItemTile(
           icon: PhosphorIconsRegular.identificationCard,
-          iconColor: const Color(0xFF6366F1),
-          iconBg: const Color(0xFFEDE9FE),
+          iconColor: const Color(0xFF0D9488),
+          iconBg: const Color(0xFFDBEAFE),
           badgeText: 'Fixed',
-          badgeColor: const Color(0xFF6366F1),
-          badgeBg: const Color(0xFFEDE9FE),
+          badgeColor: const Color(0xFF0D9488),
+          badgeBg: const Color(0xFFDBEAFE),
           value: '₹${emp.baseSalary.toStringAsFixed(0)}',
           title: 'Base Salary',
           subtext: 'Fixed Monthly',
         ),
         _buildMetricItemTile(
           icon: PhosphorIconsRegular.scissors,
-          iconColor: const Color(0xFF8B5CF6),
-          iconBg: const Color(0xFFF5F3FF),
+          iconColor: const Color(0xFF3B82F6),
+          iconBg: const Color(0xFFEFF6FF),
           badgeText: '${emp.serviceCommissionPct.toInt()}% Tier',
-          badgeColor: const Color(0xFF8B5CF6),
-          badgeBg: const Color(0xFFF5F3FF),
+          badgeColor: const Color(0xFF3B82F6),
+          badgeBg: const Color(0xFFEFF6FF),
           value: '${emp.serviceCommissionPct.toInt()}%',
           title: 'Service Comm.',
           subtext: 'On services',
@@ -3893,7 +3848,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                 value,
                 style: const TextStyle(
                   fontSize: 17,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                   color: Color(0xFF0F172A),
                 ),
                 maxLines: 1,
@@ -3953,9 +3908,9 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F3FF),
+        color: const Color(0xFFEFF6FF),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFDDD6FE)),
+        border: Border.all(color: const Color(0xFFBFDBFE)),
       ),
       padding: const EdgeInsets.all(18),
       child: Column(
@@ -3971,8 +3926,8 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                     'PAYROLL ESTIMATE',
                     style: TextStyle(
                       fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF6366F1),
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF0D9488),
                       letterSpacing: 1.1,
                     ),
                   ),
@@ -3981,7 +3936,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                     'Projected Payout (${monthName.substring(0, 3)})',
                     style: const TextStyle(
                       fontSize: 15,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                       color: Color(0xFF0F172A),
                     ),
                   ),
@@ -3990,7 +3945,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: const BoxDecoration(
-                  color: Color(0xFF6366F1),
+                  color: Color(0xFF0D9488),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -4010,8 +3965,8 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                 '₹${projectedPayout.toStringAsFixed(0)}',
                 style: const TextStyle(
                   fontSize: 24,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF4F46E5),
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF0F766E),
                   letterSpacing: -0.5,
                 ),
               ),
@@ -4027,7 +3982,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
             ],
           ),
           const SizedBox(height: 12),
-          const Divider(height: 1, color: Color(0xFFDDD6FE)),
+          const Divider(height: 1, color: Color(0xFFBFDBFE)),
           const SizedBox(height: 10),
           if (slip != null) ...[
             _buildPayrollBreakdownRow(
@@ -4071,7 +4026,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
             child: ElevatedButton(
               onPressed: () => _showDetailedSlipSheet(context, ref, state, emp),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF6366F1),
+                backgroundColor: const Color(0xFF0D9488),
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(22),
@@ -4157,7 +4112,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                   '${emp.name}\'s Schedule & Attendance',
                   style: const TextStyle(
                     fontSize: 16,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     color: Color(0xFF0F172A),
                   ),
                 ),
@@ -4198,7 +4153,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                               rec.status,
                               style: TextStyle(
                                 fontSize: 10,
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w700,
                                 color: rec.status == 'PRESENT'
                                     ? const Color(0xFF059669)
                                     : rec.status == 'LATE'
@@ -4263,7 +4218,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 fontSize: 16,
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w700,
                                 color: Color(0xFF0F172A),
                               ),
                             ),
@@ -4280,7 +4235,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                           Navigator.pop(ctx);
                           _showGenerateSalaryDialog(context, ref, forEmployee: emp);
                         },
-                        icon: const Icon(PhosphorIconsRegular.calendarPlus, color: Color(0xFF6366F1)),
+                        icon: const Icon(PhosphorIconsRegular.calendarPlus, color: Color(0xFF0D9488)),
                         tooltip: 'Generate Salary',
                       ),
                     ],
@@ -4299,7 +4254,9 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
   }
 
   Widget _buildPendingCommissionsCard(BuildContext context, WidgetRef ref, AppData state, EmployeeProfile emp) {
-    final pending = state.commissions.where((c) => c.employeeId == emp.id && c.status == 'PENDING').toList()
+    // Zero-amount commissions (staff on 0% - the owner, usually) are left
+    // out: a list of "Rs. 0  Mark Paid" rows was all noise and no money.
+    final pending = state.commissions.where((c) => c.employeeId == emp.id && c.status == 'PENDING' && c.amount > 0).toList()
       ..sort((a, b) => (b.calculatedAt ?? DateTime(0)).compareTo(a.calculatedAt ?? DateTime(0)));
 
     Future<void> markPaid(String id) async {
@@ -4318,7 +4275,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Pending Commissions', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.slateDark)),
+          const Text('Pending Commissions', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.slateDark)),
           const SizedBox(height: 4),
           const Text('Paid off automatically the next time payroll runs for the covering month, or mark one individually below.', style: TextStyle(color: AppTheme.slateLight, fontSize: 11)),
           const SizedBox(height: 12),
@@ -4339,7 +4296,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                       Text(_formatDate(c.calculatedAt), style: const TextStyle(fontSize: 11, color: AppTheme.slateLight)),
                       Row(
                         children: [
-                          Text('Rs. ${c.amount.toStringAsFixed(0)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                          Text('₹${c.amount.toStringAsFixed(0)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                           const SizedBox(width: 8),
                           SizedBox(
                             height: 26,
@@ -4388,7 +4345,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Salary History', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppTheme.slateDark)),
+              const Text('Salary History', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.slateDark)),
               TextButton.icon(
                 onPressed: () => _showGenerateSalaryDialog(context, ref, forEmployee: emp),
                 icon: const Icon(PhosphorIconsRegular.calendarPlus, size: 15),
@@ -4419,12 +4376,12 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text('${_monthNames[r.month - 1]} ${r.year}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
-                            Text('Base Rs. ${r.baseSalary.toStringAsFixed(0)} + Commission Rs. ${r.commissionEarned.toStringAsFixed(0)} - Deductions Rs. ${r.deductions.toStringAsFixed(0)}',
+                            Text('Base ₹${r.baseSalary.toStringAsFixed(0)} + Commission ₹${r.commissionEarned.toStringAsFixed(0)} - Deductions ₹${r.deductions.toStringAsFixed(0)}',
                                 style: const TextStyle(color: AppTheme.slateLight, fontSize: 10)),
                           ],
                         ),
                       ),
-                      Text('Rs. ${r.totalPaid.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+                      Text('₹${r.totalPaid.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
                       const SizedBox(width: 10),
                       if (isPaid)
                         const Icon(PhosphorIconsRegular.checkCircle, color: AppTheme.accentGreen, size: 20)
@@ -4456,7 +4413,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
         children: [
           Icon(icon, color: color, size: 18),
           const SizedBox(height: 10),
-          Text(val, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: color), overflow: TextOverflow.ellipsis, maxLines: 1),
+          Text(val, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17, color: color), overflow: TextOverflow.ellipsis, maxLines: 1),
           const SizedBox(height: 2),
           Text(title, style: const TextStyle(color: AppTheme.slateLight, fontSize: 11, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis, maxLines: 1),
         ],
@@ -4468,20 +4425,20 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
 // --- ATTENDANCE TAB ---
 
 const List<Color> _kRosterAvatarBgs = [
-  Color(0xFFEEF2FF),
+  Color(0xFFF0FDFA),
   Color(0xFFFEF3C7),
-  Color(0xFFF5F3FF),
+  Color(0xFFEFF6FF),
   Color(0xFFCCFBF1),
-  Color(0xFFFCE7F3),
+  Color(0xFFFFF1F2),
   Color(0xFFF1F5F9),
 ];
 
 const List<Color> _kRosterAvatarFgs = [
-  Color(0xFF4F46E5),
+  Color(0xFF0F766E),
   Color(0xFFD97706),
-  Color(0xFF7C3AED),
+  Color(0xFF2563EB),
   Color(0xFF0D9488),
-  Color(0xFFDB2777),
+  Color(0xFFBE123C),
   Color(0xFF475467),
 ];
 
@@ -4584,7 +4541,10 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
     if (pending != null) return pending;
     final today = DateTime.now();
     final match = state.attendance.where((a) => a.employeeId == employeeId && a.date != null && _isSameDay(a.date!, today));
-    return match.isEmpty ? 'ABSENT' : match.first.status;
+    // '' = not marked yet. This used to read as ABSENT, so every unmarked
+    // row showed a red "Absent" and confirming the roster wrote it - the
+    // owner could mark the whole team absent at 9am with one tap.
+    return match.isEmpty ? '' : match.first.status;
   }
 
   /// Writes today's roster, then drops the draft for every row that landed.
@@ -4599,9 +4559,10 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
     final dateStr = DateTime.now().toIso8601String().split('T').first;
     // Read the statuses before any await, so what gets written is what was
     // on screen when the button was tapped.
-    final roster = <String, String>{
-      for (final emp in state.employees) emp.id: _statusFor(state, emp.id),
-    };
+    // Only the rows the owner actually set on this screen - nobody is marked
+    // anything they weren't explicitly given.
+    final roster = Map<String, String>.of(_pendingRosterEdits);
+    if (roster.isEmpty) return;
     final notifier = ref.read(appDataProvider.notifier);
 
     setState(() => _submittingRoster = true);
@@ -4629,7 +4590,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
     final messenger = ScaffoldMessenger.of(context);
     if (failures.isEmpty) {
       messenger.showSnackBar(const SnackBar(
-        content: Text('Daily roster confirmed successfully!'),
+        content: Text('Attendance saved'),
         backgroundColor: Color(0xFF10B981),
         behavior: SnackBarBehavior.floating,
       ));
@@ -4668,7 +4629,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                     child: Container(width: 40, height: 4, decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(2))),
                   ),
                   const SizedBox(height: 16),
-                  const Text('Attendance History Log', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                  const Text('Attendance History Log', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
                   const SizedBox(height: 12),
                   Expanded(
                     child: records.isEmpty
@@ -4814,7 +4775,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
             decoration: BoxDecoration(color: badgeBg, borderRadius: BorderRadius.circular(12)),
             child: Text(
               rec.status,
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: badgeFg, letterSpacing: 0.3),
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: badgeFg, letterSpacing: 0.3),
             ),
           ),
         ],
@@ -4841,7 +4802,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
             child: Center(
               child: Text(
                 _initials(emp.name),
-                style: TextStyle(fontWeight: FontWeight.w800, color: fg, fontSize: 13),
+                style: TextStyle(fontWeight: FontWeight.w700, color: fg, fontSize: 13),
               ),
             ),
           ),
@@ -4853,7 +4814,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
               children: [
                 Text(
                   emp.name,
-                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: Color(0xFF0F172A)),
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: Color(0xFF0F172A)),
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 2),
@@ -4910,7 +4871,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: activeColor.withValues(alpha: 0.35),
+                    color: activeColor.withValues(alpha: 0.06),
                     blurRadius: 6,
                     offset: const Offset(0, 2),
                   ),
@@ -4922,7 +4883,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
             letter,
             style: TextStyle(
               fontSize: 11.5,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
               color: isSelected ? Colors.white : const Color(0xFF64748B),
             ),
           ),
@@ -4996,7 +4957,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                             ),
                           ],
                         ),
-                        child: const Icon(PhosphorIconsRegular.calendarBlank, size: 20, color: Color(0xFF4F46E5)),
+                        child: const Icon(PhosphorIconsRegular.calendarBlank, size: 20, color: Color(0xFF0F766E)),
                       ),
                     ),
                   ],
@@ -5047,7 +5008,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                             ),
                             Text(
                               '$presentCount/${state.employees.length} Present',
-                              style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Color(0xFF10B981)),
+                              style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF10B981)),
                             ),
                           ],
                         ),
@@ -5070,18 +5031,18 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFEEF2FF),
+                          color: const Color(0xFFF0FDFA),
                           borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: const Color(0xFFE0E7FF)),
+                          border: Border.all(color: const Color(0xFFCCFBF1)),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: const [
-                            Icon(PhosphorIconsBold.check, size: 13, color: Color(0xFF4F46E5)),
+                            Icon(PhosphorIconsBold.check, size: 13, color: Color(0xFF0F766E)),
                             SizedBox(width: 5),
                             Text(
                               'Mark All Present',
-                              style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Color(0xFF4F46E5)),
+                              style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF0F766E)),
                             ),
                           ],
                         ),
@@ -5120,7 +5081,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                                 'Mark Roster Today',
                                 style: TextStyle(
                                   fontSize: 16,
-                                  fontWeight: FontWeight.w800,
+                                  fontWeight: FontWeight.w700,
                                   color: Color(0xFF0F172A),
                                   letterSpacing: -0.2,
                                 ),
@@ -5135,12 +5096,12 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFEEF2FF),
+                              color: const Color(0xFFF0FDFA),
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: const Text(
                               'Live',
-                              style: TextStyle(color: Color(0xFF4F46E5), fontSize: 11, fontWeight: FontWeight.w800),
+                              style: TextStyle(color: Color(0xFF0F766E), fontSize: 11, fontWeight: FontWeight.w700),
                             ),
                           ),
                         ],
@@ -5169,22 +5130,13 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                         height: 50,
                         child: DecoratedBox(
                           decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF4F46E5).withValues(alpha: 0.35),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
+                            color: _pendingRosterEdits.isEmpty ? AppTheme.borderSubtle : AppTheme.primaryBlue,
+                            borderRadius: BorderRadius.circular(12),
                           ),
                           child: ElevatedButton(
-                            onPressed: _submittingRoster ? null : () => _confirmRoster(ref, state),
+                            onPressed: _submittingRoster || _pendingRosterEdits.isEmpty
+                                ? null
+                                : () => _confirmRoster(ref, state),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.transparent,
                               shadowColor: Colors.transparent,
@@ -5198,15 +5150,17 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                                   )
                                 : Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
-                                    children: const [
-                                      Icon(PhosphorIconsBold.checkCircle, color: Colors.white, size: 18),
-                                      SizedBox(width: 8),
+                                    children: [
+                                      const Icon(PhosphorIconsBold.checkCircle, color: Colors.white, size: 18),
+                                      const SizedBox(width: 8),
                                       Text(
-                                        'Confirm Daily Roster',
+                                        _pendingRosterEdits.isEmpty
+                                            ? 'Mark staff above to save'
+                                            : 'Save attendance (${_pendingRosterEdits.length})',
                                         style: TextStyle(
                                           color: Colors.white,
                                           fontSize: 14.5,
-                                          fontWeight: FontWeight.w800,
+                                          fontWeight: FontWeight.w700,
                                           letterSpacing: -0.2,
                                         ),
                                       ),
@@ -5247,12 +5201,12 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                               Container(
                                 padding: const EdgeInsets.all(7),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFEEF2FF),
+                                  color: const Color(0xFFF0FDFA),
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: const Icon(
                                   PhosphorIconsBold.clockCounterClockwise,
-                                  color: Color(0xFF4F46E5),
+                                  color: Color(0xFF0F766E),
                                   size: 16,
                                 ),
                               ),
@@ -5261,7 +5215,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                                 'Recent Attendance Log',
                                 style: TextStyle(
                                   fontSize: 15,
-                                  fontWeight: FontWeight.w800,
+                                  fontWeight: FontWeight.w700,
                                   color: Color(0xFF0F172A),
                                   letterSpacing: -0.2,
                                 ),
@@ -5278,7 +5232,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w700,
-                                  color: Color(0xFF4F46E5),
+                                  color: Color(0xFF0F766E),
                                 ),
                               ),
                             ),

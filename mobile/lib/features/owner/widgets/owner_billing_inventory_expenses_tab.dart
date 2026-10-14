@@ -14,26 +14,10 @@ import '../../../widgets/app_page_header.dart';
 import '../../../widgets/bill_history_view.dart';
 import '../../../widgets/add_customer_page.dart';
 import '../../../widgets/app_sub_page.dart';
-import '../../../widgets/dues_view.dart';
-import 'owner_payment_requests_view.dart';
-import '../../../widgets/app_settings_page.dart';
-import 'owner_management_tabs.dart';
-import 'owner_tax_settings.dart';
 import '../owner_dashboard.dart';
 
 T? _firstOrNull<T>(Iterable<T> items) => items.isEmpty ? null : items.first;
 
-String _formatRupees(double amount) {
-  final whole = amount.round().toString();
-  if (whole.length <= 3) return '₹$whole';
-  final last3 = whole.substring(whole.length - 3);
-  final rest = whole.substring(0, whole.length - 3);
-  final grouped = rest.replaceAllMapped(
-    RegExp(r'\B(?=(\d{2})+(?!\d))'),
-    (m) => ',',
-  );
-  return '₹$grouped,$last3';
-}
 
 /// Day only. An expense is logged against a date (stored as midnight), not
 /// a moment - formatting it with a time printed "12:00 AM" on every one.
@@ -49,17 +33,19 @@ enum _BillingSection { newBill, history }
 
 class OwnerBillingTab extends StatefulWidget {
   final String? preselectedCustomerId;
+  final VoidCallback? onOpenNotifications;
 
-  const OwnerBillingTab({super.key, this.preselectedCustomerId});
+  const OwnerBillingTab({super.key, this.preselectedCustomerId, this.onOpenNotifications});
 
   @override
   State<OwnerBillingTab> createState() => _OwnerBillingTabState();
 }
 
 class _OwnerBillingTabState extends State<OwnerBillingTab> {
-  // Billing opens on History: looking a bill up is the common reason to come
-  // here, and starting a new one is a single tap away on the right.
-  _BillingSection _section = _BillingSection.history;
+  // Billing opens on New Bill: ringing up a client is what this tab is for
+  // at the counter, and Home's "New bill" button lands here - it used to
+  // open on History, so that button needed a second tap to do its job.
+  _BillingSection _section = _BillingSection.newBill;
   String? _selectedCustomerId;
   String? _selectedEmployeeId;
   String? _selectedBranchId;
@@ -228,75 +214,6 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
     );
   }
 
-  /// Everything billing-related, on one screen.
-  ///
-  /// Pending Payments, Discount Requests, the GST rate and the price list
-  /// were four separate top-level pages, so "why is this total wrong" or
-  /// "who still owes us" meant already knowing which of twelve nav entries
-  /// held the answer. They are all consequences of billing, so they are
-  /// sections of Billing's own settings - switched with the strip at the
-  /// top of that screen, not four more places to navigate to.
-  void _openBillingSettings(BuildContext context, AppData state) {
-    final pendingDiscounts = state.pendingDiscountCount;
-    final outstanding = state.bills.fold<double>(0, (s, b) => s + b.amountDue);
-    final unpaidClients =
-        state.bills
-            .where((b) => !b.isFullyPaid)
-            .map((b) => b.customerId)
-            .toSet()
-            .length;
-
-    openAppSettings(
-      context,
-      title: 'Billing Settings',
-      subtitle: 'Everything that feeds into a bill',
-      sections: [
-        AppSettingsSection(
-          icon: PhosphorIconsRegular.percent,
-          label: 'Tax',
-          description: 'GST is added to every new bill once it is switched on.',
-          builder: (_) => const OwnerTaxSettingsPage(),
-        ),
-        // Services & Pricing used to sit here too. It is a top-level
-        // destination in the drawer ("Services"), so having it behind
-        // Billing's gear as well meant the same page had two homes and the
-        // catalog looked like a billing setting rather than the salon's menu.
-        AppSettingsSection(
-          icon: PhosphorIconsRegular.handCoins,
-          label: 'Dues',
-          description:
-              outstanding > 0
-                  ? '${_formatRupees(outstanding)} billed but not collected, across $unpaidClients client${unpaidClients == 1 ? '' : 's'}.'
-                  : 'Every bill has been collected in full.',
-          builder: (_) => const DuesView(),
-        ),
-        // Settlement requests. Staff cannot record a payment themselves
-        // (firestore.rules scopes /paymentRequests to create-only for them),
-        // so this is where the money they collected at the counter actually
-        // lands on the bill.
-        AppSettingsSection(
-          icon: PhosphorIconsRegular.paperPlaneTilt,
-          label: 'Requests',
-          description: state.pendingPaymentRequestCount > 0
-              ? '${state.pendingPaymentRequestCount} settlement request${state.pendingPaymentRequestCount == 1 ? '' : 's'} from your staff waiting on you.'
-              : 'No settlement requests waiting. Staff raise one when they collect an unpaid balance.',
-          badgeCount: state.pendingPaymentRequestCount,
-          builder: (_) => const OwnerPaymentRequestsView(),
-        ),
-        AppSettingsSection(
-          icon: PhosphorIconsRegular.sealPercent,
-          label: 'Discounts',
-          description:
-              pendingDiscounts > 0
-                  ? '$pendingDiscounts staff discount request${pendingDiscounts == 1 ? '' : 's'} waiting on you.'
-                  : 'No staff discount requests waiting.',
-          badgeCount: pendingDiscounts,
-          builder: (_) => const OwnerDiscountsTab(),
-        ),
-      ],
-    );
-  }
-
   /// Billing is a section with two views, not a single form.
   ///
   /// It used to be the create-bill form and nothing else, which is why
@@ -326,13 +243,14 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                     : 'No bills yet today',
             showDivider: false,
             actions: [
-              appSettingsAction(
-                tooltip: 'Billing settings',
-                // Both kinds of request live behind this gear, so the badge
-                // has to count both or one of them is invisible until
-                // somebody happens to look.
+              // The bell, like every tab: discount and payment requests
+              // used to live behind a "Billing settings" gear here, next to
+              // the GST switch, so daily approvals looked like settings.
+              AppPageAction(
+                icon: PhosphorIconsRegular.bell,
+                tooltip: 'Requests',
                 badgeCount: state.pendingDiscountCount + state.pendingPaymentRequestCount,
-                onTap: () => _openBillingSettings(context, state),
+                onTap: () => widget.onOpenNotifications?.call(),
               ),
             ],
           ),
@@ -370,12 +288,10 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
       ),
       child: Row(
         children: [
-          // Explicit order rather than _BillingSection.values: History sits on
-          // the left, New Bill on the right. The enum order still decides the
-          // default section (newBill), so it is deliberately not reordered.
+          // New Bill first: it's the default and the main job of this tab.
           for (final section in const [
-            _BillingSection.history,
             _BillingSection.newBill,
+            _BillingSection.history,
           ])
             Expanded(
               child: InkWell(
@@ -529,7 +445,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                               style: const TextStyle(
                                                 fontSize: 13,
                                                 fontWeight: FontWeight.w700,
-                                                color: Color(0xFF4F46E5),
+                                                color: Color(0xFF0F766E),
                                               ),
                                             ),
                                           ),
@@ -596,12 +512,12 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                 width: 44,
                                 height: 44,
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFEEF2FF),
+                                  color: const Color(0xFFF0FDFA),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: const Icon(
                                   PhosphorIconsFill.user,
-                                  color: Color(0xFF4F46E5),
+                                  color: Color(0xFF0F766E),
                                   size: 22,
                                 ),
                               ),
@@ -614,7 +530,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                       'CUSTOMER',
                                       style: TextStyle(
                                         fontSize: 10,
-                                        fontWeight: FontWeight.w800,
+                                        fontWeight: FontWeight.w700,
                                         color: Color(0xFF64748B),
                                         letterSpacing: 0.8,
                                       ),
@@ -626,7 +542,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                           : 'Select Customer',
                                       style: TextStyle(
                                         fontSize: 15,
-                                        fontWeight: FontWeight.w800,
+                                        fontWeight: FontWeight.w700,
                                         color:
                                             selectedCustomer != null
                                                 ? const Color(0xFF0F172A)
@@ -723,7 +639,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                       'ATTENDING STYLIST',
                                       style: TextStyle(
                                         fontSize: 10,
-                                        fontWeight: FontWeight.w800,
+                                        fontWeight: FontWeight.w700,
                                         color: Color(0xFF64748B),
                                         letterSpacing: 0.8,
                                       ),
@@ -735,7 +651,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                           : 'Select Stylist',
                                       style: TextStyle(
                                         fontSize: 15,
-                                        fontWeight: FontWeight.w800,
+                                        fontWeight: FontWeight.w700,
                                         color:
                                             selectedEmployee != null
                                                 ? const Color(0xFF0F172A)
@@ -785,7 +701,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                             'Services',
                             style: TextStyle(
                               fontSize: 16,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w700,
                               color: Color(0xFF0F172A),
                               letterSpacing: -0.2,
                             ),
@@ -804,11 +720,11 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                 vertical: 4,
                               ),
                               child: Text(
-                                '+ Add Custom',
+                                '+ New service',
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w700,
-                                  color: Color(0xFF4F46E5),
+                                  color: Color(0xFF0F766E),
                                 ),
                               ),
                             ),
@@ -826,7 +742,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                           ),
                           child: const Center(
                             child: Text(
-                              'No services in catalog yet. Tap + Add Custom.',
+                              'No services yet. Add your menu under Menu > Services, or tap + New service.',
                               style: TextStyle(
                                 color: Color(0xFF64748B),
                                 fontSize: 12,
@@ -863,7 +779,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                   border: Border.all(
                                     color:
                                         isChecked
-                                            ? const Color(0xFF4F46E5)
+                                            ? const Color(0xFF0F766E)
                                             : const Color(0xFFE2E8F0),
                                     width: isChecked ? 1.5 : 1,
                                   ),
@@ -915,13 +831,13 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                       decoration: BoxDecoration(
                                         color:
                                             isChecked
-                                                ? const Color(0xFF4F46E5)
+                                                ? const Color(0xFF0F766E)
                                                 : Colors.transparent,
                                         shape: BoxShape.circle,
                                         border: Border.all(
                                           color:
                                               isChecked
-                                                  ? const Color(0xFF4F46E5)
+                                                  ? const Color(0xFF0F766E)
                                                   : const Color(0xFFCBD5E1),
                                           width: 1.6,
                                         ),
@@ -961,7 +877,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                 'Products & Retail',
                                 style: TextStyle(
                                   fontSize: 16,
-                                  fontWeight: FontWeight.w800,
+                                  fontWeight: FontWeight.w700,
                                   color: Color(0xFF0F172A),
                                   letterSpacing: -0.2,
                                 ),
@@ -974,45 +890,24 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                     vertical: 3,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFFEEF2FF),
+                                    color: const Color(0xFFF0FDFA),
                                     borderRadius: BorderRadius.circular(12),
                                     border: Border.all(
-                                      color: const Color(0xFFC7D2FE),
+                                      color: const Color(0xFF99F6E4),
                                     ),
                                   ),
                                   child: Text(
                                     '${_selectedProductQuantities.length} added',
                                     style: const TextStyle(
                                       fontSize: 10,
-                                      fontWeight: FontWeight.w800,
-                                      color: Color(0xFF4F46E5),
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF0F766E),
                                     ),
                                   ),
                                 ),
                               ],
                               const Spacer(),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 3,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFE6FFFA),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: const Color(0xFFB2F5EA),
-                                  ),
-                                ),
-                                child: const Text(
-                                  'Inventory Active',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF0D9488),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
+
                               AnimatedRotation(
                                 turns: _productsExpanded ? 0.5 : 0,
                                 duration: const Duration(milliseconds: 180),
@@ -1080,7 +975,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                 border: Border.all(
                                   color:
                                       qty > 0
-                                          ? const Color(0xFF4F46E5)
+                                          ? const Color(0xFF0F766E)
                                           : const Color(0xFFE2E8F0),
                                   width: qty > 0 ? 1.5 : 1,
                                 ),
@@ -1091,12 +986,12 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                     width: 38,
                                     height: 38,
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFFEEF2FF),
+                                      color: const Color(0xFFF0FDFA),
                                       borderRadius: BorderRadius.circular(10),
                                     ),
                                     child: const Icon(
                                       PhosphorIconsFill.drop,
-                                      color: Color(0xFF4F46E5),
+                                      color: Color(0xFF0F766E),
                                       size: 20,
                                     ),
                                   ),
@@ -1151,7 +1046,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                                     : '${prod.stockCount} IN STOCK',
                                                 style: TextStyle(
                                                   fontSize: 9.5,
-                                                  fontWeight: FontWeight.w800,
+                                                  fontWeight: FontWeight.w700,
                                                   color:
                                                       isLow
                                                           ? const Color(
@@ -1219,10 +1114,10 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                   else
                                     Container(
                                       decoration: BoxDecoration(
-                                        color: const Color(0xFFEEF2FF),
+                                        color: const Color(0xFFF0FDFA),
                                         borderRadius: BorderRadius.circular(20),
                                         border: Border.all(
-                                          color: const Color(0xFFC7D2FE),
+                                          color: const Color(0xFF99F6E4),
                                         ),
                                       ),
                                       child: Row(
@@ -1232,7 +1127,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                             icon: const Icon(
                                               PhosphorIconsBold.minus,
                                               size: 14,
-                                              color: Color(0xFF4F46E5),
+                                              color: Color(0xFF0F766E),
                                             ),
                                             visualDensity:
                                                 VisualDensity.compact,
@@ -1262,8 +1157,8 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                               '$qty',
                                               style: const TextStyle(
                                                 fontSize: 13,
-                                                fontWeight: FontWeight.w800,
-                                                color: Color(0xFF4F46E5),
+                                                fontWeight: FontWeight.w700,
+                                                color: Color(0xFF0F766E),
                                               ),
                                             ),
                                           ),
@@ -1271,7 +1166,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                             icon: const Icon(
                                               PhosphorIconsBold.plus,
                                               size: 14,
-                                              color: Color(0xFF4F46E5),
+                                              color: Color(0xFF0F766E),
                                             ),
                                             visualDensity:
                                                 VisualDensity.compact,
@@ -1320,14 +1215,14 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                     Icon(
                                       PhosphorIconsBold.tag,
                                       size: 16,
-                                      color: Color(0xFF4F46E5),
+                                      color: Color(0xFF0F766E),
                                     ),
                                     SizedBox(width: 8),
                                     Text(
                                       'Discount Applied',
                                       style: TextStyle(
                                         fontSize: 14,
-                                        fontWeight: FontWeight.w800,
+                                        fontWeight: FontWeight.w700,
                                         color: Color(0xFF0F172A),
                                       ),
                                     ),
@@ -1375,11 +1270,11 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                 Expanded(
                                   child: SliderTheme(
                                     data: SliderTheme.of(context).copyWith(
-                                      activeTrackColor: const Color(0xFF4F46E5),
+                                      activeTrackColor: const Color(0xFF0F766E),
                                       inactiveTrackColor: const Color(
                                         0xFFE2E8F0,
                                       ),
-                                      thumbColor: const Color(0xFF4F46E5),
+                                      thumbColor: const Color(0xFF0F766E),
                                       overlayColor: const Color(
                                         0xFF4F46E5,
                                       ).withValues(alpha: 0.12),
@@ -1418,15 +1313,15 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                   vertical: 3,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFEEF2FF),
+                                  color: const Color(0xFFF0FDFA),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Text(
                                   '${_discountPercent.toStringAsFixed(0)}% (₹${discountAmount.toStringAsFixed(0)} off)',
                                   style: const TextStyle(
                                     fontSize: 11,
-                                    fontWeight: FontWeight.w800,
-                                    color: Color(0xFF4F46E5),
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF0F766E),
                                   ),
                                 ),
                               ),
@@ -1440,7 +1335,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                         'Payment Method',
                         style: TextStyle(
                           fontSize: 13,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                           color: Color(0xFF0F172A),
                         ),
                       ),
@@ -1473,14 +1368,14 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                             isSel
                                                 ? (method == 'PENDING'
                                                     ? const Color(0xFFFFFBEB)
-                                                    : const Color(0xFFEEF2FF))
+                                                    : const Color(0xFFF0FDFA))
                                                 : Colors.white,
                                         border: Border.all(
                                           color:
                                               isSel
                                                   ? (method == 'PENDING'
                                                       ? const Color(0xFFD97706)
-                                                      : const Color(0xFF4F46E5))
+                                                      : const Color(0xFF0F766E))
                                                   : const Color(0xFFE2E8F0),
                                           width: isSel ? 1.6 : 1,
                                         ),
@@ -1488,9 +1383,9 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                       ),
                                       child: Center(
                                         child: Text(
-                                          method,
+                                          paymentMethodLabel(method),
                                           style: TextStyle(
-                                            fontWeight: FontWeight.w800,
+                                            fontWeight: FontWeight.w700,
                                             color:
                                                 isSel
                                                     ? (method == 'PENDING'
@@ -1576,7 +1471,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                           vertical: 1,
                                         ),
                                         decoration: BoxDecoration(
-                                          color: const Color(0xFFEEF2FF),
+                                          color: const Color(0xFFF0FDFA),
                                           borderRadius: BorderRadius.circular(
                                             4,
                                           ),
@@ -1585,8 +1480,8 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                           'PROMO',
                                           style: TextStyle(
                                             fontSize: 9,
-                                            fontWeight: FontWeight.w800,
-                                            color: Color(0xFF4F46E5),
+                                            fontWeight: FontWeight.w700,
+                                            color: Color(0xFF0F766E),
                                           ),
                                         ),
                                       ),
@@ -1596,7 +1491,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                     '-₹${discountAmount.toStringAsFixed(0)}',
                                     style: const TextStyle(
                                       fontSize: 13,
-                                      fontWeight: FontWeight.w800,
+                                      fontWeight: FontWeight.w700,
                                       color: Color(0xFF16A34A),
                                     ),
                                   ),
@@ -1645,7 +1540,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                         'Total Amount',
                                         style: TextStyle(
                                           fontSize: 15,
-                                          fontWeight: FontWeight.w800,
+                                          fontWeight: FontWeight.w700,
                                           color: Color(0xFF0F172A),
                                           letterSpacing: -0.2,
                                         ),
@@ -1674,8 +1569,8 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                   '₹${totalAmount.toStringAsFixed(0)}',
                                   style: const TextStyle(
                                     fontSize: 24,
-                                    fontWeight: FontWeight.w900,
-                                    color: Color(0xFF4F46E5),
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF0F766E),
                                     letterSpacing: -0.5,
                                   ),
                                 ),
@@ -1705,8 +1600,8 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                     canSubmit
                                         ? const LinearGradient(
                                           colors: [
-                                            Color(0xFF4F46E5),
-                                            Color(0xFF6366F1),
+                                            Color(0xFF0F766E),
+                                            Color(0xFF0D9488),
                                           ],
                                           begin: Alignment.topLeft,
                                           end: Alignment.bottomRight,
@@ -1721,7 +1616,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                           BoxShadow(
                                             color: const Color(
                                               0xFF4F46E5,
-                                            ).withValues(alpha: 0.35),
+                                            ).withValues(alpha: 0.06),
                                             blurRadius: 12,
                                             offset: const Offset(0, 4),
                                           ),
@@ -1766,11 +1661,11 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                             ),
                                             SizedBox(width: 8),
                                             Text(
-                                              'Generate Invoice & Pay',
+                                              'Create bill',
                                               style: TextStyle(
                                                 color: Colors.white,
                                                 fontSize: 14.5,
-                                                fontWeight: FontWeight.w800,
+                                                fontWeight: FontWeight.w700,
                                                 letterSpacing: -0.2,
                                               ),
                                             ),
@@ -1950,7 +1845,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                 'Paying later',
                 style: TextStyle(
                   fontSize: 12.5,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                   color: Color(0xFF92400E),
                 ),
               ),
@@ -1981,7 +1876,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
               fillColor: Colors.white,
               prefixText: '₹ ',
               prefixStyle: const TextStyle(
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
                 color: Color(0xFF92400E),
                 fontSize: 13,
               ),
@@ -2048,10 +1943,10 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                           border: Border.all(color: const Color(0xFFFDE68A)),
                         ),
                         child: Text(
-                          m,
+                          paymentMethodLabel(m),
                           style: TextStyle(
                             fontSize: 10,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w700,
                             color:
                                 _partPaymentMethod == m
                                     ? Colors.white
@@ -2757,8 +2652,8 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
         lower.contains('hair') ||
         lower.contains('trim')) {
       return (
-        const Color(0xFFEEF2FF),
-        const Color(0xFF4F46E5),
+        const Color(0xFFF0FDFA),
+        const Color(0xFF0F766E),
         PhosphorIconsBold.scissors,
       );
     } else if (lower.contains('beard') ||
@@ -2774,16 +2669,16 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
         lower.contains('oil') ||
         lower.contains('massage')) {
       return (
-        const Color(0xFFE0F2FE),
-        const Color(0xFF0284C7),
+        const Color(0xFFEFF6FF),
+        const Color(0xFF1D4ED8),
         PhosphorIconsBold.drop,
       );
     } else if (lower.contains('mani') ||
         lower.contains('pedi') ||
         lower.contains('nail')) {
       return (
-        const Color(0xFFFCE7F3),
-        const Color(0xFFDB2777),
+        const Color(0xFFFFF1F2),
+        const Color(0xFFBE123C),
         PhosphorIconsBold.sparkle,
       );
     }
@@ -2803,17 +2698,17 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF4F46E5) : Colors.white,
+          color: isSelected ? const Color(0xFF0F766E) : Colors.white,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color:
-                isSelected ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0),
+                isSelected ? const Color(0xFF0F766E) : const Color(0xFFE2E8F0),
           ),
           boxShadow:
               isSelected
                   ? [
                     BoxShadow(
-                      color: const Color(0xFF4F46E5).withValues(alpha: 0.25),
+                      color: const Color(0xFF0F766E).withValues(alpha: 0.06),
                       blurRadius: 6,
                       offset: const Offset(0, 2),
                     ),
@@ -2824,7 +2719,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
           label,
           style: TextStyle(
             fontSize: 12,
-            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
             color: isSelected ? Colors.white : const Color(0xFF475467),
           ),
         ),
@@ -2918,7 +2813,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: const Color(0xFFC7D2FE),
+                              color: const Color(0xFF99F6E4),
                               width: 1.4,
                             ),
                             boxShadow: [
@@ -2936,16 +2831,16 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                             children: const [
                               Icon(
                                 PhosphorIconsBold.scissors,
-                                color: Color(0xFF4F46E5),
+                                color: Color(0xFF0F766E),
                                 size: 17,
                               ),
                               SizedBox(width: 7),
                               Text(
                                 '+ Add Service',
                                 style: TextStyle(
-                                  color: Color(0xFF4F46E5),
+                                  color: Color(0xFF0F766E),
                                   fontSize: 13.5,
-                                  fontWeight: FontWeight.w800,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
                             ],
@@ -2962,17 +2857,13 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                         child: Container(
                           height: 48,
                           decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
+                            color: Color(0xFF0F766E),
                             borderRadius: BorderRadius.circular(16),
                             boxShadow: [
                               BoxShadow(
                                 color: const Color(
                                   0xFF4F46E5,
-                                ).withValues(alpha: 0.35),
+                                ).withValues(alpha: 0.06),
                                 blurRadius: 10,
                                 offset: const Offset(0, 4),
                               ),
@@ -2992,7 +2883,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 13.5,
-                                  fontWeight: FontWeight.w800,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
                             ],
@@ -3112,7 +3003,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                   'Service Menu',
                                   style: TextStyle(
                                     fontSize: 16,
-                                    fontWeight: FontWeight.w800,
+                                    fontWeight: FontWeight.w700,
                                     color: Color(0xFF0F172A),
                                     letterSpacing: -0.2,
                                   ),
@@ -3133,13 +3024,13 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                 Icon(
                                   PhosphorIconsBold.arrowsDownUp,
                                   size: 13,
-                                  color: Color(0xFF4F46E5),
+                                  color: Color(0xFF0F766E),
                                 ),
                                 SizedBox(width: 4),
                                 Text(
                                   'Reorder',
                                   style: TextStyle(
-                                    color: Color(0xFF4F46E5),
+                                    color: Color(0xFF0F766E),
                                     fontSize: 12,
                                     fontWeight: FontWeight.w700,
                                   ),
@@ -3204,7 +3095,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                         Text(
                                           svc.name,
                                           style: const TextStyle(
-                                            fontWeight: FontWeight.w800,
+                                            fontWeight: FontWeight.w700,
                                             fontSize: 13.5,
                                             color: Color(0xFF0F172A),
                                           ),
@@ -3227,8 +3118,8 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                     '₹${svc.price.toStringAsFixed(0)}',
                                     style: const TextStyle(
                                       fontSize: 15,
-                                      fontWeight: FontWeight.w900,
-                                      color: Color(0xFF4F46E5),
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF0F766E),
                                       letterSpacing: -0.2,
                                     ),
                                   ),
@@ -3281,7 +3172,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                   'Product Catalog',
                                   style: TextStyle(
                                     fontSize: 16,
-                                    fontWeight: FontWeight.w800,
+                                    fontWeight: FontWeight.w700,
                                     color: Color(0xFF0F172A),
                                     letterSpacing: -0.2,
                                   ),
@@ -3315,7 +3206,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                 decoration: BoxDecoration(
                                   color:
                                       _activeFilter == 'Low Stock'
-                                          ? const Color(0xFFEEF2FF)
+                                          ? const Color(0xFFF0FDFA)
                                           : const Color(0xFFF8FAFC),
                                   borderRadius: BorderRadius.circular(10),
                                   border: Border.all(
@@ -3327,7 +3218,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                   style: TextStyle(
                                     color:
                                         _activeFilter == 'Low Stock'
-                                            ? const Color(0xFF4F46E5)
+                                            ? const Color(0xFF0F766E)
                                             : const Color(0xFF475467),
                                     fontSize: 11.5,
                                     fontWeight: FontWeight.w700,
@@ -3375,7 +3266,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                         Text(
                                           prod.name,
                                           style: const TextStyle(
-                                            fontWeight: FontWeight.w800,
+                                            fontWeight: FontWeight.w700,
                                             fontSize: 13.5,
                                             color: Color(0xFF0F172A),
                                           ),
@@ -3415,7 +3306,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                                 : '${prod.stockCount} units in stock',
                                             style: TextStyle(
                                               fontSize: 11,
-                                              fontWeight: FontWeight.w800,
+                                              fontWeight: FontWeight.w700,
                                               color:
                                                   isLow
                                                       ? const Color(0xFFD97706)
@@ -3442,7 +3333,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                         vertical: 8,
                                       ),
                                       side: const BorderSide(
-                                        color: Color(0xFFC7D2FE),
+                                        color: Color(0xFF99F6E4),
                                       ),
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(12),
@@ -3451,9 +3342,9 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                     child: const Text(
                                       'Update Stock',
                                       style: TextStyle(
-                                        color: Color(0xFF4F46E5),
+                                        color: Color(0xFF0F766E),
                                         fontSize: 11.5,
-                                        fontWeight: FontWeight.w800,
+                                        fontWeight: FontWeight.w700,
                                       ),
                                     ),
                                   ),
@@ -3497,8 +3388,8 @@ class _ExpenseStyle {
 const Map<String, _ExpenseStyle> _expenseCategoryStyles = {
   'RENT': _ExpenseStyle(
     PhosphorIconsRegular.buildings,
-    Color(0xFF4F46E5),
-    Color(0xFFEEF2FF),
+    Color(0xFF0F766E),
+    Color(0xFFF0FDFA),
   ),
   'UTILITIES': _ExpenseStyle(
     PhosphorIconsRegular.lightning,
@@ -3512,8 +3403,8 @@ const Map<String, _ExpenseStyle> _expenseCategoryStyles = {
   ),
   'WAGES': _ExpenseStyle(
     PhosphorIconsRegular.usersThree,
-    Color(0xFF7C3AED),
-    Color(0xFFF5F3FF),
+    Color(0xFF2563EB),
+    Color(0xFFEFF6FF),
   ),
   'MISC': _ExpenseStyle(
     PhosphorIconsRegular.dotsThreeCircle,
@@ -3750,17 +3641,13 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                             vertical: 8.5,
                           ),
                           decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
+                            color: Color(0xFF0F766E),
                             borderRadius: BorderRadius.circular(22),
                             boxShadow: [
                               BoxShadow(
                                 color: const Color(
                                   0xFF4F46E5,
-                                ).withValues(alpha: 0.35),
+                                ).withValues(alpha: 0.06),
                                 blurRadius: 10,
                                 offset: const Offset(0, 3),
                               ),
@@ -3796,15 +3683,11 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                 Container(
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF1E1B4B), Color(0xFF4338CA)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
+                    color: Color(0xFF134E4A),
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF1E1B4B).withValues(alpha: 0.25),
+                        color: const Color(0xFF134E4A).withValues(alpha: 0.06),
                         blurRadius: 16,
                         offset: const Offset(0, 6),
                       ),
@@ -3832,8 +3715,8 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                             'TOTAL SPEND',
                             style: TextStyle(
                               fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFFC7D2FE),
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF99F6E4),
                               letterSpacing: 1.1,
                             ),
                           ),
@@ -3863,7 +3746,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                         '₹${totalExpense.toStringAsFixed(0)}',
                         style: const TextStyle(
                           fontSize: 30,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w700,
                           color: Colors.white,
                           letterSpacing: -1,
                         ),
@@ -3891,7 +3774,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                   'Category Breakdown',
                   style: TextStyle(
                     fontSize: 14.5,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     color: Color(0xFF0F172A),
                   ),
                 ),
@@ -3952,7 +3835,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                       'History',
                       style: TextStyle(
                         fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         color: Color(0xFF0F172A),
                       ),
                     ),
@@ -4024,7 +3907,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                               group.label,
                               style: const TextStyle(
                                 fontSize: 11.5,
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w700,
                                 letterSpacing: 0.3,
                                 color: Color(0xFF64748B),
                               ),
@@ -4034,7 +3917,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                             '-₹${group.total.toStringAsFixed(0)}',
                             style: const TextStyle(
                               fontSize: 12,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w700,
                               color: Color(0xFF64748B),
                             ),
                           ),
@@ -4095,7 +3978,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
               style: const TextStyle(
                 fontSize: 9.5,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFFC7D2FE),
+                color: Color(0xFF99F6E4),
               ),
             ),
             const SizedBox(height: 2),
@@ -4103,7 +3986,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
               value,
               style: const TextStyle(
                 fontSize: 13,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
                 color: Colors.white,
               ),
               maxLines: 1,
@@ -4152,7 +4035,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                     '₹${sum.toStringAsFixed(0)}',
                     style: const TextStyle(
                       fontSize: 12,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                       color: Color(0xFF334155),
                     ),
                   ),
@@ -4196,20 +4079,20 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFEEF2FF) : Colors.white,
+          color: isSelected ? const Color(0xFFF0FDFA) : Colors.white,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color:
-                isSelected ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0),
+                isSelected ? const Color(0xFF0F766E) : const Color(0xFFE2E8F0),
           ),
         ),
         child: Text(
           '${expenseCategoryLabel(label)} ($count)',
           style: TextStyle(
             fontSize: 11.5,
-            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
             color:
-                isSelected ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+                isSelected ? const Color(0xFF0F766E) : const Color(0xFF64748B),
           ),
         ),
       ),
@@ -4284,7 +4167,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
             '-₹${exp.amount.toStringAsFixed(0)}',
             style: const TextStyle(
               fontSize: 13.5,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
               color: AppTheme.accentRed,
             ),
           ),
@@ -4336,7 +4219,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                           exp.title,
                           style: const TextStyle(
                             fontSize: 16,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w700,
                             color: Color(0xFF0F172A),
                           ),
                         ),
@@ -4355,7 +4238,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                     '-₹${exp.amount.toStringAsFixed(0)}',
                     style: const TextStyle(
                       fontSize: 17,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                       color: AppTheme.accentRed,
                     ),
                   ),
@@ -4414,7 +4297,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text(
           'Delete expense?',
-          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
         ),
         content: Text(
           '"${exp.title}" (₹${exp.amount.toStringAsFixed(0)}) will be removed from '

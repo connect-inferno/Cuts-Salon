@@ -137,7 +137,7 @@ class OwnerShiftCard extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 13.5,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w700,
                               color: AppTheme.slateDark,
                             ),
                           ),
@@ -156,7 +156,7 @@ class OwnerShiftCard extends StatelessWidget {
                             heading,
                             style: TextStyle(
                               fontSize: 10,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w700,
                               color: accent,
                             ),
                           ),
@@ -215,7 +215,7 @@ class OwnerShiftCard extends StatelessWidget {
                               : 'Clock In',
                       style: const TextStyle(
                         fontSize: 13.5,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                     style: ElevatedButton.styleFrom(
@@ -223,7 +223,7 @@ class OwnerShiftCard extends StatelessWidget {
                           ? AppTheme.slateDark
                           : AppTheme.primaryBlue,
                       foregroundColor: Colors.white,
-                      disabledBackgroundColor: const Color(0xFFC7D2FE),
+                      disabledBackgroundColor: const Color(0xFF99F6E4),
                       padding: const EdgeInsets.symmetric(vertical: 13),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),

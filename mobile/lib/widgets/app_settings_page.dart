@@ -200,7 +200,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 9.5,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),

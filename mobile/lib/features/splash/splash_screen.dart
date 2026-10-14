@@ -138,8 +138,8 @@ class _StyluxSplashScreenState extends State<StyluxSplashScreen>
                         shape: BoxShape.circle,
                         gradient: RadialGradient(
                           colors: [
-                            const Color(0xFF4F46E5).withValues(alpha: 0.12 + (t * 0.08)),
-                            const Color(0xFF7C3AED).withValues(alpha: 0.06 + (t * 0.04)),
+                            const Color(0xFF0F766E).withValues(alpha: 0.12 + (t * 0.08)),
+                            const Color(0xFF2563EB).withValues(alpha: 0.06 + (t * 0.04)),
                             Colors.transparent,
                           ],
                           stops: const [0.0, 0.5, 1.0],
@@ -177,7 +177,7 @@ class _StyluxSplashScreenState extends State<StyluxSplashScreen>
                             style: TextStyle(
                               fontFamily: 'Plus Jakarta Sans',
                               fontSize: titleSize,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w700,
                               letterSpacing: 4.2,
                               color: Colors.white,
                               height: 1.0,
@@ -190,13 +190,7 @@ class _StyluxSplashScreenState extends State<StyluxSplashScreen>
                             width: 46,
                             height: 1,
                             decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  Colors.transparent,
-                                  const Color(0xFF6366F1).withValues(alpha: 0.8),
-                                  Colors.transparent,
-                                ],
-                              ),
+                              color: Colors.transparent,
                             ),
                           ),
                           const SizedBox(height: 10),
@@ -226,7 +220,7 @@ class _StyluxSplashScreenState extends State<StyluxSplashScreen>
                             child: LinearProgressIndicator(
                               minHeight: 2.5,
                               backgroundColor: Colors.white.withValues(alpha: 0.08),
-                              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+                              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF0D9488)),
                             ),
                           ),
                         ),

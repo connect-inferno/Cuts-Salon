@@ -10,6 +10,7 @@ import 'widgets/payment_method_report.dart';
 import 'widgets/owner_customers_employees_tab.dart';
 import 'widgets/owner_billing_inventory_expenses_tab.dart';
 import 'widgets/owner_management_tabs.dart';
+import 'widgets/owner_payment_requests_view.dart';
 import 'widgets/owner_profile_view.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/app_page_switcher.dart';
@@ -85,17 +86,6 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
     }
   }
 
-  /// read, not watch: this is called from the nav bar's builder *and* from
-  /// the bell's onTap, and ref.watch outside a build registers a
-  /// markNeedsBuild subscription from an event handler. It only ever behaved
-  /// because build() below already watches appDataProvider on this same
-  /// element, so the subscription was always a pre-existing one being reused
-  /// - drop that watch and the callback would start leaking its own. That
-  /// same build-time watch is what keeps the badge live, so reading here
-  /// costs nothing.
-  int get _pendingDiscountCount =>
-      ref.read(appDataProvider).valueOrNull?.pendingDiscountCount ?? 0;
-
   // ─── Drawer ───────────────────────────────────────────────────────────
 
   /// The work that isn't daily.
@@ -131,12 +121,16 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
         ref.read(authControllerProvider.notifier).logout();
       },
       sections: [
+        // The four tabs only in the desktop sidebar: on a phone the bottom
+        // bar already shows them, and repeating them at the top of the menu
+        // pushed what the menu is actually for below the fold.
+        if (!isModal)
         AppDrawerSection(
           title: 'Go to',
           items: [
             AppDrawerItem(
               icon: PhosphorIconsRegular.squaresFour,
-              label: 'Dashboard',
+              label: 'Home',
               selected: _activeTab == OwnerTab.dashboard,
               onTap: () {
                 if (isModal) Navigator.pop(context);
@@ -235,7 +229,7 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
         AppSettingsSection(
           icon: PhosphorIconsRegular.storefront,
           label: 'Business',
-          description: 'Name, phone and address. These appear on bills and receipts.',
+          description: 'Name, phone and address for bills, GST, late penalty and WhatsApp messages.',
           builder: (_) => const OwnerSettingsTab(),
         ),
         AppSettingsSection(
@@ -290,11 +284,12 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
           icon: PhosphorIconsRegular.list,
           activeIcon: PhosphorIconsFill.list,
           label: 'Menu',
-          badgeCount: _pendingDiscountCount,
+          // No badge: nothing inside the menu is what it counted (discount
+          // requests), so the dot led nowhere. The bell carries it now.
           // Scaffold.of(context), not a GlobalKey - see the employee
           // dashboard's note: the key's currentState reads null if the
           // Scaffold remounts, and the button then silently does nothing.
-          onTap: () => Scaffold.of(context).openDrawer(),
+          onTap: () => Scaffold.of(context).openEndDrawer(),
         ),
       ],
     );
@@ -325,7 +320,7 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                   'Select Branch',
                   style: TextStyle(
                     fontSize: 17,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     color: AppTheme.slateDark,
                   ),
                 ),
@@ -394,23 +389,40 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
   }
 
   /// The bell, wired the same way from every page.
+  /// The bell: one inbox for everything staff are waiting on the owner for.
+  /// Discount requests used to be the only thing it showed (and a bare
+  /// "No new notifications" toast otherwise), while settlement requests -
+  /// staff handing over money they collected - were only behind Billing's
+  /// gear, and discount requests were behind two gears as well.
   void _openNotifications(BuildContext context) {
-    if (_pendingDiscountCount > 0) {
-      openAppSubPage(
-        context,
-        title: 'Discount Requests',
-        subtitle: 'Staff requests waiting on you',
-        child: const OwnerDiscountsTab(),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No new notifications'),
-          duration: Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
+    final data = ref.read(appDataProvider).valueOrNull;
+    final discounts = data?.pendingDiscountCount ?? 0;
+    final payments = data?.pendingPaymentRequestCount ?? 0;
+    openAppSettings(
+      context,
+      title: 'Requests',
+      subtitle: discounts + payments > 0 ? '${discounts + payments} waiting on you' : 'Nothing waiting on you',
+      sections: [
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.sealPercent,
+          label: 'Discounts',
+          description: discounts > 0
+              ? '$discounts discount request${discounts == 1 ? '' : 's'} from staff to approve or refuse.'
+              : 'No discount requests waiting. Staff raise one when a client asks for a discount.',
+          badgeCount: discounts,
+          builder: (_) => const OwnerDiscountsTab(),
         ),
-      );
-    }
+        AppSettingsSection(
+          icon: PhosphorIconsRegular.handCoins,
+          label: 'Payments',
+          description: payments > 0
+              ? '$payments payment${payments == 1 ? '' : 's'} staff collected, waiting for you to confirm.'
+              : 'No payments to confirm. Staff raise one when they collect a balance a client owed.',
+          badgeCount: payments,
+          builder: (_) => const OwnerPaymentRequestsView(),
+        ),
+      ],
+    );
   }
 
   // ─── Shell ────────────────────────────────────────────────────────────
@@ -426,7 +438,10 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
     return Scaffold(
       backgroundColor: AppTheme.bgSurface,
       extendBody: isMobile,
-      drawer: isMobile ? _buildDrawer(context, isModal: true) : null,
+      // endDrawer: the Menu button is the last slot on the bottom bar, at the
+      // right edge, so the panel slides in from that side - it used to come
+      // from the left, the opposite side from where the thumb just tapped.
+      endDrawer: isMobile ? _buildDrawer(context, isModal: true) : null,
       bottomNavigationBar: isMobile ? Builder(builder: _buildNavBar) : null,
       body: SafeArea(
         bottom: !isMobile,
@@ -438,7 +453,10 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
             // still comes to rest clear of it.
             ? PageView(
                 controller: _pageController,
-                physics: const ClampingScrollPhysics(),
+                // Tabs change from the bar only. Swiping the page sideways
+                // used to flip to the next tab, which fired by accident while
+                // scrolling the horizontal filter-chip rows on every list.
+                physics: const NeverScrollableScrollPhysics(),
                 onPageChanged: (index) {
                   setState(() => _activeTab = OwnerTab.values[index]);
                 },
@@ -498,6 +516,7 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
       OwnerBillingTab(
         key: const ValueKey('billing'),
         preselectedCustomerId: _preselectedCustomerId,
+        onOpenNotifications: () => _openNotifications(context),
       ),
       OwnerCustomersTab(
         key: const ValueKey('clients'),
@@ -682,7 +701,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(PhosphorIconsRegular.calendarBlank, size: 14, color: Color(0xFF4F46E5)),
+                          const Icon(PhosphorIconsRegular.calendarBlank, size: 14, color: Color(0xFF0F766E)),
                           const SizedBox(width: 6),
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -694,7 +713,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                               ),
                               Text(
                                 _timeframe == 'Current Year' ? 'Year' : 'Months',
-                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
                               ),
                             ],
                           ),
@@ -750,8 +769,8 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                     Expanded(
                       child: _buildMetricTileCompact(
                         icon: PhosphorIconsRegular.receipt,
-                        iconBg: const Color(0xFFEDE9FE),
-                        iconColor: const Color(0xFF6366F1),
+                        iconBg: const Color(0xFFDBEAFE),
+                        iconColor: const Color(0xFF0D9488),
                         title: 'Avg Ticket',
                         value: '₹${atv.toStringAsFixed(0)}',
                         subtext: 'Across $totalBillsCount bill${totalBillsCount == 1 ? '' : 's'}',
@@ -852,7 +871,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(PhosphorIconsFill.mapPin, size: 14, color: Color(0xFF4F46E5)),
+            const Icon(PhosphorIconsFill.mapPin, size: 14, color: Color(0xFF0F766E)),
             const SizedBox(width: 7),
             Text(
               label,
@@ -885,17 +904,17 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
             leading: Icon(
               branchId == null ? PhosphorIconsRegular.buildings : PhosphorIconsRegular.storefront,
               size: 19,
-              color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
+              color: isSelected ? const Color(0xFF0F766E) : const Color(0xFF94A3B8),
             ),
             title: Text(
               label,
               style: TextStyle(
                 fontSize: 14,
-                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
                 color: const Color(0xFF0F172A),
               ),
             ),
-            trailing: isSelected ? const Icon(PhosphorIconsBold.check, size: 17, color: Color(0xFF4F46E5)) : null,
+            trailing: isSelected ? const Icon(PhosphorIconsBold.check, size: 17, color: Color(0xFF0F766E)) : null,
             onTap: () {
               setState(() => _branchId = branchId);
               Navigator.pop(ctx);
@@ -912,7 +931,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                 padding: EdgeInsets.fromLTRB(20, 20, 20, 4),
                 child: Text(
                   'Report on',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
                 ),
               ),
               option('All branches', null),
@@ -963,7 +982,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                     label: e.key,
                     value: '₹${e.value.toStringAsFixed(0)} · ${countByService[e.key]}×',
                     fraction: maxVal > 0 ? e.value / maxVal : 0,
-                    color: const Color(0xFF6366F1),
+                    color: const Color(0xFF0D9488),
                   ),
                   const SizedBox(height: 10),
                 ],
@@ -1041,7 +1060,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
         children: [
           Text(
             title,
-            style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+            style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
           ),
           const SizedBox(height: 2),
           Text(
@@ -1146,7 +1165,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
               Text(
                 salonName,
                 style: const TextStyle(
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                   fontSize: 16,
                   color: Color(0xFF0F172A),
                   letterSpacing: -0.3,
@@ -1184,7 +1203,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
           width: 36,
           height: 36,
           decoration: const BoxDecoration(
-            color: Color(0xFF1E1B4B),
+            color: Color(0xFF134E4A),
             shape: BoxShape.circle,
           ),
           alignment: Alignment.center,
@@ -1192,7 +1211,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
             _ownerInitials(ownerName),
             style: const TextStyle(
               color: Colors.white,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
               fontSize: 12.5,
             ),
           ),
@@ -1209,17 +1228,17 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFFF1F5F9),
+          color: isSelected ? const Color(0xFF0F766E) : const Color(0xFFF1F5F9),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0),
+            color: isSelected ? const Color(0xFF0F766E) : const Color(0xFFE2E8F0),
           ),
         ),
         child: Text(
           title,
           style: TextStyle(
             fontSize: 12,
-            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
             color: isSelected ? Colors.white : const Color(0xFF475467),
           ),
         ),
@@ -1273,7 +1292,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                         'Revenue\nTrend',
                         style: TextStyle(
                           fontSize: 14.5,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                           color: Color(0xFF0F172A),
                           height: 1.2,
                         ),
@@ -1299,7 +1318,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                                 '${momIsUp ? '+' : ''}${momPct.toStringAsFixed(1)}%',
                                 style: TextStyle(
                                   fontSize: 10,
-                                  fontWeight: FontWeight.w800,
+                                  fontWeight: FontWeight.w700,
                                   color: momIsUp ? const Color(0xFF059669) : const Color(0xFFDC2626),
                                 ),
                               ),
@@ -1320,7 +1339,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                 '₹${totalRevenue.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}',
                 style: const TextStyle(
                   fontSize: 20,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                   color: Color(0xFF0F172A),
                   letterSpacing: -0.5,
                 ),
@@ -1353,7 +1372,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                       borderRadius: BorderRadius.circular(8),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.2),
+                          color: Colors.black.withValues(alpha: 0.06),
                           blurRadius: 6,
                           offset: const Offset(0, 2),
                         ),
@@ -1364,7 +1383,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 10.5,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
@@ -1406,7 +1425,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                     'Service Popularity',
                     style: TextStyle(
                       fontSize: 14.5,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                       color: Color(0xFF0F172A),
                     ),
                   ),
@@ -1414,15 +1433,15 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFEDE9FE),
+                      color: const Color(0xFFDBEAFE),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: const Text(
                       'Top 5',
                       style: TextStyle(
                         fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF6366F1),
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0D9488),
                       ),
                     ),
                   ),
@@ -1456,7 +1475,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                         '${cat.value}',
                         style: const TextStyle(
                           fontSize: 11,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                           color: Color(0xFF0F172A),
                         ),
                       ),
@@ -1465,11 +1484,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                         width: 28,
                         height: barHeight,
                         decoration: const BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [Color(0xFF4F46E5), Color(0xFF818CF8)],
-                            begin: Alignment.bottomCenter,
-                            end: Alignment.topCenter,
-                          ),
+                          color: Color(0xFF0F766E),
                           borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
                         ),
                       ),
@@ -1546,7 +1561,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
             value,
             style: const TextStyle(
               fontSize: 15,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w700,
               color: Color(0xFF0F172A),
             ),
             maxLines: 1,
@@ -1593,12 +1608,12 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: const Color(0xFFEDE9FE),
+              color: const Color(0xFFDBEAFE),
               borderRadius: BorderRadius.circular(10),
             ),
             child: const Icon(
               PhosphorIconsRegular.downloadSimple,
-              color: Color(0xFF6366F1),
+              color: Color(0xFF0D9488),
               size: 18,
             ),
           ),
@@ -1611,7 +1626,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                   'Export Detailed Audit',
                   style: TextStyle(
                     fontSize: 13,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     color: Color(0xFF0F172A),
                   ),
                 ),
@@ -1803,12 +1818,12 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
               children: [
                 const Text(
                   'Select Timeframe',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
                 ),
                 const SizedBox(height: 12),
                 ListTile(
                   title: const Text('Last 6 Months', style: TextStyle(fontWeight: FontWeight.w700)),
-                  trailing: _timeframe == 'Last 6 Months' ? const Icon(PhosphorIconsBold.check, color: Color(0xFF4F46E5)) : null,
+                  trailing: _timeframe == 'Last 6 Months' ? const Icon(PhosphorIconsBold.check, color: Color(0xFF0F766E)) : null,
                   onTap: () {
                     setState(() => _timeframe = 'Last 6 Months');
                     Navigator.pop(ctx);
@@ -1816,7 +1831,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                 ),
                 ListTile(
                   title: const Text('Last 3 Months', style: TextStyle(fontWeight: FontWeight.w700)),
-                  trailing: _timeframe == 'Last 3 Months' ? const Icon(PhosphorIconsBold.check, color: Color(0xFF4F46E5)) : null,
+                  trailing: _timeframe == 'Last 3 Months' ? const Icon(PhosphorIconsBold.check, color: Color(0xFF0F766E)) : null,
                   onTap: () {
                     setState(() => _timeframe = 'Last 3 Months');
                     Navigator.pop(ctx);
@@ -1824,7 +1839,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                 ),
                 ListTile(
                   title: const Text('Current Year', style: TextStyle(fontWeight: FontWeight.w700)),
-                  trailing: _timeframe == 'Current Year' ? const Icon(PhosphorIconsBold.check, color: Color(0xFF4F46E5)) : null,
+                  trailing: _timeframe == 'Current Year' ? const Icon(PhosphorIconsBold.check, color: Color(0xFF0F766E)) : null,
                   onTap: () {
                     setState(() => _timeframe = 'Current Year');
                     Navigator.pop(ctx);
@@ -1887,8 +1902,8 @@ class _ReportsRevenueCurvePainter extends CustomPainter {
     final fillPaint = Paint()
       ..shader = LinearGradient(
         colors: [
-          const Color(0xFF6366F1).withValues(alpha: 0.28),
-          const Color(0xFF6366F1).withValues(alpha: 0.0),
+          const Color(0xFF0D9488).withValues(alpha: 0.28),
+          const Color(0xFF0D9488).withValues(alpha: 0.0),
         ],
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
@@ -1908,7 +1923,7 @@ class _ReportsRevenueCurvePainter extends CustomPainter {
     }
 
     final strokePaint = Paint()
-      ..color = const Color(0xFF6366F1)
+      ..color = const Color(0xFF0D9488)
       ..strokeWidth = 3
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
@@ -1918,7 +1933,7 @@ class _ReportsRevenueCurvePainter extends CustomPainter {
     // Draw dots and text
     final dotPaint = Paint()..color = Colors.white;
     final dotBorderPaint = Paint()
-      ..color = const Color(0xFF6366F1)
+      ..color = const Color(0xFF0D9488)
       ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke;
 
@@ -1931,9 +1946,9 @@ class _ReportsRevenueCurvePainter extends CustomPainter {
       final textSpan = TextSpan(
         text: labels[i],
         style: TextStyle(
-          color: i == points.length - 1 ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8),
+          color: i == points.length - 1 ? const Color(0xFF0F766E) : const Color(0xFF94A3B8),
           fontSize: 10.5,
-          fontWeight: i == points.length - 1 ? FontWeight.w800 : FontWeight.w600,
+          fontWeight: i == points.length - 1 ? FontWeight.w700 : FontWeight.w600,
         ),
       );
       final tp = TextPainter(text: textSpan, textDirection: TextDirection.ltr);

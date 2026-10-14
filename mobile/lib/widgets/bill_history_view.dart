@@ -236,382 +236,73 @@ class _BillHistoryViewState extends State<BillHistoryView> {
     );
   }
 
-  // ── Today's Collections table ─────────────────────────────────────────────
+  // ── Today's collections ──────────────────────────────────────────────────
 
+  /// One compact line of today's money above the bill list. It used to be a
+  /// full method/collected/share table - the same figures as Home's
+  /// "Payments today" - that took the whole first screen, so the bills this
+  /// page is for started below the fold.
   Widget _todayCollectionsTable({
     required double cash,
     required double upi,
     required double card,
   }) {
     final total = cash + upi + card;
-    int pct(double v) => total > 0 ? (v / total * 100).round() : 0;
-
+    final parts = [
+      'Cash ${_rupees(cash)}',
+      'UPI ${_rupees(upi)}',
+      if (card > 0) 'Card ${_rupees(card)}',
+    ].join('  ·  ');
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF4F46E5).withValues(alpha: 0.07),
-              blurRadius: 16,
-              offset: const Offset(0, 5),
-            ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.03),
-              blurRadius: 3,
-              offset: const Offset(0, 1),
-            ),
-          ],
+      child: Material(
+        color: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: AppTheme.borderSubtle),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-              child: Row(
-                children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: widget.onOpenReports,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Collected today', style: TextStyle(fontSize: 12.5, color: AppTheme.slateLight)),
+                      const SizedBox(height: 2),
+                      Text(
+                        _rupees(total),
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppTheme.slateDark, letterSpacing: -0.4),
                       ),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(
-                      PhosphorIconsBold.currencyInr,
-                      color: Colors.white,
-                      size: 16,
-                    ),
+                      const SizedBox(height: 2),
+                      Text(parts, style: const TextStyle(fontSize: 12, color: AppTheme.slateLight)),
+                    ],
                   ),
-                  const SizedBox(width: 10),
-                  // Expanded + ellipsis: unbounded, these overflowed the card
-                  // on a narrow phone or with a large system font size.
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          "Today's Collections",
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontFamily: 'Plus Jakarta Sans',
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A),
-                            letterSpacing: -0.2,
-                          ),
-                        ),
-                        Text(
-                          card > 0 ? 'Cash · UPI · Card received today' : 'Cash and UPI received today',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontFamily: 'Plus Jakarta Sans',
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w500,
-                            color: Color(0xFF94A3B8),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                ),
+                if (widget.onOpenReports != null) ...[
+                  const Text('Reports', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.primaryBlue)),
+                  const Icon(PhosphorIconsRegular.caretRight, size: 14, color: AppTheme.primaryBlue),
                 ],
-              ),
+              ],
             ),
-
-            const SizedBox(height: 12),
-
-            // Column headers
-            Container(
-              color: const Color(0xFFF8F9FC),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: const Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: Text(
-                      'METHOD',
-                      style: TextStyle(
-                        fontFamily: 'Plus Jakarta Sans',
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF94A3B8),
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    flex: 2,
-                    child: Text(
-                      'COLLECTED',
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        fontFamily: 'Plus Jakarta Sans',
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF94A3B8),
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    flex: 2,
-                    child: Text(
-                      'SHARE',
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        fontFamily: 'Plus Jakarta Sans',
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF94A3B8),
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Cash
-            _collectionRow(
-              icon: PhosphorIconsBold.money,
-              iconColor: const Color(0xFF10B981),
-              iconBg: const Color(0xFFECFDF5),
-              label: 'Cash',
-              amount: cash,
-              share: pct(cash),
-              accentColor: const Color(0xFF10B981),
-              divider: true,
-            ),
-
-            // UPI
-            _collectionRow(
-              icon: PhosphorIconsBold.qrCode,
-              iconColor: const Color(0xFF8B5CF6),
-              iconBg: const Color(0xFFF5F3FF),
-              label: 'UPI / QR',
-              amount: upi,
-              share: pct(upi),
-              accentColor: const Color(0xFF8B5CF6),
-              divider: card > 0,
-            ),
-
-            // Card - retired at the till (only Cash/UPI/Pending can be
-            // picked), so the row only appears when a payment recorded
-            // before then lands today; otherwise it's a permanent ₹0 line
-            // for a method nobody can choose.
-            if (card > 0)
-              _collectionRow(
-                icon: PhosphorIconsBold.creditCard,
-                iconColor: const Color(0xFF0EA5E9),
-                iconBg: const Color(0xFFE0F2FE),
-                label: 'Card',
-                amount: card,
-                share: pct(card),
-                accentColor: const Color(0xFF0EA5E9),
-                divider: false,
-              ),
-
-            // Total row
-            Container(
-              margin: const EdgeInsets.fromLTRB(14, 4, 14, 14),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFEEF2FF), Color(0xFFF5F3FF)],
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                ),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  const Expanded(
-                    flex: 3,
-                    child: Text(
-                      'Total Collected',
-                      style: TextStyle(
-                        fontFamily: 'Plus Jakarta Sans',
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF3730A3),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    flex: 2,
-                    child: Text(
-                      _rupees(total),
-                      textAlign: TextAlign.right,
-                      style: const TextStyle(
-                        fontFamily: 'Plus Jakarta Sans',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF3730A3),
-                        letterSpacing: -0.4,
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    flex: 2,
-                    child: Text(
-                      // Nothing collected is not "100%" of anything.
-                      total > 0 ? '100%' : '-',
-                      textAlign: TextAlign.right,
-                      style: const TextStyle(
-                        fontFamily: 'Plus Jakarta Sans',
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF6366F1),
-                      ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              if (widget.onOpenReports != null)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                  child: InkWell(
-                    onTap: widget.onOpenReports,
-                    borderRadius: BorderRadius.circular(14),
-                    child: Container(
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8F9FC),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFFE2E8F0), width: 1.2),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Text(
-                            'View All Reports',
-                            style: TextStyle(
-                              fontFamily: 'Plus Jakarta Sans',
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF4F46E5),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          const Icon(PhosphorIconsBold.arrowRight, size: 14, color: Color(0xFF4F46E5)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-            ],
           ),
         ),
-      );
-    }
-
-  Widget _collectionRow({
-    required IconData icon,
-    required Color iconColor,
-    required Color iconBg,
-    required Color accentColor,
-    required String label,
-    required double amount,
-    required int share,
-    required bool divider,
-  }) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Row(
-            children: [
-              Expanded(
-                flex: 3,
-                child: Row(
-                  children: [
-                    Container(
-                      width: 30,
-                      height: 30,
-                      decoration: BoxDecoration(
-                        color: iconBg,
-                        borderRadius: BorderRadius.circular(9),
-                      ),
-                      child: Icon(icon, color: iconColor, size: 15),
-                    ),
-                    const SizedBox(width: 9),
-                    Flexible(
-                      child: Text(
-                        label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontFamily: 'Plus Jakarta Sans',
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF0F172A),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                flex: 2,
-                child: Text(
-                  _rupees(amount),
-                  textAlign: TextAlign.right,
-                  style: TextStyle(
-                    fontFamily: 'Plus Jakarta Sans',
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w800,
-                    color: amount > 0
-                        ? const Color(0xFF0F172A)
-                        : const Color(0xFFCBD5E1),
-                    letterSpacing: -0.3,
-                  ),
-                ),
-              ),
-              Expanded(
-                flex: 2,
-                child: Text(
-                  '$share%',
-                  textAlign: TextAlign.right,
-                  style: TextStyle(
-                    fontFamily: 'Plus Jakarta Sans',
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
-                    color: amount > 0 ? accentColor : const Color(0xFFCBD5E1),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (divider)
-          const Divider(
-            height: 1,
-            indent: 16,
-            endIndent: 16,
-            color: Color(0xFFF1F5F9),
-          ),
-      ],
+      ),
     );
   }
-
-
 
   /// Search box and filter chips. These stay pinned at every scroll offset -
   /// they are how you drive the list, so losing them mid-scroll would mean
   /// scrolling back to the top to change a filter.
   Widget _searchAndFilters() {
     return Column(
+      // stretch: the chip row used to centre itself whenever it was narrower
+      // than the screen, unlike every other filter row in the app.
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         TextField(
           controller: _searchController,
@@ -735,7 +426,7 @@ class _BillHistoryViewState extends State<BillHistoryView> {
               searching ? 'No bills match this view' : 'No bills yet',
               style: const TextStyle(
                 fontSize: 15,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
                 color: AppTheme.slateDark,
               ),
             ),
@@ -803,7 +494,7 @@ class _BillHistoryViewState extends State<BillHistoryView> {
                         _customerNameFor(bill),
                         style: const TextStyle(
                           fontSize: 14,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                           color: AppTheme.slateDark,
                         ),
                         maxLines: 1,
@@ -831,7 +522,7 @@ class _BillHistoryViewState extends State<BillHistoryView> {
                       _rupees(bill.finalAmount),
                       style: const TextStyle(
                         fontSize: 15,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         color: AppTheme.slateDark,
                         letterSpacing: -0.4,
                       ),
@@ -847,7 +538,7 @@ class _BillHistoryViewState extends State<BillHistoryView> {
                         statusLabel,
                         style: TextStyle(
                           fontSize: 9.5,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                           color: statusColor,
                         ),
                       ),
@@ -954,7 +645,7 @@ Future<void> showBillDetailSheet(
                             customerName,
                             style: const TextStyle(
                               fontSize: 18,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w700,
                               color: AppTheme.slateDark,
                               letterSpacing: -0.3,
                             ),
@@ -1147,7 +838,7 @@ Widget _totalRow(String label, String value, {bool emphasise = false, Color? val
           label,
           style: TextStyle(
             fontSize: emphasise ? 14.5 : 12.5,
-            fontWeight: emphasise ? FontWeight.w800 : FontWeight.w600,
+            fontWeight: emphasise ? FontWeight.w700 : FontWeight.w600,
             color: emphasise ? AppTheme.slateDark : AppTheme.slateLight,
           ),
         ),
@@ -1155,7 +846,7 @@ Widget _totalRow(String label, String value, {bool emphasise = false, Color? val
           value,
           style: TextStyle(
             fontSize: emphasise ? 17 : 12.5,
-            fontWeight: emphasise ? FontWeight.w800 : FontWeight.w700,
+            fontWeight: emphasise ? FontWeight.w700 : FontWeight.w700,
             color: valueColor ?? AppTheme.slateDark,
             letterSpacing: emphasise ? -0.5 : 0,
           ),

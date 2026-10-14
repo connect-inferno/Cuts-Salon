@@ -82,7 +82,7 @@ class OwnerPaymentRequestsView extends ConsumerWidget {
 
   static const _sectionStyle = TextStyle(
     fontSize: 12.5,
-    fontWeight: FontWeight.w800,
+    fontWeight: FontWeight.w700,
     color: Color(0xFF64748B),
   );
 
@@ -146,7 +146,7 @@ class OwnerPaymentRequestsView extends ConsumerWidget {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 14,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         color: Color(0xFF0F172A),
                       ),
                     ),
@@ -170,7 +170,7 @@ class OwnerPaymentRequestsView extends ConsumerWidget {
                 _rupees(r.amount),
                 style: const TextStyle(
                   fontSize: 17,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                   color: Color(0xFF0F172A),
                 ),
               ),
@@ -248,7 +248,7 @@ class OwnerPaymentRequestsView extends ConsumerWidget {
                 approved ? 'APPROVED · payment recorded' : 'REFUSED',
                 style: TextStyle(
                   fontSize: 9.5,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                   color: approved ? const Color(0xFF10B981) : AppTheme.accentRed,
                 ),
               ),

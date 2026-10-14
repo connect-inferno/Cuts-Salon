@@ -192,13 +192,13 @@ class _OwnerTaxSettingsPageState extends ConsumerState<OwnerTaxSettingsPage> {
                             Container(
                               padding: const EdgeInsets.all(9),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFF0F9FF),
+                                color: const Color(0xFFEFF6FF),
                                 borderRadius: BorderRadius.circular(11),
                               ),
                               child: const Icon(
                                 PhosphorIconsFill.percent,
                                 size: 17,
-                                color: Color(0xFF0EA5E9),
+                                color: Color(0xFF2563EB),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -272,7 +272,7 @@ class _OwnerTaxSettingsPageState extends ConsumerState<OwnerTaxSettingsPage> {
                           'ON A ₹1,000 BILL',
                           style: TextStyle(
                             fontSize: 10,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w700,
                             color: AppTheme.primaryBlue,
                             letterSpacing: 0.8,
                           ),
@@ -288,7 +288,7 @@ class _OwnerTaxSettingsPageState extends ConsumerState<OwnerTaxSettingsPage> {
                               : 'GST (off)',
                           _formatRupees(sampleTax),
                         ),
-                        const Divider(height: 16, color: Color(0xFFC7D2FE)),
+                        const Divider(height: 16, color: Color(0xFF99F6E4)),
                         _taxPreviewRow(
                           'Client pays',
                           _formatRupees(sample + sampleTax),
@@ -335,7 +335,7 @@ class _OwnerTaxSettingsPageState extends ConsumerState<OwnerTaxSettingsPage> {
             label,
             style: TextStyle(
               fontSize: emphasise ? 13.5 : 12.5,
-              fontWeight: emphasise ? FontWeight.w800 : FontWeight.w600,
+              fontWeight: emphasise ? FontWeight.w700 : FontWeight.w600,
               color: emphasise ? AppTheme.slateDark : AppTheme.slateMedium,
             ),
           ),
@@ -343,7 +343,7 @@ class _OwnerTaxSettingsPageState extends ConsumerState<OwnerTaxSettingsPage> {
             value,
             style: TextStyle(
               fontSize: emphasise ? 16 : 12.5,
-              fontWeight: emphasise ? FontWeight.w800 : FontWeight.w700,
+              fontWeight: emphasise ? FontWeight.w700 : FontWeight.w700,
               color: emphasise ? AppTheme.slateDark : AppTheme.slateMedium,
               letterSpacing: emphasise ? -0.4 : 0,
             ),

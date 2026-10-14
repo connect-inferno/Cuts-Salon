@@ -109,7 +109,7 @@ class EmployeePaymentRequestsView extends ConsumerWidget {
                   r.customerName ?? 'Client',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -128,7 +128,7 @@ class EmployeePaymentRequestsView extends ConsumerWidget {
             children: [
               Text(
                 _rupees(r.amount),
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
               ),
               const SizedBox(height: 4),
               Container(
@@ -136,7 +136,7 @@ class EmployeePaymentRequestsView extends ConsumerWidget {
                 decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(7)),
                 child: Text(
                   label,
-                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: fg),
+                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: fg),
                 ),
               ),
             ],

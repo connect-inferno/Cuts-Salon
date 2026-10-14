@@ -73,7 +73,7 @@ class AppPageHeader extends StatelessWidget {
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
           child: Row(
             children: [
               _buildLeading(context),
@@ -86,8 +86,8 @@ class AppPageHeader extends StatelessWidget {
                     Text(
                       title,
                       style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
                         color: AppTheme.slateDark,
                         letterSpacing: -0.3,
                         height: 1.2,
@@ -99,10 +99,10 @@ class AppPageHeader extends StatelessWidget {
                       Text(
                         subtitle!,
                         style: const TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w500,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w400,
                           color: AppTheme.slateLight,
-                          height: 1.3,
+                          height: 1.35,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -134,27 +134,17 @@ class AppPageHeader extends StatelessWidget {
           ),
         );
       case AppPageLeading.mark:
-        // Not a button: on a top-level page there is nothing above to go to,
-        // and a tappable-looking mark that does nothing is its own small
-        // confusion. Taps route to onLeadingTap only if a page supplies one.
-        final mark = Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: AppTheme.primaryLight,
-            borderRadius: BorderRadius.circular(11),
+        // A top-level page leads with its title alone. The tinted shop badge
+        // that used to sit here repeated on every page and said nothing the
+        // title didn't. Kept as a quiet icon only when a page makes it do
+        // something (onLeadingTap).
+        if (onLeadingTap == null) return const SizedBox(width: 4);
+        return _AppHeaderIconButton(
+          action: AppPageAction(
+            icon: PhosphorIconsRegular.storefront,
+            tooltip: 'Salon',
+            onTap: onLeadingTap!,
           ),
-          child: const Icon(
-            PhosphorIconsFill.storefront,
-            color: AppTheme.primaryBlue,
-            size: 19,
-          ),
-        );
-        if (onLeadingTap == null) return mark;
-        return InkWell(
-          onTap: onLeadingTap,
-          borderRadius: BorderRadius.circular(11),
-          child: mark,
         );
     }
   }
@@ -171,20 +161,18 @@ class _AppHeaderIconButton extends StatelessWidget {
       message: action.tooltip,
       child: InkWell(
         onTap: action.onTap,
-        borderRadius: BorderRadius.circular(11),
-        child: Container(
-          width: 38,
-          height: 38,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: const Color(0xFFF1F5F9),
-            borderRadius: BorderRadius.circular(11),
-          ),
+        borderRadius: BorderRadius.circular(10),
+        // Plain icon, no grey tile behind it - the tiles made every header
+        // read as a row of buttons competing with the title.
+        child: SizedBox(
+          width: 40,
+          height: 40,
           child: Badge(
             isLabelVisible: action.badgeCount > 0,
             label: Text('${action.badgeCount}', style: const TextStyle(fontSize: 9)),
             backgroundColor: AppTheme.accentRed,
-            child: Icon(action.icon, size: 19, color: AppTheme.slateMedium),
+            alignment: const AlignmentDirectional(0.5, -0.5),
+            child: Center(child: Icon(action.icon, size: 21, color: AppTheme.slateDark)),
           ),
         ),
       ),

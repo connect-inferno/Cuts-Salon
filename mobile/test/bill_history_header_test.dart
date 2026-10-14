@@ -2,8 +2,8 @@
 // SliverPersistentHeader, and a pinned header has to declare its extent
 // before it lays anything out - so _HistoryHeaderDelegate's heights are
 // hard-coded constants rather than measured. That is only safe while the
-// controls inside actually fit. Above it, the Today's Collections table
-// scrolls away with the list.
+// controls inside actually fit. Above it, the one-line "Collected today"
+// summary scrolls away with the list.
 //
 // These tests pump the real view at narrow, phone and tablet widths, at rest
 // and scrolled, and fail on any render overflow. If someone adds a line to
@@ -77,8 +77,7 @@ void main() {
     testWidgets('history renders without overflow at ${entry.key}', (tester) async {
       await _pumpAt(tester, entry.value);
 
-      expect(find.text("Today's Collections"), findsOneWidget);
-      expect(find.text('Total Collected'), findsOneWidget);
+      expect(find.text('Collected today'), findsOneWidget);
 
       // The controls must fit inside the header's fixed extent - the header
       // clips rather than throws, so too small a height crops them silently.
@@ -112,7 +111,7 @@ void main() {
     await _pumpAt(tester, phone, data: _appData(billCount: 0));
 
     expect(find.text('No bills yet'), findsOneWidget);
-    expect(find.text("Today's Collections"), findsOneWidget);
+    expect(find.text('Collected today'), findsOneWidget);
   });
 
   testWidgets("a balance settled by card counts under Card in today's collections", (tester) async {
@@ -156,8 +155,9 @@ void main() {
       ),
     );
 
-    expect(find.text('₹390'), findsOneWidget); // Card
-    expect(find.text('₹200'), findsOneWidget); // UPI
+    // The summary reads "Cash ₹0  ·  UPI ₹200  ·  Card ₹390".
+    expect(find.textContaining('UPI ₹200'), findsOneWidget);
+    expect(find.textContaining('Card ₹390'), findsOneWidget);
     expect(find.text('₹590'), findsWidgets); // total, and the bill row
   });
 }

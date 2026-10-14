@@ -93,7 +93,7 @@ class AppDrawer extends StatelessWidget {
                         section.title.toUpperCase(),
                         style: const TextStyle(
                           fontSize: 10,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                           color: AppTheme.textMuted,
                           letterSpacing: 0.9,
                         ),
@@ -135,7 +135,17 @@ class AppDrawer extends StatelessWidget {
       ),
     );
 
-    return isModal ? Drawer(width: 292, child: panel) : panel;
+    // Opened as the Scaffold's endDrawer (from the right, beside the Menu
+    // button), so it is the left-hand corners that round.
+    return isModal
+        ? Drawer(
+            width: 292,
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.horizontal(left: Radius.circular(18)),
+            ),
+            child: panel,
+          )
+        : panel;
   }
 
   Widget _buildAccountRow() {
@@ -148,7 +158,7 @@ class AppDrawer extends StatelessWidget {
             height: 44,
             alignment: Alignment.center,
             decoration: const BoxDecoration(
-              color: Color(0xFF1E1B4B),
+              color: Color(0xFF134E4A),
               shape: BoxShape.circle,
             ),
             child: Text(
@@ -156,7 +166,7 @@ class AppDrawer extends StatelessWidget {
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 15,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
@@ -168,7 +178,7 @@ class AppDrawer extends StatelessWidget {
                 Text(
                   title,
                   style: const TextStyle(
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     fontSize: 15,
                     color: AppTheme.slateDark,
                     letterSpacing: -0.3,
@@ -252,7 +262,7 @@ class AppDrawer extends StatelessWidget {
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 10,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
