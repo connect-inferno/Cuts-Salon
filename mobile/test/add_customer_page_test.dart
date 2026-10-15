@@ -42,10 +42,12 @@ Future<void> _pump(WidgetTester tester, {List<Branch> branches = const []}) asyn
 }
 
 void main() {
-  testWidgets('shows the three client fields', (tester) async {
+  testWidgets('shows the client fields, with the name in three parts', (tester) async {
     await _pump(tester);
 
-    expect(find.text('Full Name *'), findsOneWidget);
+    expect(find.text('First Name *'), findsOneWidget);
+    expect(find.text('Middle Name'), findsOneWidget);
+    expect(find.text('Last Name *'), findsOneWidget);
     expect(find.text('Phone Number *'), findsOneWidget);
     expect(find.text('Email Address'), findsOneWidget);
   });
@@ -67,31 +69,44 @@ void main() {
     await tester.tap(find.widgetWithText(ElevatedButton, 'Add client'));
     await tester.pump(); // let the SnackBar in
 
-    expect(find.text('Name and phone are required.'), findsOneWidget);
+    expect(find.text('Please add the first name, last name and phone number.'), findsOneWidget);
     // Still on the page - reaching the provider would have thrown here,
     // since nothing is overridden.
-    expect(find.text('Full Name *'), findsOneWidget);
+    expect(find.text('First Name *'), findsOneWidget);
   });
 
   testWidgets('a name without a phone is still rejected', (tester) async {
     await _pump(tester);
 
     await tester.enterText(find.byType(TextField).first, 'Priya');
+    await tester.enterText(find.byType(TextField).at(2), 'Sharma');
     await tester.tap(find.widgetWithText(ElevatedButton, 'Add client'));
     await tester.pump();
 
-    expect(find.text('Name and phone are required.'), findsOneWidget);
+    expect(find.text('Please add the phone number.'), findsOneWidget);
+  });
+
+  testWidgets('the last name is required, the middle name is not', (tester) async {
+    await _pump(tester);
+
+    await tester.enterText(find.byType(TextField).first, 'Priya');
+    await tester.enterText(find.byType(TextField).at(1), 'Kumari');
+    await tester.enterText(find.byType(TextField).at(3), '9876543210');
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Add client'));
+    await tester.pump();
+
+    expect(find.text('Please add the last name.'), findsOneWidget);
   });
 
   testWidgets('whitespace is not accepted as a name', (tester) async {
     await _pump(tester);
 
     await tester.enterText(find.byType(TextField).first, '   ');
-    await tester.enterText(find.byType(TextField).at(1), '9876543210');
+    await tester.enterText(find.byType(TextField).at(3), '9876543210');
     await tester.tap(find.widgetWithText(ElevatedButton, 'Add client'));
     await tester.pump();
 
-    expect(find.text('Name and phone are required.'), findsOneWidget);
+    expect(find.text('Please add the first name and last name.'), findsOneWidget);
   });
 
   testWidgets('Cancel closes the page', (tester) async {
@@ -118,11 +133,11 @@ void main() {
 
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
-    expect(find.text('Full Name *'), findsOneWidget);
+    expect(find.text('First Name *'), findsOneWidget);
 
     await tester.tap(find.widgetWithText(OutlinedButton, 'Cancel'));
     await tester.pumpAndSettle();
-    expect(find.text('Full Name *'), findsNothing);
+    expect(find.text('First Name *'), findsNothing);
   });
 
   testWidgets('the branch-sharing note only appears with several branches',
@@ -144,13 +159,26 @@ void main() {
     // Before anything is typed it is a placeholder, not a blank avatar.
     expect(find.text('New client'), findsOneWidget);
 
-    await tester.enterText(find.byType(TextField).first, 'Priya Sharma');
+    await tester.enterText(find.byType(TextField).first, 'priya');
+    await tester.enterText(find.byType(TextField).at(2), 'sharma');
     await tester.pump();
 
     expect(find.text('New client'), findsNothing);
+    // Joined into one name, each part starting with a capital.
     expect(_inPreview('Priya Sharma'), findsOneWidget);
     // Two-letter initials, matching the avatar the directory will show.
     expect(_inPreview('PS'), findsOneWidget);
+  });
+
+  testWidgets('a middle name goes between first and last', (tester) async {
+    await _pump(tester);
+
+    await tester.enterText(find.byType(TextField).first, 'Priya');
+    await tester.enterText(find.byType(TextField).at(1), '  kumari ');
+    await tester.enterText(find.byType(TextField).at(2), 'Sharma');
+    await tester.pump();
+
+    expect(_inPreview('Priya Kumari Sharma'), findsOneWidget);
   });
 
   testWidgets('a single-word name yields one initial', (tester) async {
@@ -170,7 +198,7 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.enterText(find.byType(TextField).at(1), '9876543210');
+    await tester.enterText(find.byType(TextField).at(3), '9876543210');
     await tester.pump();
 
     expect(_inPreview('9876543210'), findsOneWidget);
@@ -186,10 +214,9 @@ void main() {
       // A long name is the realistic worst case for the preview row and for
       // the gradient button beside Cancel.
       await _pump(tester, branches: [_branch('b1', 'Main'), _branch('b2', 'Two')]);
-      await tester.enterText(
-        find.byType(TextField).first,
-        'Bhuvaneshwari Ramachandran Venkataraman',
-      );
+      await tester.enterText(find.byType(TextField).first, 'Bhuvaneshwari');
+      await tester.enterText(find.byType(TextField).at(1), 'Ramachandran');
+      await tester.enterText(find.byType(TextField).at(2), 'Venkataraman');
       await tester.pumpAndSettle();
 
       expect(find.widgetWithText(ElevatedButton, 'Add client'), findsOneWidget);

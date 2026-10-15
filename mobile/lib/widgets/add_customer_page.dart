@@ -31,7 +31,12 @@ class AddCustomerPage extends ConsumerStatefulWidget {
 }
 
 class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
-  final _nameController = TextEditingController();
+  // First, middle and last, saved as one name ("Priya Kumari Sharma") so
+  // search, bills, receipts and WhatsApp messages all work exactly as they
+  // do for clients added before the name was split. See [_fullName].
+  final _firstNameController = TextEditingController();
+  final _middleNameController = TextEditingController();
+  final _lastNameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
   // "MM-DD" once both day and month are picked - see data/birthday.dart.
@@ -44,8 +49,13 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
     super.initState();
     // Drives the preview card's initials and name as they are typed. Local
     // state only - it rebuilds this page and touches nothing else.
-    _nameController.addListener(_onNameChanged);
+    for (final c in _nameControllers) {
+      c.addListener(_onNameChanged);
+    }
   }
+
+  List<TextEditingController> get _nameControllers =>
+      [_firstNameController, _middleNameController, _lastNameController];
 
   void _onNameChanged() => setState(() {});
 
@@ -53,8 +63,10 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
   void dispose() {
     // The dialog this replaced never disposed its controllers, so every time
     // it was opened and dismissed it leaked three of them.
-    _nameController.removeListener(_onNameChanged);
-    _nameController.dispose();
+    for (final c in _nameControllers) {
+      c.removeListener(_onNameChanged);
+      c.dispose();
+    }
     _phoneController.dispose();
     _emailController.dispose();
     super.dispose();
@@ -63,8 +75,7 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
   /// Same two-letter rule the client directory uses, so the preview matches
   /// the avatar this client will actually get in the list.
   String get _initials {
-    final parts = _nameController.text
-        .trim()
+    final parts = _fullName
         .split(' ')
         .where((n) => n.isNotEmpty)
         .toList();
@@ -72,18 +83,47 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
     return parts.map((n) => n[0]).take(2).join().toUpperCase();
   }
 
+  /// One part of the name, tidied: inner runs of spaces collapsed and each
+  /// word starting with a capital ("priya" -> "Priya"), leaving the rest of
+  /// the word as typed so names like "McDonald" survive.
+  static String _tidy(String raw) => raw
+      .trim()
+      .split(RegExp(r'\s+'))
+      .where((w) => w.isNotEmpty)
+      .map((w) => w[0].toUpperCase() + w.substring(1))
+      .join(' ');
+
+  /// First, middle (if any) and last, as the one name the client is saved
+  /// under.
+  String get _fullName => [
+        _tidy(_firstNameController.text),
+        _tidy(_middleNameController.text),
+        _tidy(_lastNameController.text),
+      ].where((p) => p.isNotEmpty).join(' ');
+
   Future<void> _submit() async {
-    final name = _nameController.text.trim();
+    final first = _tidy(_firstNameController.text);
+    final last = _tidy(_lastNameController.text);
     final phone = _phoneController.text.trim();
-    if (name.isEmpty || phone.isEmpty) {
+    // Says exactly what is missing rather than a generic "required".
+    final missing = [
+      if (first.isEmpty) 'first name',
+      if (last.isEmpty) 'last name',
+      if (phone.isEmpty) 'phone number',
+    ];
+    if (missing.isNotEmpty) {
+      final list = missing.length == 1
+          ? missing.first
+          : '${missing.sublist(0, missing.length - 1).join(', ')} and ${missing.last}';
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Name and phone are required.'),
+        SnackBar(
+          content: Text('Please add the $list.'),
           backgroundColor: AppTheme.accentRed,
         ),
       );
       return;
     }
+    final name = _fullName;
 
     setState(() => _submitting = true);
     try {
@@ -157,7 +197,7 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
   /// gives the top of an otherwise sparse form something to anchor on, and
   /// confirms what is about to be saved before the button is pressed.
   Widget _previewCard() {
-    final name = _nameController.text.trim();
+    final name = _fullName;
     final phone = _phoneController.text.trim();
     final hasName = name.isNotEmpty;
     final (bg, fg) = AppTheme.avatarColorsFor(hasName ? name : '?');
@@ -275,9 +315,25 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
           ),
           const SizedBox(height: 14),
           _field(
-            controller: _nameController,
-            label: 'Full Name *',
-            hint: 'e.g. Priya Sharma',
+            controller: _firstNameController,
+            label: 'First Name *',
+            hint: 'e.g. Priya',
+            icon: PhosphorIconsRegular.user,
+            textCapitalization: TextCapitalization.words,
+          ),
+          const SizedBox(height: 14),
+          _field(
+            controller: _middleNameController,
+            label: 'Middle Name',
+            hint: 'Optional',
+            icon: PhosphorIconsRegular.user,
+            textCapitalization: TextCapitalization.words,
+          ),
+          const SizedBox(height: 14),
+          _field(
+            controller: _lastNameController,
+            label: 'Last Name *',
+            hint: 'e.g. Sharma',
             icon: PhosphorIconsRegular.user,
             textCapitalization: TextCapitalization.words,
           ),
