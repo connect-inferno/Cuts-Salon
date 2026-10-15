@@ -15,17 +15,11 @@ double _round2(num n) => (n * 100).round() / 100;
 // Note on the salary redaction the REST backend does (employee.service.ts
 // hides a coworker's baseSalary/commission from non-owners): Firestore
 // Security Rules grant or deny a whole document, they can't strip individual
-// fields on read the way a REST controller can reshape its response. Doing
-// that here would mean either a Cloud Function acting as a read proxy (real
-// backend code, defeating a lot of the point of going server-less) or
-// duplicating pay fields into a second, owner-only-readable document per
-// employee. Neither is built yet - listEmployees() below returns the whole
-// document, so *the caller* (whatever UI eventually renders this list) must
-// only display baseSalary/serviceCommissionPct/productCommissionPct when
-// viewing your own profile or when the viewer is the owner, exactly like the
-// old employee.service.ts canSeePay check, just enforced client-side instead
-// of server-side. That's a real, deliberate gap - flagging it so it isn't
-// mistaken for equivalent security to the REST backend.
+// fields on read. So pay lives in its own document, employeePay/{uid},
+// readable only by the owner and that employee, while employees/{uid} (the
+// roster every active employee reads) carries no pay. Older docs still have
+// pay fields on employees/{uid} until the owner's app moves them over - see
+// moveLegacyPay and FSEmployee.legacyPay.
 class SalonFirestore {
   final FirebaseFirestore db;
 
@@ -208,9 +202,106 @@ class SalonFirestore {
     return FSEmployee.fromFirestore(doc);
   }
 
-  Future<void> writeEmployeeProfile(String uid, FSEmployee profile) => db.collection('employees').doc(uid).set(profile.toFirestore());
+  // --- Pay (employeePay/{uid}, see the note atop this file) ---
 
-  Future<void> updateEmployee(String uid, Map<String, dynamic> changes) => db.collection('employees').doc(uid).update(changes);
+  /// Every employee's pay - owner only (the rules refuse anyone else a list).
+  Future<Map<String, FSEmployeePay>> listEmployeePay() async {
+    final snap = await db.collection('employeePay').get();
+    return {for (final d in snap.docs) d.id: FSEmployeePay.fromMap(d.data())};
+  }
+
+  /// One employee's pay - the owner, or that employee themselves.
+  Future<FSEmployeePay?> getEmployeePay(String uid) async {
+    final doc = await db.collection('employeePay').doc(uid).get();
+    final data = doc.data();
+    return data == null ? null : FSEmployeePay.fromMap(data);
+  }
+
+  /// The roster with pay filled in. [payFor] null = the owner, who reads
+  /// everyone's pay; otherwise only that one employee's pay is fetched (staff
+  /// can read no one else's) and the rest of the roster keeps whatever
+  /// legacy fields it still has, which firestore_app_data.dart hides anyway.
+  ///
+  /// A pay read that fails (e.g. rules for employeePay not deployed yet, or
+  /// offline with nothing cached) falls back to the legacy fields instead of
+  /// failing the whole load: before the move those are the real numbers.
+  Future<List<FSEmployee>> listEmployeesWithPay({String? payFor}) async {
+    final rosterFuture = listEmployees();
+    Map<String, FSEmployeePay> pay;
+    try {
+      if (payFor == null) {
+        pay = await listEmployeePay();
+      } else {
+        final mine = await getEmployeePay(payFor);
+        pay = {if (mine != null) payFor: mine};
+      }
+    } catch (e) {
+      debugPrint('[Stylux] employeePay read failed, using pay on the roster docs: $e');
+      pay = const {};
+    }
+    final roster = await rosterFuture;
+    return [for (final e in roster) e.withPay(pay[e.id])];
+  }
+
+  /// Moves pay left on employees/{uid} docs into employeePay/{uid} and
+  /// removes it from the roster doc, so coworkers can no longer read it.
+  /// Owner only - run from loadAppData on the owner's loads; a no-op (no
+  /// writes) once nothing is left to move. [roster] must come from
+  /// [listEmployeesWithPay], so its pay is already the merged figure that
+  /// gets written. One batch, so a doc is never left with its pay removed
+  /// but not yet copied.
+  Future<int> moveLegacyPay(List<FSEmployee> roster) async {
+    final pending = roster.where((e) => e.legacyPay.isNotEmpty).toList();
+    if (pending.isEmpty) return 0;
+    final batch = db.batch();
+    for (final e in pending) {
+      batch.set(db.collection('employeePay').doc(e.id), e.toPay().toFirestore());
+      batch.update(db.collection('employees').doc(e.id), {
+        for (final key in FSEmployeePay.fields) key: FieldValue.delete(),
+      });
+    }
+    await batch.commit();
+    return pending.length;
+  }
+
+  /// A new hire: the roster doc and their pay doc, together.
+  Future<void> writeEmployeeProfile(String uid, FSEmployee profile) async {
+    final batch = db.batch();
+    batch.set(db.collection('employees').doc(uid), profile.toFirestore());
+    batch.set(db.collection('employeePay').doc(uid), profile.toPay().toFirestore());
+    await batch.commit();
+  }
+
+  /// Pay keys in [changes] go to employeePay/{uid} (and any copy still on
+  /// the roster doc is removed in the same batch); everything else goes to
+  /// employees/{uid}.
+  Future<void> updateEmployee(String uid, Map<String, dynamic> changes) async {
+    final payChanges = {
+      for (final e in changes.entries)
+        if (FSEmployeePay.fields.contains(e.key)) e.key: e.value,
+    };
+    final rosterChanges = {
+      for (final e in changes.entries)
+        if (!FSEmployeePay.fields.contains(e.key)) e.key: e.value,
+    };
+    final batch = db.batch();
+    if (payChanges.isNotEmpty) {
+      // Merge onto the pay as it stands now - including pay not moved yet,
+      // which would otherwise be lost for the fields this edit leaves alone.
+      final current = (await getEmployee(uid))?.withPay(await getEmployeePay(uid));
+      batch.set(db.collection('employeePay').doc(uid), {
+        ...?current?.toPay().toFirestore(),
+        ...payChanges,
+      });
+      for (final key in FSEmployeePay.fields) {
+        rosterChanges[key] = FieldValue.delete();
+      }
+    }
+    if (rosterChanges.isNotEmpty) {
+      batch.update(db.collection('employees').doc(uid), rosterChanges);
+    }
+    await batch.commit();
+  }
 
   // Mirrors employee.service.ts's per-salon phone-uniqueness check.
   Future<bool> isPhoneTaken(String phone) async {
@@ -1226,13 +1317,10 @@ class SalonFirestore {
     final periodStart = DateTime(year, month, 1);
     final periodEnd = DateTime(year, month + 1, 1).subtract(const Duration(milliseconds: 1));
 
-    List<FSEmployee> employees;
-    if (employeeId != null) {
-      final e = await getEmployee(employeeId);
-      employees = (e == null || !e.active) ? [] : [e];
-    } else {
-      employees = (await listEmployees()).where((e) => e.active).toList();
-    }
+    // With pay merged in - the roster doc alone no longer carries it.
+    final employees = (await listEmployeesWithPay())
+        .where((e) => e.active && (employeeId == null || e.id == employeeId))
+        .toList();
     if (employees.isEmpty) throw Exception('No matching active employees found');
 
     final settings = await getSettings();

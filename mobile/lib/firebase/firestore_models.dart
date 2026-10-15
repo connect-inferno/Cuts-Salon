@@ -96,6 +96,12 @@ class FSEmployee {
   final String branchId;
   final String? branchName;
 
+  /// Pay fields still sitting on the employees/{uid} doc itself, from
+  /// before pay moved to employeePay/{uid} (see [FSEmployeePay]). Empty once
+  /// the owner's app has moved them (SalonFirestore.moveLegacyPay). Only the
+  /// keys actually present on the doc - absent is not the same as 0.
+  final Map<String, double> legacyPay;
+
   FSEmployee({
     required this.id,
     required this.userId,
@@ -110,10 +116,15 @@ class FSEmployee {
     required this.productCommissionPct,
     required this.branchId,
     this.branchName,
+    this.legacyPay = const {},
   });
 
   factory FSEmployee.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data() ?? {};
+    final legacy = <String, double>{
+      for (final key in FSEmployeePay.fields)
+        if (d[key] is num) key: (d[key] as num).toDouble(),
+    };
     return FSEmployee(
       id: doc.id,
       userId: d['userId'] ?? doc.id,
@@ -123,14 +134,40 @@ class FSEmployee {
       roleTitle: d['roleTitle'] ?? '',
       role: d['role'] ?? 'EMPLOYEE',
       active: d['active'] ?? true,
-      baseSalary: _num(d['baseSalary']),
-      serviceCommissionPct: _num(d['serviceCommissionPct']),
-      productCommissionPct: _num(d['productCommissionPct']),
+      baseSalary: legacy['baseSalary'] ?? 0,
+      serviceCommissionPct: legacy['serviceCommissionPct'] ?? 0,
+      productCommissionPct: legacy['productCommissionPct'] ?? 0,
       branchId: d['branchId'] ?? '',
       branchName: d['branchName'],
+      legacyPay: legacy,
     );
   }
 
+  /// This employee with pay filled in from their employeePay doc.
+  /// [mergePay] decides which source wins.
+  FSEmployee withPay(FSEmployeePay? pay) {
+    final merged = mergePay(legacy: legacyPay, payDoc: pay);
+    return FSEmployee(
+      id: id,
+      userId: userId,
+      email: email,
+      name: name,
+      phone: phone,
+      roleTitle: roleTitle,
+      role: role,
+      active: active,
+      baseSalary: merged.baseSalary,
+      serviceCommissionPct: merged.serviceCommissionPct,
+      productCommissionPct: merged.productCommissionPct,
+      branchId: branchId,
+      branchName: branchName,
+      legacyPay: legacyPay,
+    );
+  }
+
+  /// The roster document. Pay is deliberately NOT here - every active
+  /// employee can read this doc; pay lives in employeePay/{uid}, which only
+  /// the owner and that employee can (see [toPay] and firestore.rules).
   Map<String, dynamic> toFirestore() => {
         'userId': userId,
         'email': email,
@@ -139,13 +176,59 @@ class FSEmployee {
         'roleTitle': roleTitle,
         'role': role,
         'active': active,
-        'baseSalary': baseSalary,
-        'serviceCommissionPct': serviceCommissionPct,
-        'productCommissionPct': productCommissionPct,
         'branchId': branchId,
         'branchName': branchName,
       };
+
+  FSEmployeePay toPay() => FSEmployeePay(
+        baseSalary: baseSalary,
+        serviceCommissionPct: serviceCommissionPct,
+        productCommissionPct: productCommissionPct,
+      );
 }
+
+/// employeePay/{uid}: one employee's pay, kept apart from employees/{uid}
+/// because Firestore rules grant whole documents, not fields. The roster
+/// doc has to be readable by every active employee (names are everywhere);
+/// this one only by the owner and the employee it describes.
+class FSEmployeePay {
+  static const fields = ['baseSalary', 'serviceCommissionPct', 'productCommissionPct'];
+
+  final double baseSalary;
+  final double serviceCommissionPct;
+  final double productCommissionPct;
+
+  const FSEmployeePay({
+    required this.baseSalary,
+    required this.serviceCommissionPct,
+    required this.productCommissionPct,
+  });
+
+  factory FSEmployeePay.fromMap(Map<String, dynamic> d) => FSEmployeePay(
+        baseSalary: _num(d['baseSalary']),
+        serviceCommissionPct: _num(d['serviceCommissionPct']),
+        productCommissionPct: _num(d['productCommissionPct']),
+      );
+
+  Map<String, dynamic> toFirestore() => {
+        'baseSalary': baseSalary,
+        'serviceCommissionPct': serviceCommissionPct,
+        'productCommissionPct': productCommissionPct,
+      };
+}
+
+/// Pay for one employee from the two places it can be while salons move
+/// over: fields left on the employees doc ([legacy]) and the employeePay
+/// doc. A legacy field that is present wins, because only an app from
+/// before the move writes there - so if one is present it is either the
+/// only copy (not moved yet) or a newer edit from an old cached app. The
+/// current app always writes employeePay and removes the legacy fields in
+/// the same batch.
+FSEmployeePay mergePay({required Map<String, double> legacy, FSEmployeePay? payDoc}) => FSEmployeePay(
+      baseSalary: legacy['baseSalary'] ?? payDoc?.baseSalary ?? 0,
+      serviceCommissionPct: legacy['serviceCommissionPct'] ?? payDoc?.serviceCommissionPct ?? 0,
+      productCommissionPct: legacy['productCommissionPct'] ?? payDoc?.productCommissionPct ?? 0,
+    );
 
 class FSCustomer {
   final String id;
