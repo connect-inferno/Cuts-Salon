@@ -15,7 +15,8 @@ There is no trusted server here — the Flutter client talks to Firestore direct
 
 - **Business logic (price resolution, commission %, GST, stock checks) lives in `AppDataNotifier`**, validated client-side before the Firestore write — see `createBill` in `app_data_provider.dart` for the pattern (resolve everything against the already-loaded `AppData` snapshot, fail fast with a clear exception before touching Firestore).
 - **Every new collection needs an explicit rule in `firestore.rules`.** Firestore's default is deny-all; forgetting a rule doesn't silently work, it silently 403s — but a rule that's too permissive is a real data leak, since nothing else is checking. Match the authorization shape of the corresponding REST-era route if one existed (the existing rules comment on which route they mirror). **Editing `firestore.rules` is only half the change — deploy it (see Deployment below), or the new collection 403s in production while working fine in the repo.**
-- Firestore rules gate *documents*, not fields — there's no per-field redaction (see the comment atop `firestore.rules` re: salary visibility). If a field shouldn't be visible to someone who can read the document, that has to be enforced in the app layer (`firestore_app_data.dart`) instead.
+- Firestore rules gate *documents*, not fields — there's no per-field redaction. If a field shouldn't be visible to everyone who can read a document, give it its own document with its own rule. That's why **pay lives in `employeePay/{uid}`** (`baseSalary`, `serviceCommissionPct`, `productCommissionPct`; owner and that employee only), not on `employees/{uid}`, which all staff read. Never write pay fields back onto `employees/{uid}`: `SalonFirestore.writeEmployeeProfile` / `updateEmployee` split them out, and `listEmployeesWithPay` merges them back for the app.
+- Older roster docs may still carry pay. The owner's app moves it to `employeePay` and removes it from the roster doc on every load where it finds any (`moveLegacyPay`, called from `loadAppData`). Until then the app reads the old fields (`mergePay` in `firestore_models.dart`), so nothing breaks in between.
 - Rules only check *who* can write, not that the math is correct. Since staff can no longer write bills, commissions, payments, stock, targets or the invoice counter (all owner-only in the rules), only the owner's own client could write inconsistent values. If that ever needs closing, the fix is moving bill/commission creation into a Cloud Function that validates and writes with elevated privileges, not relaxing the rules.
 - **Staff see only their own per-person records** (salary slips, commissions, attendance, sales targets, payment requests): the rules check `employeeId` / `requestedBy` against the caller, so every staff query on those collections **must** filter by the caller's own uid (`selfId` in `loadAppData`) or the whole query is refused. Staff still read the roster, clients, bills, catalog and settings.
 - **Deletes are closed** on everything except `expenses` — archive / deactivate instead. An owner cannot deactivate or demote their own `employees/{uid}` (it would lock the salon out); `updateEmployee` refuses it too.
@@ -177,6 +178,13 @@ strangers reading the roster and stop an owner locking themselves out (see
 the trust-boundary section). The app already did these things only as the
 owner and already filtered staff queries by their own uid, so the live app
 works with these rules before and after the app push.
+
+**`employeePay` (pay off the roster) - rules NOT deployed yet.** Additive
+(a new collection), so it is safe to deploy before the app push. Once
+deployed and the new app is live, each salon's pay moves the next time its
+owner opens the app; until then staff can still technically read
+coworkers' pay on the roster docs. Check by looking in the Console that
+`employees/*` docs no longer have `baseSalary`.
 
 ## Onboarding a new salon
 

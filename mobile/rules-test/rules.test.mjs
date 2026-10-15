@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
 import {
   doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, writeBatch,
-  serverTimestamp, Timestamp, getCountFromServer,
+  serverTimestamp, Timestamp, getCountFromServer, deleteField,
 } from 'firebase/firestore';
 
 const rules = readFileSync(process.argv[2] || new URL("../firestore.rules", import.meta.url), "utf8");
@@ -36,6 +36,7 @@ async function seed() {
       await setDoc(doc(db, `attendanceRecords/${id}_2026-10-01`), { employeeId: id, status: 'PRESENT', date: Timestamp.fromDate(new Date(2026, 9, 1)) });
       await setDoc(doc(db, `salesTargets/t_${id}`), { employeeId: id, progressValue: 0, status: 'ACTIVE', targetValue: 1000 });
       await setDoc(doc(db, `paymentRequests/pr_${id}`), { requestedBy: id, status: 'PENDING', amount: 100 });
+      await setDoc(doc(db, `employeePay/${id}`), { baseSalary: 20000, serviceCommissionPct: 10, productCommissionPct: 5 });
     }
     await setDoc(doc(db, 'bills/b1'), { customerId: 'cu1', finalAmount: 500 });
     await setDoc(doc(db, 'inventoryItems/i1'), { name: 'Gel', stockCount: 5, price: 100 });
@@ -57,6 +58,7 @@ console.log('Stranger (self-signed-up account, no employee record)');
   await t('cannot read an employee record', assertFails(getDoc(doc(db, 'employees/emp1'))));
   await t('can ask for its own (missing) record', assertSucceeds(getDoc(doc(db, 'employees/stranger'))));
   await t('cannot read customers', assertFails(getDocs(collection(db, 'customers'))));
+  await t("cannot read anyone's pay", assertFails(getDoc(doc(db, 'employeePay/emp1'))));
   await t('cannot make itself an employee', assertFails(setDoc(doc(db, 'employees/stranger'), { role: 'OWNER', active: true })));
 }
 
@@ -103,6 +105,10 @@ console.log('Active employee (emp1)');
   await t('cannot edit a client', assertFails(updateDoc(doc(db, 'customers/cu1'), { phone: '0' })));
   await t('cannot file a discount request', assertFails(setDoc(doc(db, 'discountRequests/d2'), { status: 'PENDING' })));
   await t('cannot read expenses', assertFails(getDocs(collection(db, 'expenses'))));
+  await t('can read own pay', assertSucceeds(getDoc(doc(db, 'employeePay/emp1'))));
+  await t("cannot read a coworker's pay", assertFails(getDoc(doc(db, 'employeePay/emp2'))));
+  await t('cannot list pay', assertFails(getDocs(collection(db, 'employeePay'))));
+  await t('cannot raise own pay', assertFails(setDoc(doc(db, 'employeePay/emp1'), { baseSalary: 99999, serviceCommissionPct: 10, productCommissionPct: 5 })));
   await t('cannot edit own record', assertFails(updateDoc(doc(db, 'employees/emp1'), { baseSalary: 99999 })));
 }
 
@@ -125,6 +131,20 @@ console.log('Owner');
   await t('can deactivate an employee', assertSucceeds(updateDoc(doc(db, 'employees/emp2'), { active: false })));
   await t('can hire (create an employee record)', assertSucceeds(setDoc(doc(db, 'employees/emp3'), { role: 'EMPLOYEE', active: true, name: 'New' })));
   await t('cannot delete an employee record', assertFails(deleteDoc(doc(db, 'employees/emp1'))));
+  await t("can list everyone's pay", assertSucceeds(getDocs(collection(db, 'employeePay'))));
+  await t('can set pay', assertSucceeds(setDoc(doc(db, 'employeePay/emp1'), { baseSalary: 21000, serviceCommissionPct: 12, productCommissionPct: 5 })));
+  await t('cannot put other fields in a pay doc', assertFails(setDoc(doc(db, 'employeePay/emp1'), { baseSalary: 1, serviceCommissionPct: 1, productCommissionPct: 1, role: 'OWNER' })));
+  await t('cannot delete a pay doc', assertFails(deleteDoc(doc(db, 'employeePay/emp1'))));
+  {
+    // The app's one-off move: copy pay to employeePay, strip it from the
+    // roster doc - including the owner's own doc - in one batch.
+    const b = writeBatch(db);
+    for (const id of ['owner1', 'emp1']) {
+      b.set(doc(db, `employeePay/${id}`), { baseSalary: 20000, serviceCommissionPct: 10, productCommissionPct: 5 });
+      b.update(doc(db, `employees/${id}`), { baseSalary: deleteField(), serviceCommissionPct: deleteField(), productCommissionPct: deleteField() });
+    }
+    await t('can move pay off the roster docs', assertSucceeds(b.commit()));
+  }
   await t('can read every salary slip', assertSucceeds(getDocs(collection(db, 'salaryRecords'))));
   await t('cannot delete a salary slip', assertFails(deleteDoc(doc(db, 'salaryRecords/s_emp1'))));
   await t('can read all attendance', assertSucceeds(getDocs(collection(db, 'attendanceRecords'))));

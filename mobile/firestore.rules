@@ -6,13 +6,10 @@ rules_version = '2';
 // am I" and "is this my own record" a direct get()/uid-compare instead of a
 // query - Firestore rules can't run arbitrary queries, only point reads.
 //
-// There is no per-field redaction here the way the REST backend redacted a
-// coworker's salary (backend/src/services/employee.service.ts) - Firestore
-// rules grant or deny a whole document, not individual fields. The app
-// layer (firebase/firestore_app_data.dart) is responsible for not
-// *displaying* another employee's pay fields even though the read succeeds -
-// see the comment there for why a full rewrite to hide it at the rules
-// level isn't worth it at this scale.
+// Firestore rules grant or deny a whole document, not individual fields, so
+// anything only some readers may see needs a document of its own - that is
+// why pay lives in employeePay/{uid} rather than on employees/{uid} (see
+// that match below).
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -116,6 +113,21 @@ service cloud.firestore {
       allow update: if isOwner()
         && (!isSelf(uid)
             || (request.resource.data.role == 'OWNER' && request.resource.data.active == true));
+      allow delete: if false;
+    }
+
+    // One employee's pay (baseSalary, serviceCommissionPct,
+    // productCommissionPct), split off employees/{uid} because rules grant
+    // whole documents: the roster has to be readable by all staff, pay only
+    // by the owner and the employee it belongs to - the REST backend's
+    // canSeePay rule (employee.service.ts). Doc id = uid, like employees/.
+    // Staff never list it; they fetch their own doc by id. Pay history is
+    // the salary slips, so a pay doc is edited, never deleted.
+    match /employeePay/{uid} {
+      allow get: if isOwnerOrSubject(uid);
+      allow list: if isOwner();
+      allow create, update: if isOwner()
+        && request.resource.data.keys().hasOnly(['baseSalary', 'serviceCommissionPct', 'productCommissionPct']);
       allow delete: if false;
     }
 

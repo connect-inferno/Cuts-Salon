@@ -1,3 +1,7 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+
 import '../data/app_data.dart';
 import '../data/models.dart';
 import '../features/auth/auth_state.dart';
@@ -50,8 +54,9 @@ Branch branchFromFS(FSBranch b, {required int employeeCount, required int custom
     );
 
 // canSeePay mirrors employee.service.ts's exact rule (owner, or your own
-// profile) - Firestore rules grant/deny a whole document, not fields, so
-// this redaction has to happen here instead. Coercing to 0 matches
+// profile). The rules already enforce it - pay is in employeePay/{uid}, which
+// staff can only read for themselves - but a roster doc whose pay the owner
+// hasn't moved yet still carries it, so this stays as a backstop. Coercing to 0 matches
 // EmployeeProfile.fromJson's own handling of the REST backend sending null
 // for a hidden pay field.
 EmployeeProfile employeeFromFS(FSEmployee e, {required bool canSeePay}) => EmployeeProfile(
@@ -240,7 +245,9 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
   final results = await Future.wait([
     preloadedSettings == null ? fs.getSettings() : Future.value(preloadedSettings),
     fs.listBranches(),
-    fs.listEmployees(),
+    // Owner: everyone's pay. Staff: only their own - the rules refuse them
+    // anyone else's employeePay doc.
+    fs.listEmployeesWithPay(payFor: selfId),
     fs.listCustomers(),
     fs.listServiceCategories(),
     fs.listServices(),
@@ -273,6 +280,21 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
   final commissionsFS = results[10] as List<FSCommissionRecord>;
   final attendanceFS = results[11] as List<FSAttendanceRecord>;
   final whatsappReady = results[12] as bool;
+
+  // Pay still on roster docs (from before employeePay existed, or written
+  // by an old cached copy of the app) is readable by every coworker, so the
+  // owner's app moves it the moment it sees any. Not awaited: a batch
+  // commit only completes once the server confirms it, so offline it would
+  // hold the whole load up. A failure (rules for employeePay not deployed
+  // yet, offline) only means it is tried again on the next load - the
+  // numbers shown are the same either way.
+  if (auth.isOwner) {
+    unawaited(fs.moveLegacyPay(employeesFS).then((moved) {
+      if (moved > 0) debugPrint('[Stylux] moved pay for $moved employee(s) to employeePay');
+    }, onError: (Object e) {
+      debugPrint('[Stylux] could not move pay to employeePay yet: $e');
+    }));
+  }
 
   // listBills() doesn't fetch the items subcollection (would be N+1 for
   // every list load otherwise); fetch each bill's items in parallel here,
