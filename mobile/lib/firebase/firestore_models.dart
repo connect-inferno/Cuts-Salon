@@ -886,56 +886,6 @@ class FSExpense {
       };
 }
 
-class FSDiscountRequest {
-  final String id;
-  final String requestedBy; // employee's Firebase Auth uid
-  final String? billId;
-  final double requestedDiscount;
-  final double? overridePrice;
-  final String reason;
-  final String status; // PENDING | APPROVED | REJECTED
-  final String? authorizedCode;
-  final DateTime? createdAt;
-
-  FSDiscountRequest({
-    required this.id,
-    required this.requestedBy,
-    this.billId,
-    required this.requestedDiscount,
-    this.overridePrice,
-    required this.reason,
-    required this.status,
-    this.authorizedCode,
-    this.createdAt,
-  });
-
-  factory FSDiscountRequest.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data() ?? {};
-    return FSDiscountRequest(
-      id: doc.id,
-      requestedBy: d['requestedBy'] ?? '',
-      billId: d['billId'],
-      requestedDiscount: _num(d['requestedDiscount']),
-      overridePrice: d['overridePrice'] == null ? null : _num(d['overridePrice']),
-      reason: d['reason'] ?? '',
-      status: d['status'] ?? 'PENDING',
-      authorizedCode: d['authorizedCode'],
-      createdAt: _ts(d['createdAt']),
-    );
-  }
-
-  Map<String, dynamic> toFirestore({bool isCreate = false}) => {
-        'requestedBy': requestedBy,
-        'billId': billId,
-        'requestedDiscount': requestedDiscount,
-        'overridePrice': overridePrice,
-        'reason': reason,
-        'status': status,
-        'authorizedCode': authorizedCode,
-        if (isCreate) 'createdAt': FieldValue.serverTimestamp(),
-      };
-}
-
 class FSSettings {
   final String salonName;
   final String? phone;

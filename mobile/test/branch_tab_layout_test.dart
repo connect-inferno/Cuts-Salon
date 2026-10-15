@@ -42,7 +42,6 @@ AppData _appData(List<Branch> branches) => AppData(
       services: const [],
       inventory: const [],
       bills: const [],
-      discountRequests: const [],
       salesTargets: const [],
       commissions: const [],
       attendance: const [],

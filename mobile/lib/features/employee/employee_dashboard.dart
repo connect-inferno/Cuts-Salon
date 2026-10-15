@@ -123,7 +123,7 @@ class EmployeeDashboard extends ConsumerStatefulWidget {
 /// reached four of them and a "More" drawer that reached the rest - the
 /// same flat sprawl the owner side had. Everything that isn't one of these
 /// four is now a section of one of their settings screens (profile and
-/// attendance under Home, discount requests in the drawer, targets under
+/// attendance under Home, targets under
 /// Earnings) or a drawer destination.
 enum EmployeeTab { home, work, clients, earnings }
 
@@ -159,10 +159,6 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
       }
     }
   }
-
-  int _myPendingDiscounts(EmployeeProfile profile, AppData state) => state.discountRequests
-      .where((r) => r.status == 'PENDING' && r.requestedBy == profile.id)
-      .length;
 
   // ─── Settings ─────────────────────────────────────────────────────────
 
@@ -208,34 +204,16 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
   /// so a stylist settling a balance when the client is standing in front
   /// of them is a supported flow, not an owner-only one - it just had
   /// nowhere to happen from.
-  /// The bell, wired the same way from every page: your discount requests
-  /// and the settlement requests you've sent, in one place - the same shape
-  /// as the owner's Requests inbox.
-  void _openNotifications(BuildContext context, EmployeeProfile profile, AppData state) {
-    final discounts = _myPendingDiscounts(profile, state);
-    openAppSettings(
+  /// The bell, wired the same way from every page: the settlement
+  /// requests you've sent. (Discount requests used to live here too; they
+  /// went with staff billing, since an approved discount only ever applied
+  /// to a bill the stylist made.)
+  void _openNotifications(BuildContext context) {
+    openAppSubPage(
       context,
       title: 'Requests',
-      subtitle: discounts > 0
-          ? '$discounts waiting for your owner'
-          : 'Nothing waiting for your owner',
-      sections: [
-        AppSettingsSection(
-          icon: PhosphorIconsRegular.sealPercent,
-          label: 'Discounts',
-          description: discounts > 0
-              ? '$discounts discount request${discounts == 1 ? '' : 's'} waiting for your owner.'
-              : 'Discounts you asked for, and what your owner decided.',
-          badgeCount: discounts,
-          builder: (_) => _EmployeeDiscountRequestsTab(profile: profile, state: state),
-        ),
-        AppSettingsSection(
-          icon: PhosphorIconsRegular.handCoins,
-          label: 'Payments',
-          description: 'Balances you collected from clients, and whether your owner confirmed them.',
-          builder: (_) => const EmployeePaymentRequestsView(),
-        ),
-      ],
+      subtitle: 'Balances you collected and whether your owner confirmed them',
+      child: const EmployeePaymentRequestsView(),
     );
   }
 
@@ -248,13 +226,10 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
     required bool isModal,
   }) {
     final salonName = state.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Salon';
-    final pending = _myPendingDiscounts(profile, state);
-
     // Builds the page from live app data, not the `state` captured when the
     // menu was tapped. A pushed route doesn't rebuild with its parent, so a
-    // snapshot went stale the moment anything changed on it: a discount
-    // request just sent didn't appear, and clocking in on the Attendance
-    // page left it still offering "Clock In".
+    // snapshot went stale the moment anything changed on it: clocking in
+    // on the Attendance page left it still offering "Clock In".
     void go(String title, String subtitle, Widget Function(AppData live) page) {
       if (isModal) Navigator.pop(context);
       openAppSubPage(
@@ -334,13 +309,6 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
                   (live) => _EmployeeTargetTab(profile: profile, state: live)),
             ),
             AppDrawerItem(
-              icon: PhosphorIconsRegular.sealPercent,
-              label: 'Discount Requests',
-              badgeCount: pending,
-              onTap: () => go('Discount Requests', 'Your requests and their status',
-                  (live) => _EmployeeDiscountRequestsTab(profile: profile, state: live)),
-            ),
-            AppDrawerItem(
               icon: PhosphorIconsRegular.userCircle,
               label: 'Profile',
               onTap: () => go('Profile', 'Your details and password',
@@ -357,7 +325,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
   /// Five slots, five real destinations - identical in shape to the owner's.
   /// The protruding "+" is gone here too: its sheet only jumped to pages the
   /// bar already reached.
-  Widget _buildNavBar(BuildContext context, int pendingDiscountCount) {
+  Widget _buildNavBar(BuildContext context) {
     return LiquidNavBar(
       selectedIndex: _activeTab.index,
       items: [
@@ -368,7 +336,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
           onTap: () => _switchToTab(EmployeeTab.home),
         ),
         // "My work" replaced Billing here: what this person has done is
-        // what they come to the bar for; a new bill starts from Home.
+        // what they come to the bar for. Staff don't make bills.
         LiquidNavItem(
           icon: PhosphorIconsRegular.scissors,
           activeIcon: PhosphorIconsFill.scissors,
@@ -391,7 +359,6 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
           icon: PhosphorIconsRegular.list,
           activeIcon: PhosphorIconsFill.list,
           label: 'Menu',
-          badgeCount: pendingDiscountCount,
           // Scaffold.of(context), not a GlobalKey: this callback is built
           // inside the Scaffold's own bottomNavigationBar slot, so the
           // lookup cannot miss. The key's currentState reads null whenever
@@ -427,8 +394,6 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
 
   Widget _buildScaffold(BuildContext context, EmployeeProfile empProfile, AppData state) {
     final isMobile = MediaQuery.of(context).size.width < _kMobileBreakpoint;
-    final pending = _myPendingDiscounts(empProfile, state);
-
     // No AppBar. It used to draw a salon name, a bell that only opened the
     // drawer, and an avatar that jumped to a Profile tab - a second header
     // above whatever header each tab drew for itself. Every page now wears
@@ -441,7 +406,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
       // from the left, the opposite side from where the thumb just tapped.
       endDrawer: isMobile ? _buildDrawer(context, empProfile, state, isModal: true) : null,
       bottomNavigationBar:
-          isMobile ? Builder(builder: (ctx) => _buildNavBar(ctx, pending)) : null,
+          isMobile ? Builder(builder: (ctx) => _buildNavBar(ctx)) : null,
       body: SafeArea(
         bottom: !isMobile,
         child: isMobile
@@ -494,7 +459,6 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
   }
 
   List<Widget> _buildPages(BuildContext context, EmployeeProfile profile, AppData state) {
-    final pending = _myPendingDiscounts(profile, state);
     final now = DateTime.now();
 
     final myBillsToday = state.bills
@@ -520,8 +484,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
           AppPageAction(
             icon: PhosphorIconsRegular.bell,
             tooltip: 'Notifications',
-            badgeCount: pending,
-            onTap: () => _openNotifications(context, profile, state),
+            onTap: () => _openNotifications(context),
           ),
           appSettingsAction(
             tooltip: 'My account',
@@ -544,8 +507,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
           AppPageAction(
             icon: PhosphorIconsRegular.bell,
             tooltip: 'Requests',
-            badgeCount: pending,
-            onTap: () => _openNotifications(context, profile, state),
+            onTap: () => _openNotifications(context),
           ),
         ],
         child: _EmployeeWorkTab(profile: profile, state: state),
@@ -572,8 +534,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
           AppPageAction(
             icon: PhosphorIconsRegular.bell,
             tooltip: 'Requests',
-            badgeCount: pending,
-            onTap: () => _openNotifications(context, profile, state),
+            onTap: () => _openNotifications(context),
           ),
         ],
         child: _EmployeeCustomersTab(profile: profile),
@@ -589,8 +550,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
           AppPageAction(
             icon: PhosphorIconsRegular.bell,
             tooltip: 'Requests',
-            badgeCount: pending,
-            onTap: () => _openNotifications(context, profile, state),
+            onTap: () => _openNotifications(context),
           ),
         ],
         child: _EmployeeSalaryTab(profile: profile, state: state),
@@ -3505,425 +3465,6 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
         const SizedBox(height: 2),
         Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.slateLight)),
       ],
-    );
-  }
-}
-
-// ─── Discount Requests tab ───────────────────────────────────────────────────
-
-class _EmployeeDiscountRequestsTab extends ConsumerWidget {
-  final EmployeeProfile profile;
-  final AppData state;
-
-  const _EmployeeDiscountRequestsTab({required this.profile, required this.state});
-
-  void _showNewRequestDialog(BuildContext context, WidgetRef ref) {
-    final discountController = TextEditingController();
-    final reasonController = TextEditingController();
-    final overrideController = TextEditingController();
-    String? selectedBillId;
-    bool submitting = false;
-
-    final myBills = state.bills.where((b) => b.items.any((i) => i.employeeId == profile.id)).toList()
-      ..sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AppDialog(
-          icon: PhosphorIconsRegular.tag,
-          title: 'Request Discount',
-          subtitle: 'Sent to your owner for approval.',
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              DropdownButtonFormField<String?>(
-                value: selectedBillId,
-                decoration: appDialogFieldDecoration(label: 'Linked Bill (optional)', icon: PhosphorIconsRegular.receipt),
-                isExpanded: true,
-                borderRadius: BorderRadius.circular(14),
-                dropdownColor: Colors.white,
-                elevation: 3,
-                items: [
-                  const DropdownMenuItem<String?>(value: null, child: Text('General request - no bill')),
-                  for (final b in myBills.take(15))
-                    DropdownMenuItem<String?>(
-                      value: b.id,
-                      child: Text(
-                        '${b.invoiceNumber} - ${b.customerName ?? "Customer"} (${formatInr(b.finalAmount)})',
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                ],
-                onChanged: (v) => setDialogState(() => selectedBillId = v),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: discountController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: appDialogFieldDecoration(label: 'Requested Discount (₹) *', hint: 'e.g. 200', icon: PhosphorIconsRegular.currencyInr),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: overrideController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: appDialogFieldDecoration(label: 'Override price (₹, optional)', hint: 'Leave blank unless setting a fixed final price', icon: PhosphorIconsRegular.currencyInr),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: reasonController,
-                maxLines: 2,
-                decoration: appDialogFieldDecoration(label: 'Reason *', hint: 'Why does this customer need extra discount?', icon: PhosphorIconsRegular.chatText),
-              ),
-            ],
-          ),
-          actions: AppDialogActions(
-            submitLabel: 'Send Request',
-            submitting: submitting,
-            onCancel: () => Navigator.pop(ctx),
-            onSubmit: () async {
-              final discount = double.tryParse(discountController.text.trim());
-              if (discount == null || discount <= 0) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid discount amount.'), backgroundColor: AppTheme.accentRed));
-                return;
-              }
-              if (reasonController.text.trim().isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('A reason is required.'), backgroundColor: AppTheme.accentRed));
-                return;
-              }
-              setDialogState(() => submitting = true);
-              try {
-                await ref.read(appDataProvider.notifier).requestDiscount(
-                      billId: selectedBillId,
-                      requestedDiscount: discount,
-                      overridePrice: double.tryParse(overrideController.text.trim()),
-                      reason: reasonController.text.trim(),
-                    );
-                if (ctx.mounted) Navigator.pop(ctx);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Request sent to your owner.'), backgroundColor: AppTheme.accentGreen));
-                }
-              } catch (e) {
-                setDialogState(() => submitting = false);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
-                }
-              }
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
-  Color _statusColor(String status) {
-    switch (status) {
-      case 'APPROVED': return AppTheme.accentGreen;
-      case 'REJECTED': return AppTheme.accentRed;
-      default: return AppTheme.accentAmber;
-    }
-  }
-
-  Color _statusBg(String status) {
-    switch (status) {
-      case 'APPROVED': return AppTheme.accentGreenBg;
-      case 'REJECTED': return AppTheme.accentRedBg;
-      default: return AppTheme.accentAmberBg;
-    }
-  }
-
-  IconData _statusIcon(String status) {
-    switch (status) {
-      case 'APPROVED':
-        return PhosphorIconsRegular.checkCircle;
-      case 'REJECTED':
-        return PhosphorIconsRegular.xCircle;
-      default:
-        return PhosphorIconsRegular.hourglassMedium;
-    }
-  }
-
-  Widget _buildRequestCard(BuildContext context, DiscountRequest req) {
-    final bill = req.billId == null ? null : state.bills.where((b) => b.id == req.billId);
-    final matchedBill = (bill != null && bill.isNotEmpty) ? bill.first : null;
-    final statusColor = _statusColor(req.status);
-    final statusBackground = _statusBg(req.status);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: AppTheme.cardShadow,
-      ),
-      padding: const EdgeInsets.all(16.0),
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(color: statusBackground, borderRadius: BorderRadius.circular(10)),
-                alignment: Alignment.center,
-                child: Icon(_statusIcon(req.status), size: 16, color: statusColor),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      matchedBill != null
-                          ? '${matchedBill.customerName ?? "Customer"} - ${matchedBill.invoiceNumber}'
-                          : 'General request',
-                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: Color(0xFF0F172A)),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 1),
-                    Text(
-                      _formatDate(req.createdAt),
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.w500),
-                    ),
-                  ],
-                ),
-              ),
-              _statusBadge(req.status, statusBackground, statusColor),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFF1F5F9)),
-            ),
-            child: Row(
-              children: [
-                const Icon(PhosphorIconsRegular.tag, size: 15, color: Color(0xFF1E3A5F)),
-                const SizedBox(width: 8),
-                Text(
-                  '${formatInr(req.requestedDiscount)} off',
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
-                ),
-                if (req.overridePrice != null) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEEF2F7),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      'Override ${formatInr(req.overridePrice!)}',
-                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF1E3A5F)),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            req.reason,
-            style: const TextStyle(fontSize: 12.5, color: Color(0xFF64748B), height: 1.35),
-          ),
-          if (req.status == 'APPROVED') ...[
-            const SizedBox(height: 12),
-            // How to use it - approval used to show a code with nowhere in
-            // the app to enter it.
-            Builder(builder: (context) {
-              final live = ProviderScope.containerOf(context).read(appDataProvider).valueOrNull;
-              final usedOn = live?.bills.where((b) => b.discountRequestId == req.id).map((b) => b.invoiceNumber).firstOrNull;
-              return Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                decoration: BoxDecoration(
-                  color: AppTheme.accentGreenBg,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(PhosphorIconsRegular.sealCheck, size: 16, color: AppTheme.accentGreen),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        usedOn != null
-                            ? 'Used on $usedOn'
-                            : 'Approved by your owner.',
-                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppTheme.accentGreen),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _statTile({
-    required IconData icon,
-    required Color iconBg,
-    required Color iconColor,
-    required String label,
-    required String value,
-  }) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFF1F5F9)),
-          boxShadow: AppTheme.cardShadow,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(8)),
-              child: Icon(icon, size: 14, color: iconColor),
-            ),
-            const SizedBox(height: 8),
-            Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
-            Text(label, style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: Color(0xFF64748B))),
-          ],
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Live data, not the snapshot handed in when the page opened - a
-    // request just sent didn't appear until the page was reopened.
-    final state = ref.watch(appDataProvider).valueOrNull ?? this.state;
-    final requests = [...state.discountRequests]
-      ..sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
-    final pending = requests.where((r) => r.status == 'PENDING').length;
-    final approved = requests.where((r) => r.status == 'APPROVED').length;
-    final rejected = requests.where((r) => r.status == 'REJECTED').length;
-
-    return RefreshIndicator(
-      onRefresh: () => ref.read(appDataProvider.notifier).refresh(),
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32 + LiquidNavBar.barInset),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 600),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Title removed: the page this sits in already names it, so
-                // this row is just the "New Request" action.
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    InkWell(
-                      onTap: () => _showNewRequestDialog(context, ref),
-                      borderRadius: BorderRadius.circular(16),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8.5),
-                        decoration: BoxDecoration(
-                          color: Color(0xFF1E3A5F),
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: AppTheme.cardShadow,
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(PhosphorIconsBold.plus, color: Colors.white, size: 13),
-                            SizedBox(width: 5),
-                            Text('New Request', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                Row(
-                  children: [
-                    _statTile(
-                      icon: PhosphorIconsRegular.hourglassMedium,
-                      iconBg: AppTheme.accentAmberBg,
-                      iconColor: AppTheme.accentAmber,
-                      label: 'Pending',
-                      value: '$pending',
-                    ),
-                    const SizedBox(width: 8),
-                    _statTile(
-                      icon: PhosphorIconsRegular.checkCircle,
-                      iconBg: AppTheme.accentGreenBg,
-                      iconColor: AppTheme.accentGreen,
-                      label: 'Approved',
-                      value: '$approved',
-                    ),
-                    const SizedBox(width: 8),
-                    _statTile(
-                      icon: PhosphorIconsRegular.xCircle,
-                      iconBg: AppTheme.accentRedBg,
-                      iconColor: AppTheme.accentRed,
-                      label: 'Rejected',
-                      value: '$rejected',
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-
-                if (requests.isEmpty)
-                  Container(
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                    ),
-                    padding: const EdgeInsets.all(32.0),
-                    child: const Center(
-                      child: Column(
-                        children: [
-                          Icon(PhosphorIconsRegular.tag, size: 38, color: Color(0xFFCBD5E1)),
-                          SizedBox(height: 12),
-                          Text(
-                            'No discount requests yet.',
-                            style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w600, fontSize: 13),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            'Use New Request when a client needs more than you can give.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11.5),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                else ...[
-                  const Text(
-                    'Your Requests',
-                    style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
-                  ),
-                  const SizedBox(height: 10),
-                  for (final req in requests) _buildRequestCard(context, req),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

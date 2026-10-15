@@ -89,7 +89,6 @@ class OwnerDashboardTab extends ConsumerWidget {
       todayCustomersCount: todayBills.map((b) => b.customerId).where((id) => id.isNotEmpty).toSet().length,
       todayBillCount: todayBills.length,
       todayAttendanceCount: salonWide.todayAttendanceCount,
-      pendingDiscountRequests: salonWide.pendingDiscountRequests,
       lowStockItemCount: salonWide.lowStockItemCount,
     );
   }
@@ -138,7 +137,7 @@ class OwnerDashboardTab extends ConsumerWidget {
                 AppPageAction(
                   icon: PhosphorIconsRegular.bell,
                   tooltip: 'Requests',
-                  badgeCount: state.pendingDiscountCount + state.pendingPaymentRequestCount,
+                  badgeCount: state.pendingPaymentRequestCount,
                   onTap: () => onOpenNotifications?.call(),
                 ),
                 appSettingsAction(
@@ -570,7 +569,7 @@ class OwnerDashboardTab extends ConsumerWidget {
   /// The things waiting on the owner, each one tap from where it's dealt
   /// with. Hidden entirely on a day with nothing waiting.
   List<Widget> _buildAttention(AppData state, DashboardSummary dashboard) {
-    final requests = state.pendingDiscountCount + state.pendingPaymentRequestCount;
+    final requests = state.pendingPaymentRequestCount;
     final owing = state.bills.where((b) => b.amountDue > 0).toList();
     final dueTotal = owing.fold<double>(0, (sum, b) => sum + b.amountDue);
     final dueClients = owing.map((b) => b.customerId).toSet().length;
@@ -580,8 +579,8 @@ class OwnerDashboardTab extends ConsumerWidget {
 
     final rows = <Widget>[
       if (requests > 0)
-        _attentionRow(PhosphorIconsRegular.bellRinging, '$requests request${requests == 1 ? '' : 's'} waiting',
-            'Discounts and payments from staff', AppTheme.accentAmber, onOpenNotifications),
+        _attentionRow(PhosphorIconsRegular.bellRinging, '$requests payment${requests == 1 ? '' : 's'} to confirm',
+            'Collected by staff from clients', AppTheme.accentAmber, onOpenNotifications),
       if (dueTotal > 0)
         _attentionRow(PhosphorIconsRegular.handCoins, '${_formatCurrency(dueTotal)} to collect',
             'Owed by $dueClients client${dueClients == 1 ? '' : 's'}', AppTheme.accentAmber, onOpenDues),

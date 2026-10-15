@@ -454,42 +454,6 @@ class PaymentRequest {
   });
 }
 
-class DiscountRequest {
-  final String id;
-  final String requestedBy;
-  final String? billId;
-  final double requestedDiscount;
-  final double? overridePrice;
-  final String reason;
-  final String status; // PENDING | APPROVED | REJECTED
-  final String? authorizedCode;
-  final DateTime? createdAt;
-
-  DiscountRequest({
-    required this.id,
-    required this.requestedBy,
-    this.billId,
-    required this.requestedDiscount,
-    this.overridePrice,
-    required this.reason,
-    required this.status,
-    this.authorizedCode,
-    this.createdAt,
-  });
-
-  factory DiscountRequest.fromJson(Map<String, dynamic> json) => DiscountRequest(
-        id: json['id'],
-        requestedBy: json['requestedBy'] ?? '',
-        billId: json['billId'],
-        requestedDiscount: _num(json['requestedDiscount']),
-        overridePrice: json['overridePrice'] == null ? null : _num(json['overridePrice']),
-        reason: json['reason'] ?? '',
-        status: json['status'] ?? 'PENDING',
-        authorizedCode: json['authorizedCode'],
-        createdAt: _date(json['createdAt']),
-      );
-}
-
 class SalesTarget {
   final String id;
   final String employeeId;
@@ -643,7 +607,6 @@ class DashboardSummary {
   final int todayCustomersCount;
   final int todayBillCount;
   final int todayAttendanceCount;
-  final int pendingDiscountRequests;
   final int lowStockItemCount;
 
   DashboardSummary({
@@ -657,7 +620,6 @@ class DashboardSummary {
     required this.todayCustomersCount,
     required this.todayBillCount,
     required this.todayAttendanceCount,
-    required this.pendingDiscountRequests,
     required this.lowStockItemCount,
   });
 
@@ -674,7 +636,6 @@ class DashboardSummary {
       todayCustomersCount: _int(json['todayCustomersCount']),
       todayBillCount: _int(json['todayBillCount']),
       todayAttendanceCount: _int(json['todayAttendanceCount']),
-      pendingDiscountRequests: _int(json['pendingDiscountRequests']),
       lowStockItemCount: _int(json['lowStockItemCount']),
     );
   }
@@ -690,7 +651,6 @@ class DashboardSummary {
         todayCustomersCount: 0,
         todayBillCount: 0,
         todayAttendanceCount: 0,
-        pendingDiscountRequests: 0,
         lowStockItemCount: 0,
       );
 }

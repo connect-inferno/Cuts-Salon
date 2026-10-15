@@ -13,7 +13,6 @@ import '../firebase/salon_firestore.dart';
 import 'app_data.dart';
 import 'birthday.dart';
 import 'punch_location.dart';
-import 'discount_requests_provider.dart';
 import 'salary_provider.dart';
 import 'models.dart';
 
@@ -47,7 +46,6 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
         services: [],
         inventory: [],
         bills: [],
-        discountRequests: [],
         salesTargets: [],
         commissions: [],
         attendance: [],
@@ -180,7 +178,6 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
           // Not carried by the rollup - these keep whatever the last full
           // load or local mutation established.
           todayAttendanceCount: previous.todayAttendanceCount,
-          pendingDiscountRequests: previous.pendingDiscountRequests,
           lowStockItemCount: previous.lowStockItemCount,
         ),
       ));
@@ -749,10 +746,6 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     required String branchId,
     required String paymentMethod,
     double? discountAmount,
-    /// The approved discount request [discountAmount] comes from (staff
-    /// bills). Checked here: it must be this person's, approved, and not
-    /// already on another bill.
-    String? discountRequestId,
     required List<BillItemInput> items,
     /// What the client is handing over now. null = the whole bill (the
     /// ordinary case); 0 = paying entirely later. The balance becomes a due
@@ -765,15 +758,6 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
 
     final customerMatch = current.customers.where((c) => c.id == customerId);
     if (customerMatch.isEmpty) throw Exception('Customer not found');
-    if (discountRequestId != null) {
-      final req = current.discountRequests.where((r) => r.id == discountRequestId);
-      if (req.isEmpty || req.first.status != 'APPROVED' || req.first.requestedBy != auth.userId) {
-        throw Exception('That discount is not approved for you.');
-      }
-      if (current.bills.any((b) => b.discountRequestId == discountRequestId)) {
-        throw Exception('That discount has already been used on another bill.');
-      }
-    }
     if (current.branchById(branchId) == null) throw Exception('Branch not found');
 
     // Resolve catalog price, employee commission rate, and stock
@@ -837,7 +821,6 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       // what folds the on/off switch into the configured rate.
       gstRate: current.settings?.effectiveGstRate ?? 0,
       billDiscountAmount: discountAmount ?? 0,
-      discountRequestId: discountRequestId,
       items: drafts,
       amountPaidNow: amountPaidNow,
     );
@@ -935,7 +918,6 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
             todayCustomersCount: latest.dashboard!.todayCustomersCount,
             todayBillCount: latest.dashboard!.todayBillCount,
             todayAttendanceCount: todayAttendanceCountOf(latest.attendance),
-            pendingDiscountRequests: latest.pendingDiscountCount,
             lowStockItemCount: inventory.where((i) => i.isLowStock).length,
           );
     state = AsyncData(latest.copyWith(
@@ -1086,57 +1068,6 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
 
   // addExpense lives on ExpensesNotifier now (data/expenses_provider.dart),
   // beside the list it has to patch - expenses are no longer part of AppData.
-
-  // --- Discount requests ---
-
-  Future<void> requestDiscount({String? billId, required double requestedDiscount, double? overridePrice, required String reason}) async {
-    final auth = ref.read(authControllerProvider);
-    final requestedBy = auth.userId!;
-    final createdFS = await _fs.createDiscountRequest(FSDiscountRequest(
-      id: '',
-      requestedBy: requestedBy,
-      billId: billId,
-      requestedDiscount: requestedDiscount,
-      overridePrice: overridePrice,
-      reason: reason,
-      status: 'PENDING',
-    ));
-    final current = state.value;
-    if (current != null) {
-      state = AsyncData(current.copyWith(
-        discountRequests: [discountRequestFromFS(createdFS), ...current.discountRequests],
-        pendingDiscountCount: current.pendingDiscountCount + 1,
-      ));
-    }
-  }
-
-  Future<void> approveDiscountRequest(String id) async {
-    final resolved = await _fs.resolveDiscountRequest(id, approve: true);
-    _patchDiscountRequest(resolved);
-  }
-
-  Future<void> rejectDiscountRequest(String id) async {
-    final resolved = await _fs.resolveDiscountRequest(id, approve: false);
-    _patchDiscountRequest(resolved);
-  }
-
-  /// Applies a resolved request to whichever copy this role holds.
-  ///
-  /// Staff have the list in AppData; an owner has only the badge count here
-  /// and the documents in discountRequestsProvider, so both are nudged. The
-  /// count is clamped because a stale badge is better than a negative one.
-  void _patchDiscountRequest(FSDiscountRequest resolved) {
-    final current = state.value;
-    if (current == null) return;
-    final updated = discountRequestFromFS(resolved);
-    final wasPending = updated.status != 'PENDING';
-    state = AsyncData(current.copyWith(
-      discountRequests: [for (final r in current.discountRequests) r.id == updated.id ? updated : r],
-      pendingDiscountCount:
-          wasPending && current.pendingDiscountCount > 0 ? current.pendingDiscountCount - 1 : current.pendingDiscountCount,
-    ));
-    ref.invalidate(discountRequestsProvider);
-  }
 
   // --- Sales targets ---
 

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -7,7 +6,6 @@ import '../data/bill_math.dart';
 import 'firestore_models.dart';
 
 double _round2(num n) => (n * 100).round() / 100;
-final _random = Random.secure();
 
 // One instance per logged-in session, built from that salon's own named
 // FirebaseApp (see salon_auth.dart) - never a global/default Firestore
@@ -431,8 +429,6 @@ class SalonFirestore {
     required double gstRate,
     required List<BillItemDraft> items,
     double billDiscountAmount = 0,
-    /// The approved discount request [billDiscountAmount] came from, if any.
-    String? discountRequestId,
     /// What the client actually handed over now. null means "the whole
     /// bill", which is the ordinary paid-in-full case; 0 means they're
     /// paying entirely later. Clamped to the computed total below, since the
@@ -541,7 +537,6 @@ class SalonFirestore {
         paymentMethod: paymentMethod,
         amountPaid: amountPaid,
         createdBy: createdBy,
-        discountRequestId: discountRequestId,
       );
       tx.set(billRef, bill.toFirestore(isCreate: true));
 
@@ -1350,16 +1345,12 @@ class SalonFirestore {
   //   - lowStockItemCount re-ran `inventoryItems.get()`, the identical
   //     unfiltered read listInventory() had just done (in loadAppData, and
   //     again concurrently with it inside createBill's own Future.wait);
-  //   - todayAttendanceCount and pendingDiscountRequests re-queried subsets
-  //     of listAttendance()/listDiscountRequests(), both of which an owner
-  //     loads unfiltered.
-  // Deriving them caller-side is exact for any salon under the page caps on
-  // those two lists (500 attendance rows, 300 discount requests) - and the
-  // owner dashboard already derived pendingDiscountRequests that way for its
-  // own bell badge, so this also removes a second source for that number.
+  //   - todayAttendanceCount re-queried a subset of listAttendance(),
+  //     which an owner loads unfiltered.
+  // Deriving it caller-side is exact for any salon under that list's page
+  // cap (500 attendance rows).
   Future<Map<String, dynamic>> getDashboardSummary({
     required int todayAttendanceCount,
-    required int pendingDiscountRequests,
     required int lowStockItemCount,
   }) async {
     final now = DateTime.now();
@@ -1381,7 +1372,6 @@ class SalonFirestore {
         weekStart: weekStart,
         monthStart: monthStart,
         todayAttendanceCount: todayAttendanceCount,
-        pendingDiscountRequests: pendingDiscountRequests,
         lowStockItemCount: lowStockItemCount,
       );
     }
@@ -1440,7 +1430,6 @@ class SalonFirestore {
       'todayCustomersCount': todayBills.map((b) => b.customerId).toSet().length,
       'todayBillCount': todayBills.length,
       'todayAttendanceCount': todayAttendanceCount,
-      'pendingDiscountRequests': pendingDiscountRequests,
       'lowStockItemCount': lowStockItemCount,
     };
   }
@@ -1457,7 +1446,6 @@ class SalonFirestore {
     required DateTime weekStart,
     required DateTime monthStart,
     required int todayAttendanceCount,
-    required int pendingDiscountRequests,
     required int lowStockItemCount,
   }) async {
     final snap = await db
@@ -1497,7 +1485,6 @@ class SalonFirestore {
       'todayCustomersCount': (today['customerIds'] as List<dynamic>?)?.length ?? 0,
       'todayBillCount': (today['billCount'] as num?)?.toInt() ?? 0,
       'todayAttendanceCount': todayAttendanceCount,
-      'pendingDiscountRequests': pendingDiscountRequests,
       'lowStockItemCount': lowStockItemCount,
     };
   }
@@ -1611,77 +1598,11 @@ class SalonFirestore {
     await ref.update({'status': 'PAID'});
   }
 
-  // --- Discount requests ---
-
-  /// How many discount requests are awaiting a decision.
-  ///
-  /// An owner used to load up to 300 request documents on every sign-in, and
-  /// ten of the twelve places that read them only wanted this number - it is
-  /// a badge on the dashboard, the bell, and four settings rows. A count()
-  /// aggregation is billed as one read per thousand index entries, so this
-  /// is one read instead of fifty.
-  ///
-  /// Deliberately no orderBy: a bare equality filter runs on the automatic
-  /// single-field index, where adding a sort would need a composite one
-  /// deployed to every salon before the badge worked anywhere.
-  ///
-  /// Staff are not covered by this. Their own requests are few, they are
-  /// filtered to requestedBy already, and their Discounts tab needs the
-  /// documents anyway - so they keep loading the list and derive the count
-  /// from it.
-  Future<int> countPendingDiscountRequests() async {
-    try {
-      final snap = await db
-          .collection('discountRequests')
-          .where('status', isEqualTo: 'PENDING')
-          .count()
-          .get();
-      return snap.count ?? 0;
-    } catch (e) {
-      debugPrint('[Stylux] pending discount count failed, badge will read 0: $e');
-      return 0;
-    }
-  }
-
-  Future<List<FSDiscountRequest>> listDiscountRequests({String? requestedBy, int limit = 300}) async {
-    Query<Map<String, dynamic>> q = db.collection('discountRequests');
-    if (requestedBy != null) q = q.where('requestedBy', isEqualTo: requestedBy);
-    q = q.orderBy('createdAt', descending: true).limit(limit);
-    final snap = await q.get();
-    return snap.docs.map(FSDiscountRequest.fromFirestore).toList();
-  }
-
-  Future<FSDiscountRequest> createDiscountRequest(FSDiscountRequest request) async {
-    final ref = await db.collection('discountRequests').add(request.toFirestore(isCreate: true));
-    return FSDiscountRequest.fromFirestore(await ref.get());
-  }
-
-  // Mirrors discountRequest.service.ts: only a still-PENDING request can be
-  // resolved, and approving generates the random authorizedCode the
-  // employee shows at checkout - matches `crypto.randomBytes(4).toString
-  // ('hex').toUpperCase()`.
-  Future<FSDiscountRequest> resolveDiscountRequest(String id, {required bool approve}) async {
-    final ref = db.collection('discountRequests').doc(id);
-    final doc = await ref.get();
-    if (!doc.exists) throw Exception('Discount request not found');
-    if (doc.data()?['status'] != 'PENDING') {
-      throw Exception('Only pending requests can be ${approve ? 'approved' : 'rejected'}');
-    }
-    if (approve) {
-      final code = List.generate(4, (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0')).join().toUpperCase();
-      await ref.update({'status': 'APPROVED', 'authorizedCode': code});
-    } else {
-      await ref.update({'status': 'REJECTED'});
-    }
-    return FSDiscountRequest.fromFirestore(await ref.get());
-  }
-
   // --- Payment (settlement) requests ---
 
-  /// Badge count only, on the same reasoning as
-  /// [countPendingDiscountRequests]: an aggregate query costs a fraction of
-  /// reading the documents, and the owner's dashboard needs the number long
-  /// before anyone opens the queue.
+  /// Badge count only: an aggregate count() costs a fraction of reading the
+  /// documents, and the owner's dashboard needs the number long before
+  /// anyone opens the queue.
   Future<int> countPendingPaymentRequests() async {
     try {
       final snap = await db

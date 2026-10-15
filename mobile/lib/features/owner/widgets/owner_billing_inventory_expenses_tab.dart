@@ -250,7 +250,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
               AppPageAction(
                 icon: PhosphorIconsRegular.bell,
                 tooltip: 'Requests',
-                badgeCount: state.pendingDiscountCount + state.pendingPaymentRequestCount,
+                badgeCount: state.pendingPaymentRequestCount,
                 onTap: () => widget.onOpenNotifications?.call(),
               ),
             ],

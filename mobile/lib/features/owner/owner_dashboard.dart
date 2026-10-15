@@ -322,8 +322,7 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
           icon: PhosphorIconsRegular.list,
           activeIcon: PhosphorIconsFill.list,
           label: 'Menu',
-          // No badge: nothing inside the menu is what it counted (discount
-          // requests), so the dot led nowhere. The bell carries it now.
+          // No badge: the bell carries what's waiting on the owner.
           // Scaffold.of(context), not a GlobalKey - see the employee
           // dashboard's note: the key's currentState reads null if the
           // Scaffold remounts, and the button then silently does nothing.
@@ -426,40 +425,19 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
     );
   }
 
-  /// The bell, wired the same way from every page.
-  /// The bell: one inbox for everything staff are waiting on the owner for.
-  /// Discount requests used to be the only thing it showed (and a bare
-  /// "No new notifications" toast otherwise), while settlement requests -
-  /// staff handing over money they collected - were only behind Billing's
-  /// gear, and discount requests were behind two gears as well.
+  /// The bell: payments staff collected from clients, waiting for the
+  /// owner to confirm. (Discount requests used to share this inbox; they
+  /// went with staff billing, since an approved discount only ever applied
+  /// to a bill a stylist made.)
   void _openNotifications(BuildContext context) {
-    final data = ref.read(appDataProvider).valueOrNull;
-    final discounts = data?.pendingDiscountCount ?? 0;
-    final payments = data?.pendingPaymentRequestCount ?? 0;
-    openAppSettings(
+    final payments = ref.read(appDataProvider).valueOrNull?.pendingPaymentRequestCount ?? 0;
+    openAppSubPage(
       context,
       title: 'Requests',
-      subtitle: discounts + payments > 0 ? '${discounts + payments} waiting on you' : 'Nothing waiting on you',
-      sections: [
-        AppSettingsSection(
-          icon: PhosphorIconsRegular.sealPercent,
-          label: 'Discounts',
-          description: discounts > 0
-              ? '$discounts discount request${discounts == 1 ? '' : 's'} from staff to approve or refuse.'
-              : 'No discount requests waiting. Staff raise one when a client asks for a discount.',
-          badgeCount: discounts,
-          builder: (_) => const OwnerDiscountsTab(),
-        ),
-        AppSettingsSection(
-          icon: PhosphorIconsRegular.handCoins,
-          label: 'Payments',
-          description: payments > 0
-              ? '$payments payment${payments == 1 ? '' : 's'} staff collected, waiting for you to confirm.'
-              : 'No payments to confirm. Staff raise one when they collect a balance a client owed.',
-          badgeCount: payments,
-          builder: (_) => const OwnerPaymentRequestsView(),
-        ),
-      ],
+      subtitle: payments > 0
+          ? '$payments payment${payments == 1 ? '' : 's'} waiting for you to confirm'
+          : 'Nothing waiting on you',
+      child: const OwnerPaymentRequestsView(),
     );
   }
 

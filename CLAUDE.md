@@ -6,7 +6,7 @@ Multi-tenant salon management SaaS. Each salon runs on its own Firebase project 
 
 - `mobile/` — Flutter app (salon staff/owner client), deployed to Vercel as a web build. This is the entire app; there is no separate backend service.
 - `mobile/lib/firebase/` — everything Firebase-specific: `salon_directory.dart` (the list of provisioned salons and their Firebase project config), `salon_auth.dart` (multi-project sign-in), `login_directory.dart` (fast email -> salonId lookup against `salon-saas-87b6a`, see Multi-tenancy model below), `salon_firestore.dart` (all Firestore reads/writes), `firestore_models.dart` (Firestore document <-> app model conversions), `firestore_app_data.dart` (assembles one salon's full `AppData` snapshot).
-- `mobile/lib/data/app_data_provider.dart` — the single source of truth for app state (`AppDataNotifier`). Every mutation (create bill, clock in, approve a discount request, etc.) lives here as a method that validates input and calls into `SalonFirestore`.
+- `mobile/lib/data/app_data_provider.dart` — the single source of truth for app state (`AppDataNotifier`). Every mutation (create bill, clock in, confirm a payment request, etc.) lives here as a method that validates input and calls into `SalonFirestore`.
 - `mobile/firestore.rules` / `mobile/firestore.indexes.json` — deployed per-project via `firebase deploy --only firestore:rules,firestore:indexes --project <salonId>`.
 
 ## Hard rule: business logic and its trust boundary
@@ -107,8 +107,12 @@ template wording and troubleshooting: `mobile/functions/whatsapp.md`.
   `DsSectionTitle`, `DsStatTile`/`DsStat`, `DsListRow`, `DsAvatar`,
   `DsPill`, `DsValueRow`, `DsProgressBar`. New screens should be built
   from these rather than hand-rolled containers.
+- **Staff don't bill.** Only the owner creates bills. The staff app has
+  a My work tab (their services/products) instead, and there are no
+  discount requests any more. The `discountRequests` rules remain in
+  `firestore.rules` but nothing in the app uses them.
 - **One home per job:** the bell on every tab is the Requests inbox
-  (discount + payment requests); the gear appears only on Home and opens
+  (payment requests staff collected); the gear appears only on Home and opens
   Salon Settings (Business incl. GST/penalty/WhatsApp, Branches); Team has
   visible Attendance and Payroll buttons; Clients has Dues. Don't hide daily
   work behind a gear.

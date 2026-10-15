@@ -162,18 +162,6 @@ Expense expenseFromFS(FSExpense e) => Expense(
       notes: e.notes,
     );
 
-DiscountRequest discountRequestFromFS(FSDiscountRequest r) => DiscountRequest(
-      id: r.id,
-      requestedBy: r.requestedBy,
-      billId: r.billId,
-      requestedDiscount: r.requestedDiscount,
-      overridePrice: r.overridePrice,
-      reason: r.reason,
-      status: r.status,
-      authorizedCode: r.authorizedCode,
-      createdAt: r.createdAt,
-    );
-
 SalesTarget salesTargetFromFS(FSSalesTarget t) => SalesTarget(
       id: t.id,
       employeeId: t.employeeId,
@@ -237,8 +225,7 @@ SalonSettings settingsFromFS(FSSettings s, {bool whatsappReady = false}) => Salo
 // to enforce it, so it has to happen client-side, same as the pay
 // redaction above): attendance.service.ts, salary.service.ts,
 // commission.service.ts and salesTarget.service.ts all resolve a non-owner's
-// own EmployeeProfile.id and silently ignore any other employeeId filter;
-// discountRequest.service.ts does the same keyed by requestedBy. In the
+// own EmployeeProfile.id and silently ignore any other employeeId filter. In the
 // Firestore model there's no separate User/EmployeeProfile split - the
 // employees/{uid} doc IS both, so the Firebase Auth uid (auth.userId) is
 // the one key that plays all of those roles.
@@ -259,13 +246,6 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
     fs.listBills(),
     // Expenses are deliberately absent: they belong to one screen and load
     // when it opens (see data/expenses_provider.dart), not on every sign-in.
-    // Owners take the count only - ten of the twelve places that read these
-    // want a badge number, and the Discounts screen loads the documents when
-    // it opens (see data/discount_requests_provider.dart). Staff keep the
-    // list: theirs is filtered to their own, so it is a handful of docs, and
-    // their Discounts tab needs them anyway.
-    auth.isOwner ? Future.value(<FSDiscountRequest>[]) : fs.listDiscountRequests(requestedBy: selfId),
-    auth.isOwner ? fs.countPendingDiscountRequests() : Future.value(-1),
     // One aggregate query, owner only - staff neither approve these nor
     // carry a badge for them, so they skip it entirely.
     auth.isOwner ? fs.countPendingPaymentRequests() : Future.value(0),
@@ -286,19 +266,11 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
   final servicesFS = results[5] as List<FSService>;
   final inventoryFS = results[6] as List<FSInventoryItem>;
   final billsFS = results[7] as List<FSBill>;
-  final discountRequestsFS = results[8] as List<FSDiscountRequest>;
-  final pendingDiscountsCounted = results[9] as int;
-  final pendingPaymentRequestsCounted = results[10] as int;
-  final salesTargetsFS = results[11] as List<FSSalesTarget>;
-  final commissionsFS = results[12] as List<FSCommissionRecord>;
-  final attendanceFS = results[13] as List<FSAttendanceRecord>;
-  final whatsappReady = results[14] as bool;
-
-  // -1 is the staff sentinel from the wait above: derive it from the list
-  // they already hold rather than spending a second query on it.
-  final pendingDiscountCount = pendingDiscountsCounted >= 0
-      ? pendingDiscountsCounted
-      : discountRequestsFS.where((r) => r.status == 'PENDING').length;
+  final pendingPaymentRequestsCounted = results[8] as int;
+  final salesTargetsFS = results[9] as List<FSSalesTarget>;
+  final commissionsFS = results[10] as List<FSCommissionRecord>;
+  final attendanceFS = results[11] as List<FSAttendanceRecord>;
+  final whatsappReady = results[12] as bool;
 
   // listBills() doesn't fetch the items subcollection (would be N+1 for
   // every list load otherwise); fetch each bill's items in parallel here,
@@ -321,7 +293,6 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
           // re-querying the same three collections - see the note on
           // getDashboardSummary itself.
           todayAttendanceCount: todayAttendanceCountFS(attendanceFS),
-          pendingDiscountRequests: pendingDiscountCount,
           lowStockItemCount: inventoryFS.where((i) => !i.archived && i.isLowStock).length,
         )
       : null;
@@ -380,9 +351,7 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
     services: servicesFS.where((s) => !s.archived).map(serviceFromFS).toList(),
     inventory: inventoryFS.where((i) => !i.archived).map(inventoryFromFS).toList(),
     bills: bills,
-    discountRequests: discountRequestsFS.map(discountRequestFromFS).toList(),
     pendingPaymentRequestCount: pendingPaymentRequestsCounted,
-    pendingDiscountCount: pendingDiscountCount,
     salesTargets: salesTargetsFS.map(salesTargetFromFS).toList(),
     commissions: commissionsFS.map(commissionRecordFromFS).toList(),
     attendance: attendanceFS.map(attendanceFromFS).toList(),

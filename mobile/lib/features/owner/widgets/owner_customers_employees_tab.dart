@@ -216,7 +216,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                     AppPageAction(
                       icon: PhosphorIconsRegular.bell,
                       tooltip: 'Requests',
-                      badgeCount: state.pendingDiscountCount + state.pendingPaymentRequestCount,
+                      badgeCount: state.pendingPaymentRequestCount,
                       onTap: () => widget.onOpenNotifications?.call(),
                     ),
                   ],
@@ -2001,7 +2001,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                           AppPageAction(
                             icon: PhosphorIconsRegular.bell,
                             tooltip: 'Requests',
-                            badgeCount: state.pendingDiscountCount + state.pendingPaymentRequestCount,
+                            badgeCount: state.pendingPaymentRequestCount,
                             onTap: () => widget.onOpenNotifications?.call(),
                           ),
                         ],
