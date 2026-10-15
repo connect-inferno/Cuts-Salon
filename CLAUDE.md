@@ -179,12 +179,13 @@ the trust-boundary section). The app already did these things only as the
 owner and already filtered staff queries by their own uid, so the live app
 works with these rules before and after the app push.
 
-**`employeePay` (pay off the roster) - rules NOT deployed yet.** Additive
-(a new collection), so it is safe to deploy before the app push. Once
-deployed and the new app is live, each salon's pay moves the next time its
-owner opens the app; until then staff can still technically read
-coworkers' pay on the roster docs. Check by looking in the Console that
-`employees/*` docs no longer have `baseSalary`.
+**`employeePay` (pay off the roster) - rules deployed to all three salons
+on 2026-10-15.** Pay has been moved for `test-salon-ee06a` (2 employees,
+2026-10-15, from a local build). `cuts-salon` and `instyle-salon` move the
+next time their owner opens the app after the new build is live on Vercel;
+until then their staff can still technically read coworkers' pay on the
+roster docs. Check by looking in the Console that `employees/*` docs no
+longer have `baseSalary`.
 
 ## Onboarding a new salon
 
