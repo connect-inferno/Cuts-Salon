@@ -1302,7 +1302,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                                 ),
                                 title: Text(_formatShortDate(bill.createdAt), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5, color: Color(0xFF0F172A))),
                                 subtitle: Text('${bill.invoiceNumber}  ·  ${itemNames.isNotEmpty ? itemNames : 'No services listed'}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B))),
-                                trailing: Text('${formatInr(bill.finalAmount)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF0F172A))),
+                                trailing: Text(formatInr(bill.finalAmount), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF0F172A))),
                               );
                             },
                           ),
@@ -1532,7 +1532,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                       ),
                     ),
                     Text(
-                      '${formatInr(outstanding)}',
+                      formatInr(outstanding),
                       style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Color(0xFF78350F)),
                     ),
                     const SizedBox(width: 6),
@@ -1553,7 +1553,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                   iconBg: AppTheme.accentVioletBg,
                   iconColor: AppTheme.accentViolet,
                   label: 'Total spent',
-                  value: '${formatInr(totalSpent)}',
+                  value: formatInr(totalSpent),
                 ),
               ),
               const SizedBox(width: 8),
@@ -1752,7 +1752,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                       ),
                     ),
                     Text(
-                      '${formatInr(bill.finalAmount)}',
+                      formatInr(bill.finalAmount),
                       style: const TextStyle(
                         fontSize: 13.5,
                         fontWeight: FontWeight.w700,
@@ -2592,7 +2592,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
             children: [
               Expanded(child: _buildMetricCard('Attendance (Month)', '${attendancePct.toStringAsFixed(0)}%', PhosphorIconsRegular.calendarBlank, AppTheme.accentGreen)),
               const SizedBox(width: 10),
-              Expanded(child: _buildMetricCard('Base Salary', '${formatInr(emp.baseSalary)}', PhosphorIconsRegular.money, AppTheme.slateDark)),
+              Expanded(child: _buildMetricCard('Base Salary', formatInr(emp.baseSalary), PhosphorIconsRegular.money, AppTheme.slateDark)),
             ],
           ),
           const SizedBox(height: 10),
@@ -2617,7 +2617,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                     Text('Base salary + pending commission', style: TextStyle(color: AppTheme.slateLight, fontSize: 11)),
                   ],
                 ),
-                Text('${formatInr(projectedPayout)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.accentGreen)),
+                Text(formatInr(projectedPayout), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.accentGreen)),
               ],
             ),
           ),
@@ -3574,7 +3574,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
             textBaseline: TextBaseline.alphabetic,
             children: [
               Text(
-                '${formatInr(targetAchieved)}',
+                formatInr(targetAchieved),
                 style: const TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
@@ -3674,7 +3674,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                     tint: AppTheme.accentViolet,
                     tintBg: AppTheme.accentVioletBg,
                     label: 'Base salary',
-                    value: '${formatInr(emp.baseSalary)}',
+                    value: formatInr(emp.baseSalary),
                   ),
                 ),
               ],
@@ -3783,7 +3783,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
             textBaseline: TextBaseline.alphabetic,
             children: [
               Text(
-                '${formatInr(projectedPayout)}',
+                formatInr(projectedPayout),
                 style: const TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.w700,
@@ -3808,7 +3808,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
           if (slip != null) ...[
             _buildPayrollBreakdownRow(
               '${monthName.substring(0, 3)} slip (base + commission - deductions)',
-              '${formatInr(slip.totalPaid)}',
+              formatInr(slip.totalPaid),
             ),
             const SizedBox(height: 6),
             _buildPayrollBreakdownRow(
@@ -3821,7 +3821,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
               '+ ${formatInr(productComm)}',
             ),
           ] else ...[
-            _buildPayrollBreakdownRow('Base salary', '${formatInr(emp.baseSalary)}'),
+            _buildPayrollBreakdownRow('Base salary', formatInr(emp.baseSalary)),
             const SizedBox(height: 6),
             _buildPayrollBreakdownRow(
               'Commission on services (${emp.serviceCommissionPct.toInt()}%)',
@@ -4117,7 +4117,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                       Text(_formatDate(c.calculatedAt), style: const TextStyle(fontSize: 11, color: AppTheme.slateLight)),
                       Row(
                         children: [
-                          Text('${formatInr(c.amount)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                          Text(formatInr(c.amount), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                           const SizedBox(width: 8),
                           SizedBox(
                             height: 26,
@@ -4202,7 +4202,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                           ],
                         ),
                       ),
-                      Text('${formatInr(r.totalPaid)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                      Text(formatInr(r.totalPaid), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
                       const SizedBox(width: 10),
                       if (isPaid)
                         const Icon(PhosphorIconsRegular.checkCircle, color: AppTheme.accentGreen, size: 20)

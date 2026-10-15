@@ -800,7 +800,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                           Text(
                                             svc.categoryName != null
                                                 ? '${svc.categoryName} • ${formatInr(svc.price)}'
-                                                : '${formatInr(svc.price)}',
+                                                : formatInr(svc.price),
                                             style: const TextStyle(
                                               fontSize: 12,
                                               fontWeight: FontWeight.w600,
@@ -999,7 +999,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                         Row(
                                           children: [
                                             Text(
-                                              '${formatInr(prod.price)}',
+                                              formatInr(prod.price),
                                               style: const TextStyle(
                                                 fontSize: 12,
                                                 fontWeight: FontWeight.w700,
@@ -1427,7 +1427,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  '${formatInr(subtotal)}',
+                                  formatInr(subtotal),
                                   style: const TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w700,
@@ -1500,7 +1500,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                     ),
                                   ),
                                   Text(
-                                    '${formatInr(taxAmount)}',
+                                    formatInr(taxAmount),
                                     style: const TextStyle(
                                       fontSize: 13,
                                       fontWeight: FontWeight.w700,
@@ -1552,7 +1552,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  '${formatInr(totalAmount)}',
+                                  formatInr(totalAmount),
                                   style: const TextStyle(
                                     fontSize: 24,
                                     fontWeight: FontWeight.w700,
@@ -3041,7 +3041,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                   ),
                                   // Price
                                   Text(
-                                    '${formatInr(svc.price)}',
+                                    formatInr(svc.price),
                                     style: const TextStyle(
                                       fontSize: 15,
                                       fontWeight: FontWeight.w700,
@@ -3591,7 +3591,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                       ),
                       const SizedBox(height: 14),
                       Text(
-                        '${formatInr(totalExpense)}',
+                        formatInr(totalExpense),
                         style: const TextStyle(
                           fontSize: 30,
                           fontWeight: FontWeight.w700,
@@ -3604,7 +3604,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                         children: [
                           _heroStat(
                             'This month',
-                            '${formatInr(monthExpense)}',
+                            formatInr(monthExpense),
                           ),
                           const SizedBox(width: 10),
                           _heroStat(
@@ -3881,7 +3881,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                     ),
                   ),
                   Text(
-                    '${formatInr(sum)}',
+                    formatInr(sum),
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,

@@ -1189,7 +1189,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
         Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Text('${formatInr(myTotal)}', style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
+            Text(formatInr(myTotal), style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
             const SizedBox(height: 2),
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -1828,7 +1828,7 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
               // page scoped to "clients I handled" the salon figure would be
               // claiming credit for someone else's work.
               Text(
-                '${formatInr(_myRevenueFor(myBills))}',
+                formatInr(_myRevenueFor(myBills)),
                 style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: Color(0xFF0F172A)),
               ),
               const SizedBox(height: 2),
@@ -2527,21 +2527,21 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    _buildBreakdownRow('Services ($serviceCount ${serviceCount == 1 ? 'item' : 'items'})', '${formatInr(serviceTotal)}'),
+                    _buildBreakdownRow('Services ($serviceCount ${serviceCount == 1 ? 'item' : 'items'})', formatInr(serviceTotal)),
                     const SizedBox(height: 6),
                     if (productItemCount > 0)
-                      _buildBreakdownRow('Products ($productItemCount ${productItemCount == 1 ? 'item' : 'items'})', '${formatInr(productTotal)}'),
+                      _buildBreakdownRow('Products ($productItemCount ${productItemCount == 1 ? 'item' : 'items'})', formatInr(productTotal)),
                     const SizedBox(height: 6),
                     if (totals.discount > 0) ...[
                       _buildBreakdownRow('Approved discount', '-${formatInr(totals.discount)}'),
                       const SizedBox(height: 6),
                     ],
-                    _buildBreakdownRow('Subtotal', '${formatInr(subtotal - totals.discount)}', isBold: true),
+                    _buildBreakdownRow('Subtotal', formatInr(subtotal - totals.discount), isBold: true),
                     // GST is off until the owner sets a rate in Settings, so
                     // the row only appears when there is tax to charge.
                     if (gstRate > 0) ...[
                       const SizedBox(height: 6),
-                      _buildBreakdownRow('CGST + SGST (${gstRate.toStringAsFixed(0)}%)', '${formatInr(gstAmount)}'),
+                      _buildBreakdownRow('CGST + SGST (${gstRate.toStringAsFixed(0)}%)', formatInr(gstAmount)),
                     ],
                   ],
                 ),
@@ -2586,7 +2586,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                       ],
                     ),
                     Text(
-                      '${formatInr(total)}',
+                      formatInr(total),
                       style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.w700,

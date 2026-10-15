@@ -33,9 +33,19 @@ const FirebaseOptions _directoryOptions = FirebaseOptions(
   appId: '1:613090667402:web:1fdc8762956a4c7f05f673',
 );
 
+// The Android app registered in salon-saas-87b6a ("Stylux Android").
+const FirebaseOptions _directoryAndroidOptions = FirebaseOptions(
+  apiKey: 'AIzaSyCDoLlSKVKcR4aGUE1HcjWjF-1L0DVeXfE',
+  appId: '1:613090667402:android:2837e5272336529305f673',
+  messagingSenderId: '613090667402',
+  projectId: 'salon-saas-87b6a',
+  storageBucket: 'salon-saas-87b6a.firebasestorage.app',
+);
+
 const String _directoryAppName = 'login-directory';
 
-Future<FirebaseApp> _directoryApp() => firebaseAppNamed(_directoryAppName, _directoryOptions);
+Future<FirebaseApp> _directoryApp() =>
+    firebaseAppNamed(_directoryAppName, forPlatform(_directoryOptions, _directoryAndroidOptions));
 
 // Returns null whenever the fast path can't be used for any reason - the
 // directory isn't configured yet, this email isn't registered in it, or

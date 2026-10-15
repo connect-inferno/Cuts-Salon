@@ -47,6 +47,8 @@ dependencies:
   # hand the owner a real file, and this app ships as a web build. Already
   # resolved transitively; declared here because we import it directly.
   web: ^1.1.1
+  url_launcher: ^6.3.3
+  share_plus: ^13.3.1
 
 # Redirects phosphor_flutter to a local copy that bundles only the three icon
 # weights this app actually uses (Regular, Bold, Fill) instead of all six.
@@ -58,6 +60,11 @@ dependencies:
 dependency_overrides:
   phosphor_flutter:
     path: third_party/phosphor_flutter
+  # share_plus pulls in path_provider, whose iOS/macOS part moved to
+  # objective_c (Dart native assets) in 2.5.0 - that needs an experimental
+  # Flutter flag and stops `flutter test` running at all. This app ships for
+  # web and Android only, so hold the Apple part on the last plain plugin.
+  path_provider_foundation: 2.4.1
 
 dev_dependencies:
   flutter_test:

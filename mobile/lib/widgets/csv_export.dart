@@ -1,15 +1,14 @@
 /// Handing the user a CSV file, on whichever platform this build is running.
 ///
-/// There is no file-picker or share plugin in this project, and the app ships
-/// as a Flutter web build (see mobile/vercel.json), so the web implementation
-/// is the one that matters: it makes a Blob and clicks an anchor, which is a
-/// real browser download. The stub keeps Android/Windows builds compiling and
-/// falls back to the clipboard, which is the best a plugin-free build can do
-/// there - [exportCsv] reports which of the two happened so the caller can
-/// tell the user the truth rather than always claiming "downloaded".
+/// Web: a real browser download (Blob + anchor). Android app: a file plus
+/// the phone's share sheet (csv_export_io.dart). Anything else falls back to
+/// the clipboard. [exportCsv] reports which happened so the caller can tell
+/// the user the truth rather than always claiming "downloaded".
 library;
 
-export 'csv_export_stub.dart' if (dart.library.js_interop) 'csv_export_web.dart';
+export 'csv_export_stub.dart'
+    if (dart.library.js_interop) 'csv_export_web.dart'
+    if (dart.library.io) 'csv_export_io.dart';
 
 /// What [exportCsv] actually managed to do.
 enum CsvExportResult {
@@ -18,6 +17,9 @@ enum CsvExportResult {
 
   /// No download path on this platform; the CSV text is on the clipboard.
   copiedToClipboard,
+
+  /// Saved as a file and handed to the phone's share sheet (Android app).
+  shared,
 }
 
 /// Escapes one CSV field: doubles any quote and wraps the value whenever it

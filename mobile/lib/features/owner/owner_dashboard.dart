@@ -807,7 +807,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                         iconBg: const Color(0xFFDCE4EF),
                         iconColor: const Color(0xFF2F4E79),
                         title: 'Avg bill',
-                        value: '${formatInr(atv)}',
+                        value: formatInr(atv),
                         subtext: 'Across $totalBillsCount bill${totalBillsCount == 1 ? '' : 's'}',
                         subtextColor: const Color(0xFF64748B),
                       ),
@@ -1879,6 +1879,8 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                 'Exported ${rows.length - 1} line${rows.length == 2 ? '' : 's'} to $filename',
               CsvExportResult.copiedToClipboard =>
                 'Copied ${rows.length - 1} line${rows.length == 2 ? '' : 's'} as CSV - paste into a spreadsheet',
+              CsvExportResult.shared =>
+                '$filename ready - save it or send it from the share menu',
             },
           ),
           behavior: SnackBarBehavior.floating,

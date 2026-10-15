@@ -1,14 +1,12 @@
-/// Opening a phone dialler or WhatsApp chat for a client, on whichever
-/// platform this build is running.
-///
-/// Same arrangement as csv_export.dart: no url_launcher plugin in this
-/// project and the app ships as a Flutter web build, so the web
-/// implementation is the one that matters. The stub keeps other builds
-/// compiling and reports false, so the caller can say it didn't open
-/// instead of pretending.
+/// Opening a phone dialler, WhatsApp chat or email for a client, on
+/// whichever platform this build is running: the browser on the web build,
+/// url_launcher on the Android app. The stub (any other platform) reports
+/// false, so the caller can say it didn't open instead of pretending.
 library;
 
-export 'open_link_stub.dart' if (dart.library.js_interop) 'open_link_web.dart';
+export 'open_link_stub.dart'
+    if (dart.library.js_interop) 'open_link_web.dart'
+    if (dart.library.io) 'open_link_io.dart';
 
 /// The number as WhatsApp's wa.me links want it: country code + number,
 /// digits only. Bare 10-digit Indian mobiles get 91 - the same rule the

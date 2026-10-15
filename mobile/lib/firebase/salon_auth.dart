@@ -62,7 +62,7 @@ class SalonAuth {
   // a restored session, so reuse the existing app when there is one (see
   // firebaseAppNamed for why that check must not use Firebase.apps).
   static Future<FirebaseApp> _appFor(SalonFirebaseConfig config) =>
-      firebaseAppNamed(config.salonId, config.options);
+      firebaseAppNamed(config.salonId, config.platformOptions);
 
   // Fast path: ask the login directory (login_directory.dart) which salon
   // this email belongs to, so sign-in only ever tries the ONE right

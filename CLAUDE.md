@@ -145,7 +145,7 @@ fallback loop now tries every one of them, so keep each salon's people in
 1. Create a new Firebase project (Console or `firebase projects:create`), enable Firestore + Email/Password Auth.
 2. Deploy `mobile/firestore.rules` and `mobile/firestore.indexes.json` to it: `firebase deploy --only firestore:rules,firestore:indexes --project <newSalonId>`.
 3. Create the owner's Firebase Auth account and a matching `employees/{uid}` document (role `OWNER`) plus a `settings/main` document. The operator dashboard's **Add Salon** does all three (plus steps 5 and 6) via `operator-dashboard/src/utils/provisionSalon.js`, relying on the one-time `isBootstrappingOwner()` rule in `firestore.rules` — run it right after step 2, and don't hand-create `settings/main` first or the bootstrap is refused. Manual fallback: do it in the Console, see `firestore_models.dart` for the shapes.
-4. Add a `SalonFirebaseConfig` entry for it in `mobile/lib/firebase/salon_directory.dart` with that project's web config.
+4. Add a `SalonFirebaseConfig` entry for it in `mobile/lib/firebase/salon_directory.dart` with that project's web config, **and** its Android config for the Android app: `firebase apps:create ANDROID "Stylux Android" --package-name com.client.salon.mobile --project <newSalonId>`, then `firebase apps:sdkconfig ANDROID <appId> --project <newSalonId>` and copy `mobilesdk_app_id` / `current_key` into the entry's `androidOptions`. Without it the Android app falls back to the web config, which Firebase may refuse.
 5. If the login directory (below) is configured, add the owner's `emailDirectory/{email} -> { salonId }` doc for it too — not required (sign-in falls back to trying every project), but skipping it means every login for this salon pays the full fallback-loop cost.
 6. If the operator salon registry (below) is set up, add a `salons/{salonId}` doc for it too — purely for your own reference, the app never reads this.
 
@@ -165,6 +165,14 @@ A second, unrelated collection in the same directory project (see above): `salon
 - `mobile/firebase-directory.rules` already locks `salons/{salonId}` to `allow read, write: if false;` (Console/Admin SDK only) — there's no client code path that touches it, so it never needs to be more open than that, unlike `emailDirectory` which the app does read.
 - Suggested doc shape per salon (add by hand in the Console, no fixed schema is enforced): `salonName` (string), `ownerName` (string), `ownerEmail` (string), `firebaseConfig` (map — the same fields as the `FirebaseOptions` you put in `salon_directory.dart`: `apiKey`, `appId`, `authDomain`, `projectId`, `storageBucket`, `messagingSenderId`), `createdAt` (timestamp).
 - Explicitly does **not** store passwords, employee lists, or any salon business data — those stay inside each salon's own isolated project, same as always. This registry is metadata about tenants, not a login mechanism; storing real credentials here would undo the whole point of one-Firebase-project-per-salon (a single leak here would then expose every salon at once instead of one).
+
+## Android app
+
+- Same Flutter code as the web build. Platform-specific pieces use conditional imports: `widgets/open_link*.dart` (url_launcher on Android) and `widgets/csv_export*.dart` (file + share sheet via share_plus on Android).
+- Each salon's `SalonFirebaseConfig.androidOptions` (and `_directoryAndroidOptions` in `login_directory.dart`) holds the Android app registered in that project; `platformOptions` picks web or Android.
+- `pubspec.yaml` overrides `path_provider_foundation` to 2.4.1: newer versions need Dart native assets (objective_c), which stops `flutter test` running. Web and Android don't use it.
+- Building the APK on this machine: the Windows user folder ("Amit's Laptop") has an apostrophe that breaks Java's temp paths. Build with `TEMP`/`TMP` and `-Djdk.net.unixdomain.tmpdir` pointed at a plain folder (e.g. `D:\gradle-tmp`), outside the command sandbox; `android/gradle.properties` already compiles Kotlin in-process. Output: `flutter build apk --release --split-per-abi` -> `build/app/outputs/flutter-apk/app-arm64-v8a-release.apk`.
+- The release APK is still signed with the debug key - fine for installing directly, not for the Play Store or for updating installs signed with a different key.
 
 ## Deployment
 
