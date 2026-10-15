@@ -1,5 +1,9 @@
 plugins {
     id("com.android.application")
+    // Needed: MainActivity is Kotlin and android.builtInKotlin=false in
+    // gradle.properties. Without it the kotlin {} block below doesn't
+    // resolve and the APK would ship without its activity.
+    id("org.jetbrains.kotlin.android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
