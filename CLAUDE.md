@@ -123,6 +123,11 @@ template wording and troubleshooting: `mobile/functions/whatsapp.md`.
 - **No fake buttons:** Call / WhatsApp use real links via
   `widgets/open_link.dart` (web implementation; stub elsewhere). Never ship
   a button that only shows a "Calling..." snackbar.
+- **Client follow-up (Reports > Clients):** green = last visit 30-44
+  days ago, yellow = 45-59, red = 60+ (`recencyBandFor` in
+  `client_retention_report.dart`), each with Call and a ready-written
+  WhatsApp message. Separate from the 21-day dot in the client list,
+  which matches the automatic WhatsApp reminder.
 - **Attendance roster** only saves rows the owner actually marked; an
   unmarked person is "Not in yet", never auto-saved as Absent.
 - Don't run `dart format` over the big screen files - they aren't formatted

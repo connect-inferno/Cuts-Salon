@@ -270,7 +270,18 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                           context,
                           title: 'Reports',
                           subtitle: 'Revenue, retention and staff performance',
-                          child: const OwnerReportsTab(),
+                          // New bill from a client opened in the Clients
+                          // report: their page has closed itself, so close
+                          // Reports too and start the bill right here.
+                          child: OwnerReportsTab(
+                            onStartBill: (customer) {
+                              Navigator.of(context).pop();
+                              setState(() {
+                                _selectedCustomerId = customer.id;
+                                _section = _BillingSection.newBill;
+                              });
+                            },
+                          ),
                         ),
                       )
                     : _buildBody(context, ref, state),

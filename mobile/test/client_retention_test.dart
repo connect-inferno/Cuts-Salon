@@ -103,31 +103,44 @@ void main() {
     });
   });
 
-  group('follow-up standing', () {
-    test('uses the same 21-day rule as the client list markers', () {
-      final stats = computeRetention([
-        _client(visits: 3, lastVisitDaysAgo: 5, id: 'fresh'),
-        _client(visits: 3, lastVisitDaysAgo: 18, id: 'stillok'),
-        _client(visits: 3, lastVisitDaysAgo: 19, id: 'duesoon'),
-        _client(visits: 3, lastVisitDaysAgo: 20, id: 'duesoon2'),
-        _client(visits: 3, lastVisitDaysAgo: 21, id: 'overdue'),
-        _client(visits: 3, lastVisitDaysAgo: 90, id: 'longgone'),
-      ], _now);
+  group('follow-up groups', () {
+    test('green from 30 days, yellow from 45, red from 60', () {
+      RecencyBand? band(int daysAgo) =>
+          recencyBandFor(_client(visits: 2, lastVisitDaysAgo: daysAgo), _now);
 
-      expect(stats.active, 2);
-      expect(stats.dueSoon, 2);
-      expect(stats.overdue, 2);
+      expect(band(0), RecencyBand.active);
+      expect(band(29), RecencyBand.active);
+      expect(band(30), RecencyBand.green);
+      expect(band(44), RecencyBand.green);
+      expect(band(45), RecencyBand.yellow);
+      expect(band(59), RecencyBand.yellow);
+      expect(band(60), RecencyBand.red);
+      expect(band(400), RecencyBand.red);
     });
 
-    test('the three buckets always account for everyone who has visited', () {
+    test('a client never billed is in no group', () {
+      expect(recencyBandFor(_client(visits: 0), _now), isNull);
+    });
+
+    test('the four groups always account for everyone who has visited', () {
       final stats = computeRetention([
         _client(visits: 1, lastVisitDaysAgo: 1, id: 'a'),
-        _client(visits: 2, lastVisitDaysAgo: 19, id: 'b'),
-        _client(visits: 3, lastVisitDaysAgo: 40, id: 'c'),
-        _client(visits: 0, id: 'd'),
+        _client(visits: 2, lastVisitDaysAgo: 31, id: 'b'),
+        _client(visits: 3, lastVisitDaysAgo: 50, id: 'c'),
+        _client(visits: 3, lastVisitDaysAgo: 90, id: 'd'),
+        _client(visits: 0, id: 'e'),
       ], _now);
 
-      expect(stats.active + stats.dueSoon + stats.overdue, stats.visited);
+      expect(stats.bands, [1, 1, 1, 1]);
+      expect(stats.toContact, 3);
+      expect(stats.bands.fold<int>(0, (a, b) => a + b), stats.visited);
+    });
+
+    test('the WhatsApp message uses the first name and the salon', () {
+      final c = Customer(id: 'x', name: 'Ravi Kumar', phone: '9', isVip: false, branchId: 'b');
+      final msg = winBackMessage(RecencyBand.red, c, 'Amits Salon');
+      expect(msg, startsWith('Hi Ravi, we miss you at Amits Salon!'));
+      expect(winBackMessage(RecencyBand.green, c, null), contains('the salon'));
     });
   });
 
@@ -169,7 +182,9 @@ void main() {
       // maxVal and the split bar both divide by counts that are zero here.
       await pump(tester, []);
 
-      expect(find.text('0%'), findsOneWidget);
+      // The repeat rate, plus the chart legend's four 0% rows.
+      expect(find.text('0%'), findsNWidgets(5));
+      expect(find.text('Nobody in this group right now.'), findsOneWidget);
       expect(find.text('No one has been billed yet'), findsOneWidget);
     });
 
@@ -184,7 +199,24 @@ void main() {
       );
 
       expect(find.text('Visit Frequency'), findsOneWidget);
-      expect(find.text('Follow-up Standing'), findsOneWidget);
+      expect(find.text('Client Follow-up'), findsOneWidget);
+    });
+
+    testWidgets('opens on the first group with anyone in it, and tapping a tile switches list', (tester) async {
+      await pump(tester, size: const Size(375, 2000), [
+        _client(visits: 2, lastVisitDaysAgo: 50, id: 'yellow'),
+        _client(visits: 2, lastVisitDaysAgo: 70, id: 'red'),
+      ]);
+
+      // Nobody is green, so the yellow list shows first.
+      expect(find.text('Slipping away · 1'), findsOneWidget);
+      expect(find.text('Client yellow'), findsOneWidget);
+      expect(find.text('Client red'), findsNothing);
+
+      await tester.tap(find.text('At risk').last); // the tile, not the chart legend
+      await tester.pumpAndSettle();
+      expect(find.text('At risk · 1'), findsOneWidget);
+      expect(find.text('Client red'), findsOneWidget);
     });
   });
 }

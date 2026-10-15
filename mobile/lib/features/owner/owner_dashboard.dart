@@ -24,6 +24,7 @@ import '../../data/models.dart';
 import '../../widgets/liquid_nav_bar.dart';
 import '../../data/money.dart';
 import '../../widgets/pull_to_refresh.dart';
+import '../../router.dart' show pushAppRoute;
 
 const double kOwnerMobileBreakpoint = 900;
 
@@ -232,7 +233,8 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
             AppDrawerItem(
               icon: PhosphorIconsRegular.chartLineUp,
               label: 'Reports',
-              onTap: () => go('Reports', 'Revenue, retention and staff performance', const OwnerReportsTab()),
+              onTap: () => go('Reports', 'Revenue, retention and staff performance',
+                  OwnerReportsTab(onStartBill: (c) => _startBillFromReports(context, c))),
             ),
           ],
         ),
@@ -425,6 +427,20 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
     );
   }
 
+  /// Billing, with [customer] already picked as the client.
+  void _startBillFor(Customer customer) {
+    setState(() => _preselectedCustomerId = customer.id);
+    _switchToTab(OwnerTab.billing);
+  }
+
+  /// New bill from a client opened in Reports. The client page has already
+  /// closed itself; Reports is a page pushed over the tabs, so it closes
+  /// too, or the bill would open underneath it.
+  void _startBillFromReports(BuildContext context, Customer customer) {
+    Navigator.of(context).pop();
+    _startBillFor(customer);
+  }
+
   /// The bell: payments staff collected from clients, waiting for the
   /// owner to confirm. (Discount requests used to share this inbox; they
   /// went with staff billing, since an approved discount only ever applied
@@ -526,7 +542,7 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
           context,
           title: 'Reports',
           subtitle: 'Revenue, retention and staff performance',
-          child: const OwnerReportsTab(),
+          child: OwnerReportsTab(onStartBill: (c) => _startBillFromReports(context, c)),
         ),
         onOpenNotifications: () => _openNotifications(context),
         onOpenProfile: () => _showProfileMenu(context, salonName),
@@ -544,10 +560,7 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
       ),
       OwnerCustomersTab(
         key: const ValueKey('clients'),
-        onStartBill: (customer) {
-          setState(() => _preselectedCustomerId = customer.id);
-          _switchToTab(OwnerTab.billing);
-        },
+        onStartBill: _startBillFor,
         onOpenNotifications: () => _openNotifications(context),
       ),
       OwnerEmployeesTab(
@@ -566,7 +579,10 @@ const List<String> _kMonthAbbrevs = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', '
 class OwnerReportsTab extends ConsumerStatefulWidget {
   final VoidCallback? onOpenNotifications;
 
-  const OwnerReportsTab({super.key, this.onOpenNotifications});
+  /// New bill for a client opened from the Clients report.
+  final ValueChanged<Customer>? onStartBill;
+
+  const OwnerReportsTab({super.key, this.onOpenNotifications, this.onStartBill});
 
   @override
   ConsumerState<OwnerReportsTab> createState() => _OwnerReportsTabState();
@@ -852,9 +868,18 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                 //
                 // The flip side is that these are lifetime figures and do not
                 // narrow with the timeframe pill above. The cards say so.
+                // They do follow the branch pill: a client belongs to the
+                // branch they were added at.
                 ClientRetentionReport(
-                  customers: state.customers,
+                  customers: _branchId == null
+                      ? state.customers
+                      : state.customers.where((c) => c.branchId == _branchId).toList(),
                   now: DateTime.now(),
+                  salonName: state.settings?.salonName,
+                  onOpenClient: (c) => pushAppRoute(
+                    context,
+                    OwnerCustomerDetailPage(customerId: c.id, onStartBill: widget.onStartBill),
+                  ),
                 ),
               ],
               const SizedBox(height: 14),
