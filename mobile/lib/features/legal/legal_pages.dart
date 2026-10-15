@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../data/support_contact.dart';
 import '../../theme.dart';
-import '../../widgets/app_sub_page.dart';
+import '../../widgets/app_page_header.dart';
 
 /// The Privacy Policy and Disclaimer, shown from the owner's and staff's
 /// profile pages (see widgets/account_security.dart).
@@ -24,25 +25,59 @@ class LegalSection {
   const LegalSection(this.heading, this.paragraphs);
 }
 
-void openPrivacyPolicy(BuildContext context) => openAppSubPage(
-      context,
-      title: 'Privacy policy',
-      subtitle: 'Effective $kLegalEffectiveDate',
-      child: const LegalDocumentView(
-        intro: 'How Stylux handles the information your salon keeps in it.',
-        sections: privacyPolicySections,
-      ),
-    );
+/// Public addresses for the two pages (see router.dart). Open to anyone,
+/// signed in or not - the login screen links here, and app stores and Meta
+/// want a privacy policy link that works without an account.
+const kPrivacyPath = '/privacy';
+const kDisclaimerPath = '/disclaimer';
 
-void openDisclaimer(BuildContext context) => openAppSubPage(
-      context,
-      title: 'Disclaimer',
-      subtitle: 'Effective $kLegalEffectiveDate',
-      child: const LegalDocumentView(
-        intro: 'What Stylux does and does not promise.',
-        sections: disclaimerSections,
+void openPrivacyPolicy(BuildContext context) => GoRouter.of(context).push(kPrivacyPath);
+
+void openDisclaimer(BuildContext context) => GoRouter.of(context).push(kDisclaimerPath);
+
+/// A legal page as its own screen. Back returns to wherever it was opened
+/// from; opened straight from a link there's nothing to go back to, so it
+/// goes to the sign-in screen instead.
+class LegalPage extends StatelessWidget {
+  final bool privacy;
+  const LegalPage.privacy({super.key}) : privacy = true;
+  const LegalPage.disclaimer({super.key}) : privacy = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.bgSurface,
+      body: Column(
+        children: [
+          AppPageHeader(
+            title: privacy ? 'Privacy policy' : 'Disclaimer',
+            subtitle: 'Stylux · effective $kLegalEffectiveDate',
+            leading: AppPageLeading.back,
+            onLeadingTap: () {
+              final router = GoRouter.of(context);
+              if (router.canPop()) {
+                router.pop();
+              } else {
+                router.go('/login');
+              }
+            },
+          ),
+          Expanded(
+            child: privacy
+                ? const LegalDocumentView(
+                    intro: 'How Stylux handles the information your salon keeps in it.',
+                    sections: privacyPolicySections,
+                  )
+                : const LegalDocumentView(
+                    intro: 'What Stylux does and does not promise.',
+                    sections: disclaimerSections,
+                  ),
+          ),
+        ],
       ),
     );
+  }
+}
 
 String get _contactLine => kLegalContactEmail.isEmpty
     ? 'Questions or requests: speak to your salon owner, who can reach the Stylux team on your behalf.'

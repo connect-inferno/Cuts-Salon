@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'features/auth/auth_provider.dart';
 import 'features/auth/login_screen.dart';
+import 'features/legal/legal_pages.dart';
 import 'features/owner/owner_dashboard.dart';
 import 'features/employee/employee_dashboard.dart';
 import 'features/splash/splash_screen.dart';
@@ -40,6 +41,13 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     initialLocation: '/splash',
     refreshListenable: listenable,
     redirect: (context, state) {
+      // The legal pages are public: readable before signing in (the login
+      // screen links to them) and from a plain link. Everything else below
+      // bounced them to /login, so the links did nothing.
+      if (state.matchedLocation == kPrivacyPath || state.matchedLocation == kDisclaimerPath) {
+        return null;
+      }
+
       final currentAuth = ref.read(authControllerProvider);
       final isSplash = state.matchedLocation == '/splash';
 
@@ -72,6 +80,20 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/login',
         pageBuilder: (context, state) => _fadeSlidePage(state, const LoginScreen()),
+      ),
+      GoRoute(
+        path: kPrivacyPath,
+        pageBuilder: (context, state) => AppSlideTransitionPage<void>(
+          key: state.pageKey,
+          child: const LegalPage.privacy(),
+        ),
+      ),
+      GoRoute(
+        path: kDisclaimerPath,
+        pageBuilder: (context, state) => AppSlideTransitionPage<void>(
+          key: state.pageKey,
+          child: const LegalPage.disclaimer(),
+        ),
       ),
       GoRoute(
         path: '/owner/dashboard',
