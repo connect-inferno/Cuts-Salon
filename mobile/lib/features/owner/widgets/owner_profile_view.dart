@@ -6,6 +6,7 @@ import '../../../data/app_data_provider.dart';
 import '../../../theme.dart';
 import '../../../widgets/account_security.dart';
 import '../../auth/auth_provider.dart';
+import 'owner_qr_codes.dart';
 
 /// The signed-in owner's own account page.
 ///
@@ -81,6 +82,10 @@ class OwnerProfileView extends ConsumerWidget {
               ),
             ),
           if (me == null) const SizedBox(height: 14),
+
+          // Payment QR and Google review QR, shown from Home's header.
+          const OwnerQrCodesCard(),
+          const SizedBox(height: 14),
 
           // Change password, reset link, privacy policy, disclaimer.
           const AccountAndLegalCard(),

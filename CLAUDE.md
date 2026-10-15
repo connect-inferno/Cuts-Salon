@@ -74,6 +74,29 @@ template wording and troubleshooting: `mobile/functions/whatsapp.md`.
   with an Eventarc permission error - wait 3-5 minutes and deploy again.
 - Currently deployed to: `test-salon-ee06a` only (test salon, Meta test number; deployed 2026-10-14).
 
+## QR codes (shared Storage + Cloud Function)
+
+The owner adds a payment QR and a Google review QR in Profile; Home's
+header has a button for each that shows it full screen for a client.
+
+- Images live in the **shared** `salon-saas-87b6a` Storage at
+  `salonQr/{salonId}/{payment|review}.jpg`, shrunk on the phone first
+  (`lib/data/qr_image.dart`: max 800px JPEG, under 250 KB). Their URLs are
+  saved in that salon's own `settings/main` (`paymentQrUrl`,
+  `reviewQrUrl`).
+- **Uploads only go through the `uploadSalonQr` function**
+  (`directory-project/functions/index.js`), never straight to Storage:
+  owners sign in to their own salon project, so salon-saas Storage rules
+  can't identify them, and open writes would let anyone swap a salon's
+  payment QR. The function verifies the owner's ID token against the
+  salon's project and reads their `employees/{uid}` (role OWNER, active)
+  with that token. `directory-project/storage.rules` = public read, no
+  client writes.
+- `directory-project/` is the deploy folder for salon-saas-87b6a only
+  (`firebase deploy --only functions,storage --project salon-saas-87b6a`
+  from it; needs Blaze). Each salon must be in `ALLOWED_SALON_IDS` in
+  `directory-project/functions/.env`, or its owner's upload is refused.
+
 ## Billing and catalog data rules
 
 - **Invoice numbers** are sequential per salon (`INV-0001`...), taken from
@@ -156,7 +179,8 @@ fallback loop now tries every one of them, so keep each salon's people in
 3. Create the owner's Firebase Auth account and a matching `employees/{uid}` document (role `OWNER`) plus a `settings/main` document. The operator dashboard's **Add Salon** does all three (plus steps 5 and 6) via `operator-dashboard/src/utils/provisionSalon.js`, relying on the one-time `isBootstrappingOwner()` rule in `firestore.rules` — run it right after step 2, and don't hand-create `settings/main` first or the bootstrap is refused. Manual fallback: do it in the Console, see `firestore_models.dart` for the shapes.
 4. Add a `SalonFirebaseConfig` entry for it in `mobile/lib/firebase/salon_directory.dart` with that project's web config, **and** its Android config for the Android app: `firebase apps:create ANDROID "Stylux Android" --package-name com.client.salon.mobile --project <newSalonId>`, then `firebase apps:sdkconfig ANDROID <appId> --project <newSalonId>` and copy `mobilesdk_app_id` / `current_key` into the entry's `androidOptions`. Without it the Android app falls back to the web config, which Firebase may refuse.
 5. If the login directory (below) is configured, add the owner's `emailDirectory/{email} -> { salonId }` doc for it too — not required (sign-in falls back to trying every project), but skipping it means every login for this salon pays the full fallback-loop cost.
-6. If the operator salon registry (below) is set up, add a `salons/{salonId}` doc for it too — purely for your own reference, the app never reads this.
+6. Add the salon's id to `ALLOWED_SALON_IDS` in `directory-project/functions/.env` and redeploy that function (see QR codes above), so the owner can upload QR images.
+7. If the operator salon registry (below) is set up, add a `salons/{salonId}` doc for it too — purely for your own reference, the app never reads this.
 
 ## The login directory (`salon-saas-87b6a`)
 

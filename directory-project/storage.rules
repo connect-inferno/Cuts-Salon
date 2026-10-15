@@ -1,0 +1,22 @@
+rules_version = '2';
+
+// Storage for the shared salon-saas-87b6a project.
+//
+// salonQr/{salonId}/{payment|review}.jpg: each salon's payment QR and
+// Google review QR. Readable by anyone - they are shown to customers to
+// scan, and hold nothing private. Written ONLY by the uploadSalonQr Cloud
+// Function (Admin SDK, which bypasses these rules) after it has checked the
+// uploader is that salon's owner. Owners sign in to their own salon's
+// project, not this one, so a rule here could never tell who they are;
+// allowing client writes would let anyone swap a salon's payment QR.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /salonQr/{salonId}/{file} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

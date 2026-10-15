@@ -12,6 +12,9 @@ import '../../../widgets/async_state_views.dart';
 import '../../../widgets/ds.dart';
 import '../../auth/auth_provider.dart';
 import 'owner_customers_employees_tab.dart' show FollowUp, followUpFor;
+import 'owner_qr_codes.dart';
+import '../../../firebase/salon_qr.dart' show QrKind;
+import '../../../widgets/app_sub_page.dart';
 
 class OwnerDashboardTab extends ConsumerWidget {
   // Named for where they go rather than for a tab index. The old
@@ -134,6 +137,19 @@ class OwnerDashboardTab extends ConsumerWidget {
               title: 'Home',
               subtitle: _headerSubtitle(state),
               actions: [
+                // The two things held up to a client at the counter: pay,
+                // then review. Added and changed in Profile.
+                for (final kind in QrKind.values)
+                  AppPageAction(
+                    icon: kind.icon,
+                    tooltip: kind.title,
+                    onTap: () => openAppSubPage(
+                      context,
+                      title: kind.title,
+                      subtitle: kind.caption,
+                      child: QrDisplayView(kind: kind),
+                    ),
+                  ),
                 AppPageAction(
                   icon: PhosphorIconsRegular.bell,
                   tooltip: 'Requests',

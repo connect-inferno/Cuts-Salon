@@ -218,6 +218,8 @@ SalonSettings settingsFromFS(FSSettings s, {bool whatsappReady = false}) => Salo
       dailyRevenueTarget: s.dailyRevenueTarget,
       whatsappEnabled: s.whatsappEnabled,
       whatsappReady: whatsappReady,
+      paymentQrUrl: s.paymentQrUrl,
+      reviewQrUrl: s.reviewQrUrl,
     );
 
 // Assembles one AppData from Firestore, replicating every requester-based

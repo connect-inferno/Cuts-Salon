@@ -676,6 +676,9 @@ class SalonSettings {
   /// the operator can write - see SalonFirestore.isWhatsAppReady. Until it's
   /// true the app offers "contact us" instead of the on/off switch.
   final bool whatsappReady;
+  /// QR image URLs - see FSSettings.paymentQrUrl / reviewQrUrl.
+  final String? paymentQrUrl;
+  final String? reviewQrUrl;
 
   SalonSettings({
     required this.salonName,
@@ -687,6 +690,8 @@ class SalonSettings {
     this.dailyRevenueTarget = 0,
     this.whatsappEnabled = false,
     this.whatsappReady = false,
+    this.paymentQrUrl,
+    this.reviewQrUrl,
   });
 
   /// The rate that actually applies to a bill. Every caller should use this
@@ -707,6 +712,8 @@ class SalonSettings {
       lateAttendancePenalty: _num(json['lateAttendancePenalty']),
       dailyRevenueTarget: _num(json['dailyRevenueTarget']),
       whatsappEnabled: json['whatsappEnabled'] ?? false,
+      paymentQrUrl: json['paymentQrUrl'],
+      reviewQrUrl: json['reviewQrUrl'],
     );
   }
 }

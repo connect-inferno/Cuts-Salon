@@ -65,7 +65,10 @@ class AppPageHeader extends StatelessWidget {
     this.onLeadingTap,
     this.actions = const [],
     this.showDivider = true,
-  }) : assert(actions.length <= 2, 'Move extra actions into the section gear sheet');
+  // Normally two (bell + gear). Owner Home carries four - its payment and
+  // review QR buttons sit beside them - which still leaves its short title
+  // room on a 320px phone. Anything beyond that belongs in the gear sheet.
+  }) : assert(actions.length <= 4, 'Move extra actions into the section gear sheet');
 
   @override
   Widget build(BuildContext context) {

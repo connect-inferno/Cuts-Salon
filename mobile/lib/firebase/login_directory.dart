@@ -47,6 +47,9 @@ const String _directoryAppName = 'login-directory';
 Future<FirebaseApp> _directoryApp() =>
     firebaseAppNamed(_directoryAppName, forPlatform(_directoryOptions, _directoryAndroidOptions));
 
+/// The salon-saas-87b6a app, for calling its Cloud Functions (salon_qr.dart).
+Future<FirebaseApp> directoryApp() => _directoryApp();
+
 // Returns null whenever the fast path can't be used for any reason - the
 // directory isn't configured yet, this email isn't registered in it, or
 // the lookup itself fails (network, project not reachable, etc.). Every

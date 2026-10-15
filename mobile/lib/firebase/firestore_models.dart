@@ -899,6 +899,13 @@ class FSSettings {
   /// The owner's on/off switch for automatic WhatsApp messages. Off unless
   /// turned on; the functions in functions/index.js check it before every send.
   final bool whatsappEnabled;
+  /// Download URLs of the owner's payment QR and Google review QR images,
+  /// shown from the Home header. The images live in the shared
+  /// salon-saas-87b6a Storage (salonQr/{salonId}/...), uploaded through the
+  /// uploadSalonQr function - see directory-project/functions/index.js.
+  /// Null until the owner adds them in their Profile.
+  final String? paymentQrUrl;
+  final String? reviewQrUrl;
 
   FSSettings({
     required this.salonName,
@@ -909,6 +916,8 @@ class FSSettings {
     required this.lateAttendancePenalty,
     this.dailyRevenueTarget = 0,
     this.whatsappEnabled = false,
+    this.paymentQrUrl,
+    this.reviewQrUrl,
   });
 
   factory FSSettings.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -930,6 +939,8 @@ class FSSettings {
       lateAttendancePenalty: _num(d['lateAttendancePenalty']),
       dailyRevenueTarget: _num(d['dailyRevenueTarget']),
       whatsappEnabled: d['whatsappEnabled'] ?? false,
+      paymentQrUrl: d['paymentQrUrl'],
+      reviewQrUrl: d['reviewQrUrl'],
     );
   }
 
