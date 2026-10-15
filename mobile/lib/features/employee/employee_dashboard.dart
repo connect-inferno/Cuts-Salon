@@ -25,6 +25,7 @@ import '../../widgets/liquid_nav_bar.dart';
 import '../../data/money.dart';
 import '../../widgets/bill_history_view.dart';
 import '../../widgets/pull_to_refresh.dart';
+import '../../firebase/salon_firestore.dart' show SalonFirestore;
 
 const double _kMobileBreakpoint = 800;
 
@@ -127,7 +128,7 @@ class EmployeeDashboard extends ConsumerStatefulWidget {
 /// four is now a section of one of their settings screens (profile and
 /// attendance under Home, discount requests under Billing, targets under
 /// Earnings) or a drawer destination.
-enum EmployeeTab { home, billing, clients, earnings }
+enum EmployeeTab { home, work, clients, earnings }
 
 class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
   EmployeeTab _activeTab = EmployeeTab.home;
@@ -301,10 +302,10 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
               onTap: () => jump(EmployeeTab.home),
             ),
             AppDrawerItem(
-              icon: PhosphorIconsRegular.receipt,
-              label: 'Billing',
-              selected: _activeTab == EmployeeTab.billing,
-              onTap: () => jump(EmployeeTab.billing),
+              icon: PhosphorIconsRegular.scissors,
+              label: 'My work',
+              selected: _activeTab == EmployeeTab.work,
+              onTap: () => jump(EmployeeTab.work),
             ),
             AppDrawerItem(
               icon: PhosphorIconsRegular.usersThree,
@@ -369,11 +370,13 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
           label: 'Home',
           onTap: () => _switchToTab(EmployeeTab.home),
         ),
+        // "My work" replaced Billing here: what this person has done is
+        // what they come to the bar for; a new bill starts from Home.
         LiquidNavItem(
-          icon: PhosphorIconsRegular.receipt,
-          activeIcon: PhosphorIconsFill.receipt,
-          label: 'Billing',
-          onTap: () => _switchToTab(EmployeeTab.billing),
+          icon: PhosphorIconsRegular.scissors,
+          activeIcon: PhosphorIconsFill.scissors,
+          label: 'My work',
+          onTap: () => _switchToTab(EmployeeTab.work),
         ),
         LiquidNavItem(
           icon: PhosphorIconsRegular.usersThree,
@@ -531,16 +534,20 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
         child: _EmployeeDashboardTab(
           profile: profile,
           state: state,
-          onOpenBilling: () => _switchToTab(EmployeeTab.billing),
+          onOpenBilling: () => openAppSubPage(
+            context,
+            title: 'New bill',
+            subtitle: 'Bill a client and take payment',
+            child: _EmployeeBillingTab(profile: profile),
+          ),
         ),
       ),
       _page(
-        key: const ValueKey('billing'),
-        title: 'Billing',
+        key: const ValueKey('work'),
+        title: 'My work',
         subtitle: myBillsToday > 0
             ? '$myBillsToday bill${myBillsToday == 1 ? '' : 's'} by you today'
-            : 'No bills by you yet today',
-        // The bell, like every tab (discount and payment requests).
+            : 'Services and products by you',
         actions: [
           AppPageAction(
             icon: PhosphorIconsRegular.bell,
@@ -549,7 +556,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
             onTap: () => _openNotifications(context, profile, state),
           ),
         ],
-        child: _EmployeeBillingTab(profile: profile),
+        child: _EmployeeWorkTab(profile: profile, state: state),
       ),
       _page(
         key: const ValueKey('clients'),
@@ -2019,6 +2026,275 @@ class _MyClientHistoryView extends StatelessWidget {
               style: const TextStyle(fontSize: 10.5, color: Color(0xFF94A3B8), fontStyle: FontStyle.italic),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+// ─── My work tab ─────────────────────────────────────────────────────────────
+
+/// What this person has done: services performed and products sold, with
+/// counts, takings and commission, for today / this week / this month.
+/// Built from the bills already loaded (their own lines only), so it costs
+/// no extra reads.
+class _EmployeeWorkTab extends StatefulWidget {
+  final EmployeeProfile profile;
+  final AppData state;
+
+  const _EmployeeWorkTab({required this.profile, required this.state});
+
+  @override
+  State<_EmployeeWorkTab> createState() => _EmployeeWorkTabState();
+}
+
+class _WorkLine {
+  final String name;
+  int count = 0;
+  double amount = 0;
+  _WorkLine(this.name);
+}
+
+class _EmployeeWorkTabState extends State<_EmployeeWorkTab> {
+  // 0 = today, 1 = this week, 2 = this month
+  int _period = 2;
+  static const _periodLabels = ['Today', 'This week', 'This month'];
+
+  DateTime _periodStart(DateTime now) {
+    final today = DateTime(now.year, now.month, now.day);
+    switch (_period) {
+      case 0:
+        return today;
+      case 1:
+        return today.subtract(Duration(days: today.weekday - 1));
+      default:
+        return DateTime(now.year, now.month, 1);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final start = _periodStart(now);
+    final me = widget.profile.id;
+
+    final services = <String, _WorkLine>{};
+    final products = <String, _WorkLine>{};
+    final clients = <String>{};
+    var takings = 0.0;
+    var commission = 0.0;
+    var serviceCount = 0;
+    var productCount = 0;
+
+    for (final bill in widget.state.bills) {
+      final at = bill.createdAt;
+      if (at == null || at.isBefore(start)) continue;
+      final mine = bill.items.where((i) => i.employeeId == me).toList();
+      if (mine.isEmpty) continue;
+      clients.add(bill.customerId);
+      for (final item in mine) {
+        final amount = item.unitPrice * item.quantity - item.discountAmount;
+        takings += amount;
+        commission += item.calculatedCommission;
+        if (item.type == 'SERVICE') {
+          final key = item.serviceName ?? 'Service';
+          final line = services.putIfAbsent(key, () => _WorkLine(key));
+          line.count += item.quantity;
+          line.amount += amount;
+          serviceCount += item.quantity;
+        } else {
+          final key = item.productName ?? 'Product';
+          final line = products.putIfAbsent(key, () => _WorkLine(key));
+          line.count += item.quantity;
+          line.amount += amount;
+          productCount += item.quantity;
+        }
+      }
+    }
+
+    int byCount(_WorkLine a, _WorkLine b) =>
+        b.count != a.count ? b.count.compareTo(a.count) : b.amount.compareTo(a.amount);
+    final serviceRows = services.values.toList()..sort(byCount);
+    final productRows = products.values.toList()..sort(byCount);
+
+    // The app holds the salon's newest bills only (SalonFirestore
+    // .billsPageSize). If the oldest one loaded is newer than the period
+    // start, older bills in the period aren't counted - say so.
+    final loaded = widget.state.bills.where((b) => b.createdAt != null).toList();
+    DateTime? oldestLoaded;
+    if (loaded.length >= SalonFirestore.billsPageSize) {
+      oldestLoaded = loaded.map((b) => b.createdAt!).reduce((a, b) => a.isBefore(b) ? a : b);
+      if (!oldestLoaded.isAfter(start)) oldestLoaded = null;
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, LiquidNavBar.barInset + 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (var i = 0; i < _periodLabels.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 8),
+                  _periodChip(i),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              _tile(PhosphorIconsRegular.scissors, AppTheme.accentBlueBg, AppTheme.accentBlue, '$serviceCount', 'Services'),
+              const SizedBox(width: 10),
+              _tile(PhosphorIconsRegular.package, AppTheme.accentVioletBg, AppTheme.accentViolet, '$productCount', 'Products'),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _tile(PhosphorIconsRegular.receipt, AppTheme.accentOrangeBg, AppTheme.accentOrange, formatInr(takings), 'Billed by you'),
+              const SizedBox(width: 10),
+              _tile(PhosphorIconsRegular.money, AppTheme.accentGreenBg, AppTheme.accentGreen, formatInr(commission), 'Your commission'),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${clients.length} client${clients.length == 1 ? '' : 's'} served',
+            style: const TextStyle(fontSize: 12.5, color: AppTheme.slateLight),
+          ),
+          if (oldestLoaded != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Counts cover bills from ${oldestLoaded.day} ${_kMonthAbbrevs[oldestLoaded.month - 1]} on.',
+              style: const TextStyle(fontSize: 12, color: AppTheme.accentAmber),
+            ),
+          ],
+          const SizedBox(height: 18),
+          _section('Services you did', serviceRows, 'No services yet ${_periodLabels[_period].toLowerCase()}.'),
+          const SizedBox(height: 16),
+          _section('Products you sold', productRows, 'No products sold ${_periodLabels[_period].toLowerCase()}.'),
+        ],
+      ),
+    );
+  }
+
+  Widget _periodChip(int i) {
+    final selected = _period == i;
+    return InkWell(
+      onTap: () => setState(() => _period = i),
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected ? AppTheme.primaryLight : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: selected ? const Color(0xFFC3D0E2) : AppTheme.borderSubtle),
+        ),
+        child: Text(
+          _periodLabels[i],
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+            color: selected ? AppTheme.primaryBlue : AppTheme.slateMedium,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _tile(IconData icon, Color bg, Color fg, String value, String label) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.borderSubtle),
+          boxShadow: AppTheme.cardShadow,
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
+              child: Icon(icon, size: 17, color: fg),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppTheme.slateDark)),
+                  ),
+                  Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: AppTheme.slateLight)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _section(String title, List<_WorkLine> rows, String empty) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.borderSubtle),
+        boxShadow: AppTheme.cardShadow,
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.slateDark)),
+          const SizedBox(height: 6),
+          if (rows.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text(empty, style: const TextStyle(fontSize: 13, color: AppTheme.slateLight)),
+            )
+          else
+            for (var i = 0; i < rows.length; i++) ...[
+              if (i > 0) const Divider(height: 1, color: AppTheme.borderSubtle),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        rows[i].name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slateDark),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(color: AppTheme.primaryLight, borderRadius: BorderRadius.circular(10)),
+                      child: Text('× ${rows[i].count}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.primaryBlue)),
+                    ),
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: 72,
+                      child: Text(
+                        formatInr(rows[i].amount),
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.slateDark),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
         ],
       ),
     );
