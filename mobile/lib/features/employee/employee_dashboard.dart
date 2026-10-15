@@ -4,11 +4,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../theme.dart';
 import '../../data/app_data_provider.dart';
-import '../../data/bill_math.dart';
 import '../../data/salary_provider.dart';
 import '../../data/models.dart';
 import '../auth/auth_provider.dart';
-import '../../widgets/bill_whatsapp_note.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/app_page_header.dart';
 import '../../widgets/app_page_switcher.dart';
@@ -20,7 +18,6 @@ import '../../widgets/async_state_views.dart';
 import '../../widgets/add_customer_page.dart';
 import '../../widgets/dues_view.dart';
 import 'employee_payment_requests_view.dart';
-import '../../widgets/searchable_picker.dart';
 import '../../widgets/liquid_nav_bar.dart';
 import '../../data/money.dart';
 import '../../widgets/bill_history_view.dart';
@@ -126,7 +123,7 @@ class EmployeeDashboard extends ConsumerStatefulWidget {
 /// reached four of them and a "More" drawer that reached the rest - the
 /// same flat sprawl the owner side had. Everything that isn't one of these
 /// four is now a section of one of their settings screens (profile and
-/// attendance under Home, discount requests under Billing, targets under
+/// attendance under Home, discount requests in the drawer, targets under
 /// Earnings) or a drawer destination.
 enum EmployeeTab { home, work, clients, earnings }
 
@@ -534,12 +531,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
         child: _EmployeeDashboardTab(
           profile: profile,
           state: state,
-          onOpenBilling: () => openAppSubPage(
-            context,
-            title: 'New bill',
-            subtitle: 'Bill a client and take payment',
-            child: _EmployeeBillingTab(profile: profile),
-          ),
+          onOpenWork: () => _switchToTab(EmployeeTab.work),
         ),
       ),
       _page(
@@ -615,12 +607,12 @@ class _EmployeeDashboardTab extends ConsumerWidget {
   // Named for where it goes. `onTabSelected(3)` meant this widget had to
   // know that 3 was Billing - numbering owned by another class that broke
   // silently whenever the tab list was reordered.
-  final VoidCallback onOpenBilling;
+  final VoidCallback onOpenWork;
 
   const _EmployeeDashboardTab({
     required this.profile,
     required this.state,
-    required this.onOpenBilling,
+    required this.onOpenWork,
   });
 
   /// Where this employee stands against their target for the current month.
@@ -754,6 +746,19 @@ class _EmployeeDashboardTab extends ConsumerWidget {
     // Stats
     final todayBills = myBills.where((b) => b.createdAt != null && _isSameDay(b.createdAt!, now)).toList();
     final todayCustomers = todayBills.map((b) => b.customerId).toSet().length;
+    var todayServices = 0;
+    var todayProducts = 0;
+    var todayBilled = 0.0;
+    for (final b in todayBills) {
+      for (final i in b.items.where((i) => i.employeeId == profile.id)) {
+        if (i.type == 'SERVICE') {
+          todayServices += i.quantity;
+        } else {
+          todayProducts += i.quantity;
+        }
+        todayBilled += i.unitPrice * i.quantity - i.discountAmount;
+      }
+    }
     // What this stylist earned today: the commission on their own lines.
     // This used to sum the whole bills' finalAmount - GST and colleagues'
     // lines included - so a ₹1,180 bill read as ₹1,180 "earned" when the
@@ -791,7 +796,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
           ],
           const SizedBox(height: 16),
 
-          // Clock in and New bill first - the two things a stylist does
+          // Clock in and Today's work first - what a stylist checks
           // on arrival; they used to sit below the stats and target.
           // 4. Shift Card (Clocked In / Clocked Out)
           Container(
@@ -887,79 +892,54 @@ class _EmployeeDashboardTab extends ConsumerWidget {
           ),
           const SizedBox(height: 14),
 
-          // 5. Fast POS New Billing / Checkout Hero Card
+          // Today's work - what this person has done so far, opening the
+          // My work tab. (A "New bill" card sat here; staff don't bill.)
           InkWell(
-            onTap: onOpenBilling,
+            onTap: onOpenWork,
             borderRadius: BorderRadius.circular(16),
             child: Container(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: AppTheme.primaryBlue,
+                color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.borderSubtle),
                 boxShadow: AppTheme.cardShadow,
               ),
-              // The staff app's main action, so it keeps the solid brand
-              // colour. (A "FAST POS" badge and "New Billing / Checkout"
-              // copy used to sit here - jargon a stylist doesn't need.)
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.16),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Center(
-                          child: Icon(PhosphorIconsRegular.receipt, color: Colors.white, size: 22),
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'New bill',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
-                                height: 1.15,
-                              ),
-                            ),
-                            SizedBox(height: 3),
-                            Text(
-                              'Bill a client and take payment',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFFC3D0E2),
-                                fontWeight: FontWeight.w400,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        width: 36,
-                        height: 36,
-                        decoration: const BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Center(
-                          child: Icon(
-                            PhosphorIconsBold.arrowRight,
-                            color: Color(0xFF1E3A5F),
-                            size: 16,
-                          ),
-                        ),
-                      ),
-                    ],
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryLight,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(PhosphorIconsRegular.scissors, color: AppTheme.primaryBlue, size: 21),
                   ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "Today's work",
+                          style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700, color: AppTheme.slateDark),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          todayServices + todayProducts == 0
+                              ? 'Nothing yet today - see your month'
+                              : '$todayServices service${todayServices == 1 ? '' : 's'}'
+                                  '${todayProducts > 0 ? ' · $todayProducts product${todayProducts == 1 ? '' : 's'}' : ''}'
+                                  ' · ${_inr(todayBilled)} billed',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12.5, color: AppTheme.slateLight),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, color: AppTheme.slateLight),
                 ],
               ),
             ),
@@ -1062,7 +1042,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                 Row(
                   children: [
                     const Text(
-                      'Your recent bills',
+                      'Your recent work',
                       style: TextStyle(
                         fontSize: 14.5,
                         fontWeight: FontWeight.w700,
@@ -2295,1193 +2275,6 @@ class _EmployeeWorkTabState extends State<_EmployeeWorkTab> {
                 ),
               ),
             ],
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Billing tab ─────────────────────────────────────────────────────────────
-
-class _EmployeeBillingTab extends ConsumerStatefulWidget {
-  final EmployeeProfile profile;
-  const _EmployeeBillingTab({required this.profile});
-
-  @override
-  ConsumerState<_EmployeeBillingTab> createState() => _EmployeeBillingTabState();
-}
-
-
-class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
-  String? _selectedCustomerId;
-  // Selections start empty and only ever hold ids the employee actually
-  // tapped in the live catalog below. They used to be seeded with demo ids
-  // ('s1', 'p1', ...) from the design mockup, which no real salon has - and
-  // since an id can only be removed by tapping its own row, those ghost ids
-  // were unremovable and made every createBill() call fail with
-  // 'Service not found'.
-  final Set<String> _selectedServiceIds = {};
-  final Map<String, int> _selectedProductQuantities = {};
-  String _paymentMethod = 'UPI';
-  // Only used when _paymentMethod == 'PENDING': what the client hands over
-  // now, with the balance becoming a due against them. Blank = paying it all
-  // later.
-  final _partPaymentController = TextEditingController();
-  String _partPaymentMethod = 'CASH';
-  // Products & Retail is a disclosure, collapsed by default, matching the
-  // owner's POS: the catalog otherwise pushes payment and the total off the
-  // screen. Purely local UI state - the list comes from the AppData
-  // snapshot already loaded, so opening it costs no Firestore read.
-  bool _productsExpanded = false;
-  bool _submitting = false;
-  // An approved discount request applied to this bill (see
-  // _approvedDiscounts), or null.
-  String? _discountRequestId;
-
-  @override
-  void dispose() {
-    _partPaymentController.dispose();
-    super.dispose();
-  }
-
-  /// This person's approved discount requests that no bill has used yet.
-  /// A request is used up by the bill that carries its id.
-  List<DiscountRequest> _approvedDiscounts(AppData state) {
-    final used = {for (final b in state.bills) if (b.discountRequestId != null) b.discountRequestId};
-    return state.discountRequests
-        .where((r) => r.status == 'APPROVED' && r.requestedBy == widget.profile.id && !used.contains(r.id))
-        .toList()
-      ..sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
-  }
-
-  /// What a request takes off this bill: its amount, or - when the owner
-  /// approved a price instead - the difference down to that price.
-  double _discountFor(DiscountRequest r, double subtotal) {
-    final amount = r.requestedDiscount > 0
-        ? r.requestedDiscount
-        : (r.overridePrice != null ? subtotal - r.overridePrice! : 0.0);
-    return amount.clamp(0, subtotal).toDouble();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final asyncData = ref.watch(appDataProvider);
-    return asyncData.when(
-      loading: () => const AppLoadingView(),
-      error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
-      // Billing is the form and nothing else for staff. A bill history here
-      // would be a second place to look for the same records - a staff
-      // member's history is the clients they handled, so it lives on the
-      // Clients page beside the client it belongs to.
-      data: (state) => _buildBody(context, state),
-    );
-  }
-
-  Widget _buildBody(BuildContext context, AppData state) {
-    final allServices = state.services
-        .map((s) => {
-              'id': s.id,
-              'name': s.name,
-              'subtitle': s.categoryName ?? 'Service',
-              'price': s.price,
-            })
-        .toList();
-
-    final allProducts = state.inventory
-        .map((p) => {
-              'id': p.id,
-              'name': p.name,
-              'price': p.price,
-              'stock': '${p.stockCount} in stock',
-              'stockCount': p.stockCount,
-              'isLow': p.stockCount <= 5,
-            })
-        .toList();
-
-    Customer? selectedCustomer;
-    if (_selectedCustomerId != null) {
-      final matches = state.customers.where((c) => c.id == _selectedCustomerId);
-      if (matches.isNotEmpty) selectedCustomer = matches.first;
-    }
-
-    // Calculations. These mirror the transaction in SalonFirestore.createBill
-    // (subTotal -> taxable -> taxAmount -> finalAmount) exactly, so the total
-    // quoted to the customer here is the total that actually gets written.
-    // This screen used to invent a 10% 'VIP' discount, a flat Rs.50 promo and
-    // a hardcoded 18% GST that the write path knew nothing about, so the
-    // amount collected never matched the stored bill.
-    double serviceTotal = 0;
-    int serviceCount = 0;
-    for (final s in allServices) {
-      if (_selectedServiceIds.contains(s['id'])) {
-        serviceTotal += (s['price'] as double);
-        serviceCount++;
-      }
-    }
-
-    double productTotal = 0;
-    int productItemCount = 0;
-    for (final p in allProducts) {
-      final qty = _selectedProductQuantities[p['id']] ?? 0;
-      if (qty > 0) {
-        productTotal += (p['price'] as double) * qty;
-        productItemCount += qty;
-      }
-    }
-
-    final subtotal = serviceTotal + productTotal;
-    final gstRate = state.settings?.effectiveGstRate ?? 0;
-    final approvedDiscounts = _approvedDiscounts(state);
-    final appliedMatch = approvedDiscounts.where((r) => r.id == _discountRequestId);
-    final appliedDiscount = appliedMatch.isEmpty ? null : appliedMatch.first;
-    final discount = appliedDiscount == null ? 0.0 : _discountFor(appliedDiscount, subtotal);
-    final totals = computeBillTotals(subTotal: subtotal, discount: discount, gstRate: gstRate);
-    final gstAmount = totals.tax;
-    final total = totals.total;
-    final itemCount = serviceCount + productItemCount;
-    final canSubmit = selectedCustomer != null && itemCount > 0;
-
-    // No Stack. The total and its button used to be Positioned at a fixed
-    // 90px off the bottom, floating over whatever happened to be scrolled
-    // under them - so on a short catalog they sat on top of the last service
-    // row, and the 220px of blank padding that compensated for them left a
-    // hole at the end of the page. They are the last thing on the page now:
-    // you scroll to the total, which is also the order the task happens in.
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, LiquidNavBar.barInset),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-              const SizedBox(height: 16),
-
-              // (A "Generate Client Bill" heading sat here, repeating the page header.)
-              const SizedBox(height: 16),
-
-              // 2. Customer Card
-              InkWell(
-                onTap: () async {
-                  // Opened unconditionally. It used to be gated on the salon
-                  // already having clients, which with an "add new" action in
-                  // the sheet would leave the very first client unaddable -
-                  // no clients meant the sheet that creates one never opened.
-                  final c = await showSearchablePicker<Customer>(
-                    context: context,
-                    title: 'Choose a client',
-                    items: state.customers,
-                    labelOf: (item) => item.name,
-                    subtitleOf: (item) => item.phone,
-                    createLabel: 'Add a new client',
-                    onCreate: (ctx) => openAppSubPage<Customer>(
-                      ctx,
-                      title: 'Add client',
-                      subtitle: 'Save their details to start tracking visits',
-                      child: AddCustomerPage(branches: state.branches),
-                    ),
-                  );
-                  if (c != null) setState(() => _selectedCustomerId = c.id);
-                },
-                borderRadius: BorderRadius.circular(16),
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                    boxShadow: AppTheme.cardShadow,
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 38,
-                        height: 38,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEEF2F7),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: const Color(0xFFC3D0E2)),
-                        ),
-                        child: const Center(
-                          child: Icon(PhosphorIconsRegular.user, color: Color(0xFF1E3A5F), size: 18),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                const Text(
-                                  'CLIENT',
-                                  style: TextStyle(
-                                    fontSize: 9.5,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF94A3B8),
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                                if (selectedCustomer?.isVip == true) ...[
-                                  const SizedBox(width: 6),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFFEF3C7),
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: const Text(
-                                      'VIP',
-                                      style: TextStyle(
-                                        fontSize: 8.5,
-                                        fontWeight: FontWeight.w700,
-                                        color: Color(0xFFD97706),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              selectedCustomer?.name ?? 'Choose a client',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: selectedCustomer == null
-                                    ? const Color(0xFF94A3B8)
-                                    : const Color(0xFF0F172A),
-                              ),
-                            ),
-                            if (selectedCustomer != null) ...[
-                              const SizedBox(height: 1),
-                              Text(
-                                selectedCustomer.phone,
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  color: Color(0xFF64748B),
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                      Container(
-                        width: 28,
-                        height: 28,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFF1F5F9),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(PhosphorIconsRegular.caretRight, size: 14, color: Color(0xFF64748B)),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 18),
-
-              // 3. Services Section
-              Row(
-                children: [
-                  const Text(
-                    'Services',
-                    style: TextStyle(
-                      fontSize: 14.5,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF0F172A),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF1F5F9),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      '$serviceCount Selected',
-                      style: const TextStyle(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF64748B),
-                      ),
-                    ),
-                  ),
-                  const Spacer(),
-                ],
-              ),
-              const SizedBox(height: 10),
-
-              // Service List Container
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFFF1F5F9)),
-                  boxShadow: AppTheme.cardShadow,
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                child: allServices.isEmpty
-                    ? const _BillingCatalogEmpty(
-                        message: 'No services in the catalog yet.',
-                        hint: 'Your owner can add them from the Services tab.',
-                      )
-                    : Column(
-                        children: [
-                          for (int i = 0; i < allServices.length; i++) ...[
-                            if (i > 0) const Divider(color: Color(0xFFF1F5F9), height: 18),
-                            _buildServiceItem(allServices[i]),
-                          ],
-                        ],
-                      ),
-              ),
-              const SizedBox(height: 18),
-
-              // 4. Products & Retail Section - a collapsed disclosure, the
-              // same shape as the owner's. The "N Selected" badge stays in
-              // the header, so nothing already on the bill is hidden by
-              // closing it.
-              InkWell(
-                onTap: () => setState(
-                  () => _productsExpanded = !_productsExpanded,
-                ),
-                borderRadius: BorderRadius.circular(10),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Row(
-                    children: [
-                      const Text(
-                        'Products',
-                        style: TextStyle(
-                          fontSize: 14.5,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF0F172A),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: productItemCount > 0
-                              ? const Color(0xFFEEF2F7)
-                              : const Color(0xFFF1F5F9),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          '$productItemCount Selected',
-                          style: TextStyle(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w600,
-                            color: productItemCount > 0
-                                ? const Color(0xFF1E3A5F)
-                                : const Color(0xFF64748B),
-                          ),
-                        ),
-                      ),
-                      const Spacer(),
-                      AnimatedRotation(
-                        turns: _productsExpanded ? 0.5 : 0,
-                        duration: const Duration(milliseconds: 180),
-                        curve: Curves.easeOut,
-                        child: const Icon(
-                          PhosphorIconsBold.caretDown,
-                          size: 15,
-                          color: Color(0xFF64748B),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              if (!_productsExpanded)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(
-                    allProducts.isEmpty
-                        ? 'No products in inventory yet.'
-                        : 'Tap to browse ${allProducts.length} product${allProducts.length == 1 ? '' : 's'}',
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF94A3B8),
-                    ),
-                  ),
-                ),
-              if (_productsExpanded) ...[
-              const SizedBox(height: 10),
-
-              // Product List Container
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFFF1F5F9)),
-                  boxShadow: AppTheme.cardShadow,
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                child: allProducts.isEmpty
-                    ? const _BillingCatalogEmpty(
-                        message: 'No products in inventory yet.',
-                        hint: 'Your owner can add stock from the Inventory tab.',
-                      )
-                    : Column(
-                        children: [
-                          for (int i = 0; i < allProducts.length; i++) ...[
-                            if (i > 0) const Divider(color: Color(0xFFF1F5F9), height: 18),
-                            _buildProductItem(allProducts[i]),
-                          ],
-                        ],
-                      ),
-              ),
-              ],
-              const SizedBox(height: 18),
-
-              // Approved discounts. Staff ask from the bell; once the owner
-              // approves, the discount waits here and one tap puts it on
-              // this bill. (Approval used to give a code with nowhere to
-              // enter it.)
-              _buildApprovedDiscounts(approvedDiscounts, subtotal),
-              const SizedBox(height: 18),
-
-              // 5. Payment Method Section
-              Row(
-                children: const [
-                  Text(
-                    'Payment Method',
-                    style: TextStyle(
-                      fontSize: 14.5,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF0F172A),
-                    ),
-                  ),
-                  Spacer(),
-                ],
-              ),
-              const SizedBox(height: 10),
-
-              // Payment options row (Cash, UPI/QR, Pending). CARD was
-              // removed - the salon does not take card payments. Bills
-              // already stored with paymentMethod 'CARD' still read back
-              // fine; this only stops new ones being created.
-              Row(
-                children: [
-                  _buildPaymentCard('CASH', 'Cash', PhosphorIconsRegular.money),
-                  const SizedBox(width: 8),
-                  _buildPaymentCard('UPI', 'UPI / QR', PhosphorIconsRegular.qrCode),
-                  const SizedBox(width: 8),
-                  _buildPaymentCard('PENDING', 'Pay later', PhosphorIconsRegular.clockCountdown),
-                ],
-              ),
-
-              // 'SPLIT' used to sit in that last slot and did nothing at all
-              // - it was stored as the bill's payment method and no balance
-              // was ever tracked against it. It's now PENDING, and this is
-              // where the amount actually collected gets captured.
-              if (_paymentMethod == 'PENDING') ...[
-                const SizedBox(height: 10),
-                _buildPartPaymentBox(total),
-              ],
-              const SizedBox(height: 18),
-
-              // 6. Bill Breakdown Card
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                  boxShadow: AppTheme.cardShadow,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Summary',
-                      style: TextStyle(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF0F172A),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _buildBreakdownRow('Services ($serviceCount ${serviceCount == 1 ? 'item' : 'items'})', formatInr(serviceTotal)),
-                    const SizedBox(height: 6),
-                    if (productItemCount > 0)
-                      _buildBreakdownRow('Products ($productItemCount ${productItemCount == 1 ? 'item' : 'items'})', formatInr(productTotal)),
-                    const SizedBox(height: 6),
-                    if (totals.discount > 0) ...[
-                      _buildBreakdownRow('Approved discount', '-${formatInr(totals.discount)}'),
-                      const SizedBox(height: 6),
-                    ],
-                    _buildBreakdownRow('Subtotal', formatInr(subtotal - totals.discount), isBold: true),
-                    // GST is off until the owner sets a rate in Settings, so
-                    // the row only appears when there is tax to charge.
-                    if (gstRate > 0) ...[
-                      const SizedBox(height: 6),
-                      _buildBreakdownRow('CGST + SGST (${gstRate.toStringAsFixed(0)}%)', formatInr(gstAmount)),
-                    ],
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // Total + submit, in the flow.
-              Container(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: AppTheme.cardShadow,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'TOTAL',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF94A3B8),
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                        Text(
-                          gstRate > 0 ? 'Inclusive of GST' : 'No GST applied',
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Color(0xFF64748B),
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Text(
-                      formatInr(total),
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF0F172A),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: ElevatedButton.icon(
-                    onPressed: (_submitting || !canSubmit) ? null : () => _submit(context, state),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1E3A5F),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                    icon: _submitting
-                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Icon(PhosphorIconsRegular.receipt, size: 18, color: Colors.white),
-                    label: Text(
-                      selectedCustomer == null
-                          ? 'Choose a client to continue'
-                          : (itemCount == 0 ? 'Add a service or product' : 'Create bill'),
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-              // Clears the floating nav bar, which the page scrolls under.
-              const SizedBox(height: 24),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildServiceItem(Map<String, dynamic> s) {
-    final id = s['id'] as String;
-    final isSelected = _selectedServiceIds.contains(id);
-
-    return InkWell(
-      onTap: () {
-        setState(() {
-          if (isSelected) {
-            _selectedServiceIds.remove(id);
-          } else {
-            _selectedServiceIds.add(id);
-          }
-        });
-      },
-      child: Row(
-        children: [
-          Container(
-            width: 22,
-            height: 22,
-            decoration: BoxDecoration(
-              color: isSelected ? const Color(0xFF1E3A5F) : Colors.transparent,
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: isSelected ? const Color(0xFF1E3A5F) : const Color(0xFFCBD5E1),
-                width: 1.5,
-              ),
-            ),
-            child: isSelected ? const Icon(Icons.check, size: 14, color: Colors.white) : null,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  s['name'] as String,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF0F172A),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  s['subtitle'] as String,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF64748B),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Text(
-            '${formatInr((s['price'] as double))}',
-            style: const TextStyle(
-              fontSize: 13.5,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF0F172A),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildProductItem(Map<String, dynamic> p) {
-    final id = p['id'] as String;
-    final qty = _selectedProductQuantities[id] ?? 0;
-    final isLow = p['isLow'] == true;
-
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                p['name'] as String,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF0F172A),
-                ),
-              ),
-              const SizedBox(height: 3),
-              Row(
-                children: [
-                  Text(
-                    '${formatInr((p['price'] as double))}',
-                    style: const TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF1E3A5F),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: isLow ? const Color(0xFFFEF3C7) : const Color(0xFFF1F5F9),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      p['stock'] as String,
-                      style: TextStyle(
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.w600,
-                        color: isLow ? const Color(0xFFD97706) : const Color(0xFF64748B),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        if (qty > 0)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEEF2F7),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      if (qty <= 1) {
-                        _selectedProductQuantities.remove(id);
-                      } else {
-                        _selectedProductQuantities[id] = qty - 1;
-                      }
-                    });
-                  },
-                  child: Container(
-                    width: 20,
-                    height: 20,
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(PhosphorIconsRegular.minus, size: 10, color: Color(0xFF1E3A5F)),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                  child: Text(
-                    '$qty',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1E3A5F)),
-                  ),
-                ),
-                GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _selectedProductQuantities[id] = qty + 1;
-                    });
-                  },
-                  child: Container(
-                    width: 20,
-                    height: 20,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF1E3A5F),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(PhosphorIconsBold.plus, size: 10, color: Colors.white),
-                  ),
-                ),
-              ],
-            ),
-          )
-        else
-          InkWell(
-            onTap: () {
-              setState(() {
-                _selectedProductQuantities[id] = 1;
-              });
-            },
-            borderRadius: BorderRadius.circular(12),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF1F5F9),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(PhosphorIconsBold.plus, size: 11, color: Color(0xFF475467)),
-                  SizedBox(width: 4),
-                  Text(
-                    'Add',
-                    style: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF475467),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  /// Appears under the payment row once "Pay Later" is chosen: how much is
-  /// being collected now, and what that leaves owing. Blank means nothing is
-  /// collected today, which is the usual "settle next visit" case.
-  Widget _buildPartPaymentBox(double total) {
-    final entered = double.tryParse(_partPaymentController.text.trim()) ?? 0;
-    final paidNow = entered.clamp(0, total).toDouble();
-    final due = total - paidNow;
-    final overTyped = entered > total;
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFFBEB),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFFDE68A)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(PhosphorIconsRegular.clockCountdown, size: 14, color: Color(0xFFB45309)),
-              const SizedBox(width: 5),
-              const Text(
-                'Paying later',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF92400E)),
-              ),
-              const Spacer(),
-              Text(
-                '${formatInr(due)} will be owed',
-                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFFB45309)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _partPaymentController,
-            keyboardType: TextInputType.number,
-            onChanged: (_) => setState(() {}),
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
-            decoration: InputDecoration(
-              isDense: true,
-              filled: true,
-              fillColor: Colors.white,
-              prefixText: '₹ ',
-              prefixStyle: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF92400E), fontSize: 13),
-              hintText: 'Collecting now (blank for nothing)',
-              hintStyle: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
-              errorText: overTyped ? 'More than the bill total' : null,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: Color(0xFFFDE68A)),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: Color(0xFFFDE68A)),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: Color(0xFFD97706), width: 1.5),
-              ),
-            ),
-          ),
-          if (paidNow > 0) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Text(
-                  'via',
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF92400E)),
-                ),
-                const SizedBox(width: 8),
-                for (final m in ['CASH', 'UPI'])
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: GestureDetector(
-                      onTap: () => setState(() => _partPaymentMethod = m),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: _partPaymentMethod == m ? const Color(0xFFD97706) : Colors.white,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: const Color(0xFFFDE68A)),
-                        ),
-                        child: Text(
-                          paymentMethodLabel(m),
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: _partPaymentMethod == m ? Colors.white : const Color(0xFF92400E),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPaymentCard(String method, String label, IconData icon) {
-    final isSelected = _paymentMethod == method;
-
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _paymentMethod = method),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFFEEF2F7) : Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isSelected ? const Color(0xFF1E3A5F) : const Color(0xFFE2E8F0),
-              width: isSelected ? 1.5 : 1.0,
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: 18,
-                color: isSelected ? const Color(0xFF1E3A5F) : const Color(0xFF64748B),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-                  color: isSelected ? const Color(0xFF1E3A5F) : const Color(0xFF64748B),
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBreakdownRow(String title, String val, {bool isBold = false}) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: isBold ? FontWeight.w700 : FontWeight.w500,
-            color: isBold ? const Color(0xFF0F172A) : const Color(0xFF64748B),
-          ),
-        ),
-        Text(
-          val,
-          style: TextStyle(
-            fontSize: 12.5,
-            fontWeight: isBold ? FontWeight.w700 : FontWeight.w600,
-            color: const Color(0xFF0F172A),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildApprovedDiscounts(List<DiscountRequest> approved, double subtotal) {
-    if (approved.isEmpty) {
-      return const Text(
-        'Client asking for a discount? Ask your owner from the bell - once approved it shows up here.',
-        style: TextStyle(fontSize: 12.5, height: 1.4, color: AppTheme.slateLight),
-      );
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Approved discount',
-          style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
-        ),
-        const SizedBox(height: 8),
-        for (final r in approved) ...[
-          InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: () => setState(() => _discountRequestId = _discountRequestId == r.id ? null : r.id),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: _discountRequestId == r.id ? AppTheme.primaryLight : Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: _discountRequestId == r.id ? AppTheme.primaryBlue : AppTheme.borderSubtle,
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    _discountRequestId == r.id ? PhosphorIconsFill.checkCircle : PhosphorIconsRegular.circle,
-                    size: 20,
-                    color: _discountRequestId == r.id ? AppTheme.primaryBlue : AppTheme.slateLight,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          r.requestedDiscount > 0
-                              ? '${formatInr(r.requestedDiscount)} off'
-                              : 'Price ${formatInr(r.overridePrice ?? 0)}',
-                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slateDark),
-                        ),
-                        if (r.reason.isNotEmpty)
-                          Text(r.reason, style: const TextStyle(fontSize: 12, color: AppTheme.slateLight)),
-                      ],
-                    ),
-                  ),
-                  Text(
-                    _discountRequestId == r.id ? 'Applied' : 'Tap to apply',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: _discountRequestId == r.id ? AppTheme.primaryBlue : AppTheme.slateLight,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-        ],
-      ],
-    );
-  }
-
-  Future<void> _submit(BuildContext context, AppData state) async {
-    final customerId = _selectedCustomerId;
-    if (customerId == null) return;
-
-    // Only ever send ids that are still in the loaded catalog - an item the
-    // owner deleted while this screen was open would otherwise be rejected by
-    // createBill() with a confusing 'Service not found'.
-    final serviceIds = state.services.map((s) => s.id).toSet();
-    final inventoryIds = state.inventory.map((i) => i.id).toSet();
-    final items = [
-      ..._selectedServiceIds
-          .where(serviceIds.contains)
-          .map((id) => BillItemInput(type: 'SERVICE', serviceId: id, employeeId: widget.profile.id, quantity: 1)),
-      ..._selectedProductQuantities.entries
-          .where((e) => e.value > 0 && inventoryIds.contains(e.key))
-          .map((e) => BillItemInput(type: 'PRODUCT', inventoryItemId: e.key, employeeId: widget.profile.id, quantity: e.value)),
-    ];
-    if (items.isEmpty) return;
-
-    // The applied discount, re-read from live data and priced against the
-    // catalog prices createBill will charge.
-    final appliedMatch = _approvedDiscounts(state).where((r) => r.id == _discountRequestId);
-    final appliedDiscount = appliedMatch.isEmpty ? null : appliedMatch.first;
-    double subtotalNow = 0;
-    for (final s in state.services) {
-      if (_selectedServiceIds.contains(s.id)) subtotalNow += s.price;
-    }
-    for (final i in state.inventory) {
-      subtotalNow += i.price * (_selectedProductQuantities[i.id] ?? 0);
-    }
-
-    setState(() => _submitting = true);
-    try {
-      // createBill re-resolves every price, commission and GST rate against
-      // the loaded AppData snapshot, so the bill it returns - not the figure
-      // this screen rendered - is the source of truth for what was charged.
-      final isPending = _paymentMethod == 'PENDING';
-      final typedNow = double.tryParse(_partPaymentController.text.trim()) ?? 0;
-      final bill = await ref.read(appDataProvider.notifier).createBill(
-            customerId: customerId,
-            branchId: widget.profile.branchId,
-            // A part-paid bill records the method the collected portion came
-            // in on; only a wholly unpaid one stays PENDING.
-            paymentMethod: isPending && typedNow > 0 ? _partPaymentMethod : _paymentMethod,
-            items: items,
-            amountPaidNow: isPending ? typedNow : null,
-            discountAmount: appliedDiscount == null ? null : _discountFor(appliedDiscount, subtotalNow),
-            discountRequestId: appliedDiscount?.id,
-          );
-
-      if (!mounted) return;
-      setState(() {
-        _selectedServiceIds.clear();
-        _selectedProductQuantities.clear();
-        _selectedCustomerId = null;
-        _partPaymentController.clear();
-        _discountRequestId = null;
-      });
-
-      if (!context.mounted) return;
-      showDialog(
-        context: context,
-        builder: (ctx) => AppDialog(
-          icon: PhosphorIconsRegular.checkCircle,
-          iconColor: AppTheme.accentGreen,
-          iconBackground: AppTheme.accentGreenBg,
-          title: 'Bill created',
-          subtitle: bill.invoiceNumber,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-          Text(
-            bill.amountDue > 0
-                ? 'Total ${formatInr(bill.finalAmount)}. '
-                    '${bill.amountPaid > 0 ? 'Collected ${formatInr(bill.amountPaid)}. ' : ''}'
-                    '${formatInr(bill.amountDue)} left to collect from this client.'
-                : 'Total amount ${formatInr(bill.finalAmount)} collected via ${paymentMethodLabel(bill.paymentMethod)}.',
-            style: const TextStyle(fontSize: 13, color: AppTheme.slateMedium),
-          ),
-              BillWhatsAppNote(customerId: bill.customerId),
-            ],
-          ),
-          actions: SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () => Navigator.pop(ctx),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1E3A5F), foregroundColor: Colors.white),
-              child: const Text('Done'),
-            ),
-          ),
-        ),
-      );
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
-      }
-    } finally {
-      if (mounted) setState(() => _submitting = false);
-    }
-  }
-}
-
-class _BillingCatalogEmpty extends StatelessWidget {
-  final String message;
-  final String hint;
-
-  const _BillingCatalogEmpty({required this.message, required this.hint});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 18),
-      child: Column(
-        children: [
-          Text(
-            message,
-            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            hint,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
-          ),
         ],
       ),
     );
@@ -4962,7 +3755,7 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
                       child: Text(
                         usedOn != null
                             ? 'Used on $usedOn'
-                            : 'Approved - pick it under "Approved discount" when you make the bill.',
+                            : 'Approved by your owner.',
                         style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppTheme.accentGreen),
                       ),
                     ),
