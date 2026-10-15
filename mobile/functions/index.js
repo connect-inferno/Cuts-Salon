@@ -70,6 +70,10 @@ async function sendToWhatsApp(message) {
 /**
  * Sends one template message at most once per [logKey]. Returns 'sent',
  * 'failed' or 'duplicate' (already sent or in flight under that key).
+ *
+ * A key whose last attempt FAILED is tried again rather than treated as
+ * done - otherwise one bad day (an expired token, a template Meta had not
+ * approved yet) used up a client's birthday wish for the whole year.
  */
 async function sendOnce(logKey, { kind, customerId, customerName, to, template, params }) {
   const logRef = db.collection('whatsappLog').doc(logKey);
@@ -84,8 +88,22 @@ async function sendOnce(logKey, { kind, customerId, customerName, to, template, 
       createdAt: FieldValue.serverTimestamp(),
     });
   } catch (err) {
-    if (err.code === 6 /* ALREADY_EXISTS */) return 'duplicate';
-    throw err;
+    if (err.code !== 6 /* ALREADY_EXISTS */) throw err;
+    // Claim the failed attempt inside a transaction, so two runs at once
+    // can't both retry it and message the client twice.
+    const retry = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(logRef);
+      if (!core.canRetryLog(snap.data())) return false;
+      tx.update(logRef, {
+        status: 'sending',
+        to,
+        error: FieldValue.delete(),
+        attempts: FieldValue.increment(1),
+        retriedAt: FieldValue.serverTimestamp(),
+      });
+      return true;
+    });
+    if (!retry) return 'duplicate';
   }
   try {
     const messageId = await sendToWhatsApp(core.templateMessage({
@@ -162,11 +180,12 @@ async function runDailyMessages(now = new Date()) {
   if (settings.whatsappEnabled !== true) return { disabled: true };
   const salonName = settings.salonName || 'our salon';
   const today = core.istDate(now);
-  const counts = { birthdays: 0, reminders: 0, failed: 0, skipped: 0 };
+  const counts = { birthdays: 0, reminders: 0, failed: 0, skipped: 0, alreadySent: 0 };
 
   const tally = (result, key) => {
     if (result === 'sent') counts[key] += 1;
     else if (result === 'failed') counts.failed += 1;
+    else if (result === 'duplicate') counts.alreadySent += 1;
   };
 
   // Birthdays: an equality match on the "MM-DD" the app stores, so no index needed.
@@ -254,11 +273,7 @@ exports.whatsappRequest = onDocumentCreated(
         await ref.update({ status: 'done', result: `Test message sent to +${to}.` });
       } else if (req.type === 'daily') {
         const counts = await runDailyMessages();
-        const result = counts.disabled
-          ? 'WhatsApp messages are turned off in Settings - nothing was sent.'
-          : `Birthday messages sent: ${counts.birthdays}. Reminders sent: ${counts.reminders}.` +
-            (counts.failed ? ` Failed: ${counts.failed} (see whatsappLog in Firestore).` : '');
-        await ref.update({ status: 'done', result });
+        await ref.update({ status: 'done', result: core.dailyResultText(counts) });
       } else {
         await ref.update({ status: 'failed', error: `Unknown request type "${req.type}".` });
       }

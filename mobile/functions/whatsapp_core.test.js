@@ -69,3 +69,22 @@ test('templateMessage builds the Cloud API body', () => {
   });
   assert.equal(core.templateMessage({ to: '1', template: 'hello_world', language: 'en_US' }).template.components, undefined);
 });
+
+test('only a failed log entry is sent again', () => {
+  assert.equal(core.canRetryLog({ status: 'failed' }), true);
+  assert.equal(core.canRetryLog({ status: 'sent' }), false);
+  assert.equal(core.canRetryLog({ status: 'sending' }), false);
+  assert.equal(core.canRetryLog(undefined), false);
+});
+
+test('the daily result says what happened, including what was skipped', () => {
+  assert.equal(core.dailyResultText({ disabled: true }), 'WhatsApp messages are turned off in Settings - nothing was sent.');
+  assert.equal(
+    core.dailyResultText({ birthdays: 1, reminders: 0, failed: 0, skipped: 0, alreadySent: 0 }),
+    'Birthday messages sent: 1. Reminders sent: 0.',
+  );
+  const all = core.dailyResultText({ birthdays: 0, reminders: 0, failed: 1, skipped: 2, alreadySent: 1 });
+  assert.match(all, /Already sent earlier: 1\./);
+  assert.match(all, /Skipped 2 - not ticked/);
+  assert.match(all, /Failed: 1/);
+});

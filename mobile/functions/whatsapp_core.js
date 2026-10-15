@@ -123,7 +123,26 @@ function templateMessage({ to, template, language, params }) {
   return message;
 }
 
+/** Whether a whatsappLog entry may be sent again: only a failed one. */
+function canRetryLog(log) {
+  return !!log && log.status === 'failed';
+}
+
+/** What the owner's "send today's messages now" button reports. */
+function dailyResultText(counts) {
+  if (counts.disabled) return 'WhatsApp messages are turned off in Settings - nothing was sent.';
+  const parts = [`Birthday messages sent: ${counts.birthdays}.`, `Reminders sent: ${counts.reminders}.`];
+  if (counts.alreadySent) parts.push(`Already sent earlier: ${counts.alreadySent}.`);
+  if (counts.skipped) {
+    parts.push(`Skipped ${counts.skipped} - not ticked "OK to send WhatsApp messages", archived, or no valid mobile number.`);
+  }
+  if (counts.failed) parts.push(`Failed: ${counts.failed} - see whatsappLog in Firestore for the reason.`);
+  return parts.join(' ');
+}
+
 module.exports = {
+  canRetryLog,
+  dailyResultText,
   istDate,
   istMidnight,
   birthdayKeysFor,
