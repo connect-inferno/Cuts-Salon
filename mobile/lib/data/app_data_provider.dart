@@ -92,7 +92,9 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
         debugPrint('Could not create the default branch: $e');
       }
     }
-    _watchTodayStats();
+    // Owner only: staff have no dashboard, and dailyStats is owner-only in
+    // firestore.rules.
+    if (auth.isOwner) _watchTodayStats();
     _watchNewBills();
     return loaded;
   }
@@ -188,6 +190,16 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
 
   Future<AppData> _loadAll(AuthState auth) => loadAppData(_fs, auth);
 
+  // Every mutation marked with this is owner-only in firestore.rules too -
+  // the rules are what actually stop anyone else. This only turns the
+  // rules' bare "permission-denied" into a clear message, and fails before
+  // any partial work (e.g. addEmployee creating a login with no profile).
+  void _requireOwner() {
+    final auth = ref.read(authControllerProvider);
+    if (!auth.isAuthenticated) throw Exception('Not signed in');
+    if (!auth.isOwner) throw Exception('Only the salon owner can do this');
+  }
+
   Future<void> refresh() async {
     final auth = ref.read(authControllerProvider);
     if (!auth.isAuthenticated) return;
@@ -198,6 +210,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   // --- Branches ---
 
   Future<void> addBranch({required String name, String? address, String? phone}) async {
+    _requireOwner();
     if (await _fs.isBranchNameTaken(name)) {
       throw Exception('A branch with this name already exists');
     }
@@ -208,6 +221,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   }
 
   Future<void> updateBranch(String id, {String? name, String? address, String? phone, String? managerId, bool? active, double? lat, double? lng}) async {
+    _requireOwner();
     String? managerName;
     if (managerId != null) {
       final manager = await _fs.getEmployee(managerId);
@@ -276,6 +290,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     required String password,
     required String branchId,
   }) async {
+    _requireOwner();
     final auth = ref.read(authControllerProvider);
     if (await _fs.isPhoneTaken(phone)) {
       throw Exception('An employee with this phone number already exists');
@@ -327,6 +342,14 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   }
 
   Future<void> updateEmployee(String id, Map<String, dynamic> changes) async {
+    _requireOwner();
+    // The salon has one owner; deactivating or demoting yourself would lock
+    // everyone out with no way back in the app. firestore.rules refuses it
+    // as well.
+    if (id == ref.read(authControllerProvider).userId &&
+        (changes['active'] == false || (changes.containsKey('role') && changes['role'] != 'OWNER'))) {
+      throw Exception('You cannot deactivate or change the role of your own owner account');
+    }
     final newBranchId = changes['branchId'] as String?;
     if (newBranchId != null) {
       final branch = await _fs.getBranch(newBranchId);
@@ -383,6 +406,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   // sends Firebase's own reset-link email instead. See salon_auth.dart's
   // sendPasswordResetEmail.
   Future<void> resetEmployeePassword(String id) async {
+    _requireOwner();
     final auth = ref.read(authControllerProvider);
     final email = state.value?.employeeById(id)?.email;
     if (email == null || email.isEmpty) throw Exception('Employee not found');
@@ -412,6 +436,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     String? birthday,
     bool whatsappOptIn = false,
   }) async {
+    _requireOwner();
     _checkBirthday(birthday);
     if (await _fs.isCustomerPhoneTaken(phone)) {
       throw Exception('A customer with this phone number already exists');
@@ -449,6 +474,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     required String? birthday,
     required bool whatsappOptIn,
   }) async {
+    _requireOwner();
     _checkBirthday(birthday);
     await _fs.updateCustomer(id, {'birthday': birthday, 'whatsappOptIn': whatsappOptIn});
     // Re-read after the await - see the note in archiveCustomer.
@@ -501,6 +527,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   // which filters archived rows out of the snapshot). Reversible from the
   // Firebase Console by setting archived back to false.
   Future<void> archiveCustomer(String id) async {
+    _requireOwner();
     final current = state.value;
     if (current == null) throw Exception('Not ready yet - try again in a moment');
     final match = current.customers.where((c) => c.id == id);
@@ -521,6 +548,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   // The inverse - puts a client back in the directory (and back in every
   // picker) without touching anything else on their record.
   Future<void> unarchiveCustomer(String id) async {
+    _requireOwner();
     final current = state.value;
     if (current == null) throw Exception('Not ready yet - try again in a moment');
     final match = current.archivedCustomers.where((c) => c.id == id);
@@ -568,6 +596,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   // --- Catalog ---
 
   Future<ServiceCategory> addServiceCategory(String name) async {
+    _requireOwner();
     if (await _fs.isServiceCategoryNameTaken(name)) {
       throw Exception('A category with this name already exists');
     }
@@ -581,6 +610,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   /// Renames or reprices a service. Only future bills see the change: every
   /// bill line keeps its own copy of the name and price it was rung at.
   Future<void> updateService(String id, {required String name, required double price}) async {
+    _requireOwner();
     final current = state.value;
     final match = current?.services.where((s) => s.id == id) ?? const Iterable<SalonService>.empty();
     if (match.isEmpty) throw Exception('Service not found');
@@ -604,6 +634,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   }
 
   Future<void> addService({required String name, required double price, required String categoryId}) async {
+    _requireOwner();
     final current = state.value;
     final categoryMatch = current?.categories.where((c) => c.id == categoryId) ?? const Iterable.empty();
     if (categoryMatch.isEmpty) throw Exception('Service category not found');
@@ -630,6 +661,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     int? stockCount,
     int? minAlertThreshold,
   }) async {
+    _requireOwner();
     // Most small salons don't label stock with SKUs, so a blank one gets a
     // generated code (HAIR-482) instead of blocking the form.
     if (sku.trim().isEmpty) {
@@ -659,6 +691,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
 
   /// Takes a service off the menu. Not a delete - see FSService.archived.
   Future<void> removeService(String id) async {
+    _requireOwner();
     await _fs.updateService(id, {'archived': true});
     final latest = state.value;
     if (latest != null) {
@@ -668,6 +701,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
 
   /// Takes a product out of the catalog. Not a delete - see FSService.archived.
   Future<void> removeInventoryItem(String id) async {
+    _requireOwner();
     await _fs.updateInventoryItem(id, {'archived': true});
     final latest = state.value;
     if (latest != null) {
@@ -686,6 +720,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     required double costPrice,
     required int minAlertThreshold,
   }) async {
+    _requireOwner();
     final trimmedName = name.trim();
     final trimmedCategory = category.trim();
     if (trimmedName.isEmpty || trimmedCategory.isEmpty) throw Exception('Name and category are required');
@@ -718,6 +753,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   }
 
   Future<void> updateInventoryStock(String id, int newStock) async {
+    _requireOwner();
     await _fs.updateInventoryItem(id, {'stockCount': newStock});
     final current = state.value;
     if (current != null) {
@@ -752,6 +788,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     /// against the customer - see SalonFirestore.recordPayment for settling.
     double? amountPaidNow,
   }) async {
+    _requireOwner();
     final auth = ref.read(authControllerProvider);
     final current = state.value;
     if (current == null) throw Exception('Not ready yet - try again in a moment');
@@ -985,6 +1022,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     required String method,
     String? note,
   }) async {
+    _requireOwner();
     final auth = ref.read(authControllerProvider);
     final current = state.value;
     if (current == null) throw Exception('Not ready yet - try again in a moment');
@@ -1078,6 +1116,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     required String startDate,
     required String endDate,
   }) async {
+    _requireOwner();
     if (state.value?.employeeById(employeeId) == null) {
       throw Exception('Employee not found');
     }
@@ -1105,6 +1144,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   // salon_firestore.dart's transaction actually did. Refetching stays the
   // simplest way to guarantee the two agree.
   Future<void> generateSalary({required int month, required int year, String? employeeId}) async {
+    _requireOwner();
     await _fs.generateSalary(month: month, year: year, employeeId: employeeId);
     // Settling a month moves that employee's PENDING commissions to PAID, so
     // AppData is stale too - this stays a full refresh for that reason, not
@@ -1119,6 +1159,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   // --- Commissions ---
 
   Future<void> markCommissionPaid(String id) async {
+    _requireOwner();
     await _fs.markCommissionPaid(id);
     final current = state.value;
     if (current == null) return;
@@ -1154,6 +1195,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   }
 
   Future<void> markAttendance({required String employeeId, required String date, required String status, String? notes}) async {
+    _requireOwner();
     final current = state.value;
     if (current?.employeeById(employeeId) == null) {
       throw Exception('Employee not found');
@@ -1204,6 +1246,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   /// messages now instead of waiting for 10:00. Returns what the function
   /// reported. Owner-only - firestore.rules refuses anyone else.
   Future<String> runWhatsAppRequest(String type, {String? phone}) {
+    _requireOwner();
     final uid = ref.read(authControllerProvider).userId;
     if (uid == null) throw Exception('Not signed in');
     return _fs.runWhatsAppRequest(type: type, requestedBy: uid, phone: phone);
@@ -1212,6 +1255,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   // --- Settings ---
 
   Future<void> updateSettings(Map<String, dynamic> changes) async {
+    _requireOwner();
     await _fs.updateSettings(changes);
     final current = state.value;
     final updated = settingsFromFS(

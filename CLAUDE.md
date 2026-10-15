@@ -16,7 +16,11 @@ There is no trusted server here — the Flutter client talks to Firestore direct
 - **Business logic (price resolution, commission %, GST, stock checks) lives in `AppDataNotifier`**, validated client-side before the Firestore write — see `createBill` in `app_data_provider.dart` for the pattern (resolve everything against the already-loaded `AppData` snapshot, fail fast with a clear exception before touching Firestore).
 - **Every new collection needs an explicit rule in `firestore.rules`.** Firestore's default is deny-all; forgetting a rule doesn't silently work, it silently 403s — but a rule that's too permissive is a real data leak, since nothing else is checking. Match the authorization shape of the corresponding REST-era route if one existed (the existing rules comment on which route they mirror). **Editing `firestore.rules` is only half the change — deploy it (see Deployment below), or the new collection 403s in production while working fine in the repo.**
 - Firestore rules gate *documents*, not fields — there's no per-field redaction (see the comment atop `firestore.rules` re: salary visibility). If a field shouldn't be visible to someone who can read the document, that has to be enforced in the app layer (`firestore_app_data.dart`) instead.
-- A single active employee (or a tampered client) can, in principle, write internally-inconsistent values (e.g. a fabricated commission %) since rules only check *who* can write, not that the math is correct. This is a known, accepted trade-off of the no-server architecture — if that ever needs closing, the fix is moving bill/commission creation into a Cloud Function that validates and writes with elevated privileges, not relaxing this note.
+- Rules only check *who* can write, not that the math is correct. Since staff can no longer write bills, commissions, payments, stock, targets or the invoice counter (all owner-only in the rules), only the owner's own client could write inconsistent values. If that ever needs closing, the fix is moving bill/commission creation into a Cloud Function that validates and writes with elevated privileges, not relaxing the rules.
+- **Staff see only their own per-person records** (salary slips, commissions, attendance, sales targets, payment requests): the rules check `employeeId` / `requestedBy` against the caller, so every staff query on those collections **must** filter by the caller's own uid (`selfId` in `loadAppData`) or the whole query is refused. Staff still read the roster, clients, bills, catalog and settings.
+- **Deletes are closed** on everything except `expenses` — archive / deactivate instead. An owner cannot deactivate or demote their own `employees/{uid}` (it would lock the salon out); `updateEmployee` refuses it too.
+- Owner-only mutations in `AppDataNotifier` call `_requireOwner()` first — only for a clear error message; the rules are the real gate. A deactivated account is signed out at login with a clear message (`auth_provider.dart`).
+- **Test rule changes in the emulator before deploying:** `cd mobile/rules-test && npm install && npm test` (local Firestore emulator, demo project, never a real salon; needs Java). Add a case there for every rule you change.
 
 ## Multi-tenancy model
 
@@ -130,10 +134,13 @@ header has a button for each that shows it full screen for a client.
   `DsSectionTitle`, `DsStatTile`/`DsStat`, `DsListRow`, `DsAvatar`,
   `DsPill`, `DsValueRow`, `DsProgressBar`. New screens should be built
   from these rather than hand-rolled containers.
-- **Staff don't bill.** Only the owner creates bills. The staff app has
-  a My work tab (their services/products) instead, and there are no
-  discount requests any more. The `discountRequests` rules remain in
-  `firestore.rules` but nothing in the app uses them.
+- **Staff don't bill.** Only the owner creates bills - `firestore.rules`
+  enforces it (bills, items, payments, commissions, counters, dailyStats,
+  stock and target progress are owner-only writes). Staff also don't add
+  or edit clients. The staff app has a My work tab (their
+  services/products) instead, and there are no discount requests any more
+  (`discountRequests` is owner-read-only, no writes). Giving staff any of
+  these back needs a rules change first.
 - **One home per job:** the bell on every tab is the Requests inbox
   (payment requests staff collected); the gear appears only on Home and opens
   Salon Settings (Business incl. GST/penalty/WhatsApp, Branches); Team has
@@ -162,6 +169,16 @@ header has a button for each that shows it full screen for a client.
 `whatsappLog`, `whatsappRequests` and `whatsappSetup` (additive only). They
 were deployed to all three salons (`cuts-salon`, `instyle-salon`,
 `test-salon-ee06a`) on 2026-10-14, so the app can be pushed.
+
+**2026-10-15 security tightening - NOT deployed yet.** The rules now make
+billing/payments/stock/clients owner-only, scope staff to their own pay and
+attendance records, close deletes, stop strangers reading the roster and
+stop an owner locking themselves out (see the trust-boundary section).
+This is a *restrictive* change, so order matters: push the app first (the
+app already only does these things as the owner, and filters staff
+queries by their own uid), then deploy the rules to all three salons, then
+log in as an employee on each and check Home, My work, Requests and
+Profile load without permission errors.
 
 ## Onboarding a new salon
 

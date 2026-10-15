@@ -41,6 +41,16 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    // "The owner, or the employee this record is about." For per-person
+    // records (salary, commission, attendance, targets, payment requests):
+    // staff see only their own, the way the REST backend's services scoped
+    // a non-owner to their own employeeId. The app already filters staff
+    // queries by their own id (loadAppData's selfId), so this only refuses
+    // what an edited client could ask for - a coworker's pay.
+    function isOwnerOrSubject(subjectUid) {
+      return isOwner() || (isActiveEmployee() && request.auth.uid == subjectUid);
+    }
+
     // One-time first-owner bootstrap for a brand-new salon project, used by
     // the operator dashboard's "Add Salon" (operator-dashboard/src/utils/
     // provisionSalon.js). Without it a new salon can never get its first
@@ -69,71 +79,91 @@ service cloud.firestore {
 
     // Single fixed-id document. Employees need gstRate to compute a bill's
     // total, so read is open to any active employee; only the owner edits it.
+    // Deletes are closed almost everywhere below. Nothing in the app deletes
+    // anything except an expense (services and products are archived,
+    // employees deactivated, clients archived), so an open delete would only
+    // ever be used by a stolen or tampered owner session to wipe history.
+
     match /settings/{docId} {
       allow read: if isActiveEmployee();
-      allow write: if isOwner();
-      allow create: if docId == 'main' && isBootstrappingOwner();
+      allow update: if isOwner();
+      allow create: if isOwner() || (docId == 'main' && isBootstrappingOwner());
+      allow delete: if false;
     }
 
     match /branches/{branchId} {
       allow read: if isActiveEmployee();
-      allow write: if isOwner();
+      allow create, update: if isOwner();
+      allow delete: if false;
     }
 
     // Roster read is open to any active employee (names are needed
-    // everywhere: attendance, bills, discount request attribution) - only
-    // the owner can create/update an employee record itself. Read stays on
-    // isSignedIn() rather than isActiveEmployee(): myProfile() itself reads
-    // this same collection, so gating read on isActiveEmployee() here would
-    // make every other collection's checks recurse back into this rule.
+    // everywhere: attendance, bills, payment request attribution), plus
+    // your own record even when deactivated, so sign-in can tell you why
+    // you are locked out. It used to be any signed-in account: Firebase
+    // Auth sign-up has to stay on in salon projects (the owner's Add
+    // Employee creates accounts from the client), so a stranger could make
+    // an account with the public web config and read every employee's
+    // phone and salary. get() inside rules is not itself subject to rules,
+    // so myProfile() still works with this gate.
+    //
+    // Only the owner writes employee records. An owner cannot demote or
+    // deactivate THEMSELVES - with one owner per salon that locks the salon
+    // out for good, and nothing in the app can undo it.
     match /employees/{uid} {
-      allow read: if isSignedIn();
-      allow write: if isOwner();
-      allow create: if isSelf(uid) && isBootstrappingOwner();
+      allow read: if isSelf(uid) || isActiveEmployee();
+      allow create: if isOwner() || (isSelf(uid) && isBootstrappingOwner());
+      allow update: if isOwner()
+        && (!isSelf(uid)
+            || (request.resource.data.role == 'OWNER' && request.resource.data.active == true));
+      allow delete: if false;
     }
 
-    // Any active staff member manages client records, matching the REST
-    // backend (customer.routes.ts has no role restriction). No deletes -
-    // customer history should never disappear, same as the REST API (no
-    // DELETE endpoint exists there either).
+    // Staff read the client list (dues, their work); only the owner adds or
+    // edits clients - the staff app has no client screens, and every client
+    // write in the app is on the owner side. No deletes - customer history
+    // should never disappear (archive instead).
     match /customers/{customerId} {
-      allow read, create, update: if isActiveEmployee();
+      allow read: if isActiveEmployee();
+      allow create, update: if isOwner();
       allow delete: if false;
     }
 
     match /serviceCategories/{categoryId} {
       allow read: if isActiveEmployee();
-      allow write: if isOwner();
+      allow create, update: if isOwner();
+      allow delete: if false;
     }
 
     match /services/{serviceId} {
       allow read: if isActiveEmployee();
-      allow write: if isOwner();
+      allow create, update: if isOwner();
+      allow delete: if false;
     }
 
+    // Owner-only writes, stock included. Staff used to be allowed to touch
+    // stockCount because their bills decremented it; staff no longer bill
+    // (CLAUDE.md, "Staff don't bill"), so that carve-out only let a staff
+    // member zero out or inflate stock.
     match /inventoryItems/{itemId} {
       allow read: if isActiveEmployee();
-      allow create, delete: if isOwner();
-      // Catalog fields (price, name, sku, minAlertThreshold, ...) stay
-      // owner-only, but createBill()'s transaction (salon_firestore.dart)
-      // decrements stockCount as a side effect of ANY active employee
-      // selling a product - not just the owner. Without this split, every
-      // employee-created bill containing a product item fails its whole
-      // transaction with permission-denied, since a Firestore transaction
-      // is all-or-nothing. affectedKeys().hasOnly(['stockCount']) keeps a
-      // non-owner from touching anything else on the document.
-      allow update: if isOwner() ||
-        (isActiveEmployee() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stockCount']));
+      allow create, update: if isOwner();
+      allow delete: if false;
     }
 
     // A bill is immutable once created - no PATCH /bills/:id exists on the
-    // REST backend either, only create + read.
+    // REST backend either, only create + read. Only the owner creates one:
+    // staff don't bill, and a staff-written bill could invent commission
+    // for themselves or send a fake WhatsApp receipt to a client. Staff
+    // still read bills for the dues list and their own work.
     match /bills/{billId} {
-      allow read, create: if isActiveEmployee();
+      allow read: if isActiveEmployee();
+      allow create: if isOwner();
       allow update, delete: if false;
 
       match /items/{itemId} {
-        allow read, create: if isActiveEmployee();
+        allow read: if isActiveEmployee();
+        allow create: if isOwner();
         allow update, delete: if false;
       }
 
@@ -145,27 +175,29 @@ service cloud.firestore {
       // mistake is corrected by recording a compensating entry. The amount
       // collected *at billing time* stays denormalized on the bill, so this
       // subcollection is empty for the common fully-paid case.
+      //
+      // Owner-only create: staff must not take money off a balance
+      // themselves - they file a paymentRequest (below) and the owner's
+      // approval is what writes the payment here. Before this, staff could
+      // skip the request and write the payment directly.
       match /payments/{paymentId} {
-        allow read, create: if isActiveEmployee();
+        allow read: if isActiveEmployee();
+        allow create: if isOwner();
         allow update, delete: if false;
       }
     }
 
     // Per-day billing totals, maintained by createBill's and recordPayment's
     // transactions so the dashboard doesn't have to re-read five weeks of
-    // bills on every load. Writable by any active employee because the same
-    // transaction that raises a bill has to roll it in - gating this on
-    // isOwner() would make every employee-rung bill fail as a whole.
+    // bills on every load. Both of those are owner-only now, and only the
+    // owner's dashboard reads it, so this is owner-only end to end - staff
+    // have no reason to see the salon's daily takings.
     //
     // Note this is a derived figure, not a source of truth: the bills it
-    // summarises are immutable and still hold the real numbers, so a
-    // tampered rollup skews the owner's dashboard but cannot alter revenue,
-    // commission or anything an employee is paid. That's the same
-    // client-writes-its-own-totals trade-off called out at the top of this
-    // file, and it's why nothing reads money out of here except the
-    // dashboard cards. Delete stays closed so a day can't be made to vanish.
+    // summarises are immutable and still hold the real numbers. Delete
+    // stays closed so a day can't be made to vanish.
     match /dailyStats/{day} {
-      allow read, create, update: if isActiveEmployee();
+      allow read, create, update: if isOwner();
       allow delete: if false;
     }
 
@@ -225,7 +257,12 @@ service cloud.firestore {
             || request.resource.data.confirmed == false;
       }
 
-      allow read: if isActiveEmployee();
+      // Owner sees everyone's; staff only their own. `resource == null` is a
+      // get() of a day that has no record yet - clockIn checks for one
+      // before punching, and an empty answer reveals nothing.
+      allow get: if isOwner()
+        || (isActiveEmployee() && (resource == null || resource.data.employeeId == request.auth.uid));
+      allow list: if isOwnerOrSubject(resource.data.employeeId);
 
       // clockIn == request.time forces FieldValue.serverTimestamp(): a
       // server timestamp resolves to exactly request.time, and any literal
@@ -283,33 +320,33 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Only generated/paid by the owner (matches salary.routes.ts).
+    // Only generated/paid by the owner (matches salary.routes.ts). Staff
+    // read only their own slips (salary.service.ts scoped them the same
+    // way); a slip is a pay record, so it is never deleted.
     match /salaryRecords/{recordId} {
-      allow read: if isActiveEmployee();
-      allow write: if isOwner();
+      allow read: if isOwnerOrSubject(resource.data.employeeId);
+      allow create, update: if isOwner();
+      allow delete: if false;
     }
 
-    // Created automatically alongside a bill item (any active employee, same
-    // as bill creation); only the owner flips status when marking paid.
+    // Created alongside a bill item inside createBill's transaction (owner
+    // only, like the bill); only the owner flips status when marking paid.
+    // Staff read only their own (commission.service.ts).
     match /commissionRecords/{recordId} {
-      allow read: if isActiveEmployee();
-      allow create: if isActiveEmployee();
-      allow update: if isOwner();
+      allow read: if isOwnerOrSubject(resource.data.employeeId);
+      allow create, update: if isOwner();
+      allow delete: if false;
     }
 
-    // Only the owner sets targets (matches salesTarget.routes.ts). Progress
-    // is bumped as a side effect of bill creation though, which any active
-    // employee can trigger (see bills/{billId} above) - same all-or-nothing
-    // transaction problem as inventoryItems' stockCount above, so a non-
-    // owner is allowed to touch only progressValue/status, never
-    // targetValue or reassign employeeId. If bill creation ever moves into
-    // a Cloud Function, this should change to allow that function's
-    // service-account writes instead of relaxing this rule.
+    // Only the owner sets targets (matches salesTarget.routes.ts), and only
+    // the owner bumps progress - that happens inside createBill's
+    // transaction, which is owner-only now. Staff used to be allowed to
+    // write progressValue/status for that reason, which let them mark their
+    // own target as met. Staff read only their own.
     match /salesTargets/{targetId} {
-      allow read: if isActiveEmployee();
-      allow create: if isOwner();
-      allow update: if isOwner() ||
-        (isActiveEmployee() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['progressValue', 'status']));
+      allow read: if isOwnerOrSubject(resource.data.employeeId);
+      allow create, update: if isOwner();
+      allow delete: if false;
     }
 
     // Owner-only end to end (matches expense.routes.ts requiring OWNER for
@@ -318,13 +355,13 @@ service cloud.firestore {
       allow read, write: if isOwner();
     }
 
-    // Any active employee can request a discount and read requests (the app
-    // layer scopes "my requests" for non-owners, matching the REST backend's
-    // service-layer scoping in discountRequest.service.ts); only the owner
-    // approves/rejects.
+    // Discount requests are retired - nothing in the app files or reads them
+    // any more (CLAUDE.md, "no discount requests any more"). The owner can
+    // still read old ones; nobody can file new ones, so the collection is
+    // not a write path a tampered client can use.
     match /discountRequests/{requestId} {
-      allow read, create: if isActiveEmployee();
-      allow update: if isOwner();
+      allow read: if isOwner();
+      allow write: if false;
     }
 
     // Settlement requests. Staff can see that a client owes money (the dues
@@ -338,27 +375,34 @@ service cloud.firestore {
     // member cannot pre-approve their own request or file one under someone
     // else's name; update stays owner-only, and nothing is ever deleted -
     // a refused request is part of the record.
+    //
+    // Staff read only the requests they filed (the app already asks for
+    // exactly that - see payment_requests_provider.dart); the owner reads
+    // all. The amount must be a positive number, so the owner's queue never
+    // shows a negative or junk "collection".
     match /paymentRequests/{requestId} {
-      allow read: if isActiveEmployee();
+      allow read: if isOwnerOrSubject(resource.data.requestedBy);
       allow create: if isActiveEmployee()
                     && request.resource.data.status == 'PENDING'
-                    && request.resource.data.requestedBy == request.auth.uid;
+                    && request.resource.data.requestedBy == request.auth.uid
+                    && request.resource.data.amount is number
+                    && request.resource.data.amount > 0;
       allow update: if isOwner();
       allow delete: if false;
     }
 
     // Running invoice number (counters/invoices = { last: N }), bumped
-    // inside createBill's transaction by whoever rings the bill, owner or
-    // employee. No REST-era route - the REST backend used random numbers.
+    // inside createBill's transaction - owner only, like the bill. No
+    // REST-era route - the REST backend used random numbers.
     // It may only start at 1 and only ever go up by exactly one, so a
     // client can't reset it or skip ahead; it can still burn a number by
     // bumping without billing, which only leaves a gap.
     match /counters/{counterId} {
-      allow read: if isActiveEmployee();
-      allow create: if isActiveEmployee() && counterId == 'invoices'
+      allow read: if isOwner();
+      allow create: if isOwner() && counterId == 'invoices'
                     && request.resource.data.keys().hasOnly(['last'])
                     && request.resource.data.last == 1;
-      allow update: if isActiveEmployee() && counterId == 'invoices'
+      allow update: if isOwner() && counterId == 'invoices'
                     && request.resource.data.keys().hasOnly(['last'])
                     && request.resource.data.last == resource.data.last + 1;
       allow delete: if false;

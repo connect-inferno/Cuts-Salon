@@ -92,6 +92,14 @@ class AuthController extends Notifier<AuthState> {
     if (profile == null) {
       throw SalonAuthException('Your account is signed in but has no employee profile yet. Ask the salon owner to finish setting it up.');
     }
+    // A deactivated employee's Firebase password still works - there is no
+    // server to refuse it - and the rules already deny them every salon
+    // read. Letting them in would only land them on a dashboard full of
+    // permission errors, so end the Firebase session here and say why.
+    if (!profile.active) {
+      await SalonAuth.signOut(session.salonId);
+      throw SalonAuthException('This account has been deactivated. Ask the salon owner if you think this is a mistake.');
+    }
     // Set before the state assignment that triggers appDataProvider's
     // build(), so the load about to start can pick it up.
     _initialSettings = settings;
