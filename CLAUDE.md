@@ -170,15 +170,13 @@ header has a button for each that shows it full screen for a client.
 were deployed to all three salons (`cuts-salon`, `instyle-salon`,
 `test-salon-ee06a`) on 2026-10-14, so the app can be pushed.
 
-**2026-10-15 security tightening - NOT deployed yet.** The rules now make
-billing/payments/stock/clients owner-only, scope staff to their own pay and
-attendance records, close deletes, stop strangers reading the roster and
-stop an owner locking themselves out (see the trust-boundary section).
-This is a *restrictive* change, so order matters: push the app first (the
-app already only does these things as the owner, and filters staff
-queries by their own uid), then deploy the rules to all three salons, then
-log in as an employee on each and check Home, My work, Requests and
-Profile load without permission errors.
+**2026-10-15 security tightening - deployed to all three salons on
+2026-10-15.** The rules now make billing/payments/stock/clients owner-only,
+scope staff to their own pay and attendance records, close deletes, stop
+strangers reading the roster and stop an owner locking themselves out (see
+the trust-boundary section). The app already did these things only as the
+owner and already filtered staff queries by their own uid, so the live app
+works with these rules before and after the app push.
 
 ## Onboarding a new salon
 
