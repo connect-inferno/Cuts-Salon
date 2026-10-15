@@ -23,6 +23,7 @@ import '../../widgets/csv_export.dart';
 import '../../data/models.dart';
 import '../../widgets/liquid_nav_bar.dart';
 import '../../data/money.dart';
+import '../../widgets/pull_to_refresh.dart';
 
 const double kOwnerMobileBreakpoint = 900;
 
@@ -497,14 +498,21 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                 onPageChanged: (index) {
                   setState(() => _activeTab = OwnerTab.values[index]);
                 },
-                children: _buildPages(context, salonName, branches),
+                // Each tab can be pulled down to reload (PullToRefresh).
+                children: [
+                  for (final page in _buildPages(context, salonName, branches))
+                    PullToRefresh(key: page.key, child: page),
+                ],
               )
             : Row(
                 children: [
                   _buildDrawer(context, isModal: false),
                   Expanded(
                     child: AppPageSwitcher(
-                      child: _buildPages(context, salonName, branches)[_activeTab.index],
+                      child: Builder(builder: (context) {
+                        final page = _buildPages(context, salonName, branches)[_activeTab.index];
+                        return PullToRefresh(key: page.key, child: page);
+                      }),
                     ),
                   ),
                 ],

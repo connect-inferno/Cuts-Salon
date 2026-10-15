@@ -24,6 +24,7 @@ import '../../widgets/searchable_picker.dart';
 import '../../widgets/liquid_nav_bar.dart';
 import '../../data/money.dart';
 import '../../widgets/bill_history_view.dart';
+import '../../widgets/pull_to_refresh.dart';
 
 const double _kMobileBreakpoint = 800;
 
@@ -485,7 +486,8 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
       child: Column(
         children: [
           AppPageHeader(title: title, subtitle: subtitle, actions: actions),
-          Expanded(child: child),
+          // Swipe down to reload, on every tab.
+          Expanded(child: PullToRefresh(child: child)),
         ],
       ),
     );
