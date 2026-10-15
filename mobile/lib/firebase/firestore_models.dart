@@ -445,6 +445,9 @@ class FSBill {
   final String createdBy;
   final DateTime? createdAt;
   final List<FSBillItem> items;
+  /// The approved discount request this bill used, if any. A request on a
+  /// bill is used up - the staff bill screen stops offering it.
+  final String? discountRequestId;
 
   FSBill({
     required this.id,
@@ -461,6 +464,7 @@ class FSBill {
     required this.createdBy,
     this.createdAt,
     this.items = const [],
+    this.discountRequestId,
   });
 
   factory FSBill.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc, {List<FSBillItem> items = const []}) {
@@ -484,6 +488,7 @@ class FSBill {
       createdBy: d['createdBy'] ?? '',
       createdAt: _ts(d['createdAt']),
       items: items,
+      discountRequestId: d['discountRequestId'],
     );
   }
 
@@ -499,6 +504,7 @@ class FSBill {
         'paymentMethod': paymentMethod,
         'amountPaid': amountPaid,
         'createdBy': createdBy,
+        if (discountRequestId != null) 'discountRequestId': discountRequestId,
         if (isCreate) 'createdAt': FieldValue.serverTimestamp(),
       };
 }

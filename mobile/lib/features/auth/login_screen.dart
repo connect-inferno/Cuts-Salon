@@ -4,6 +4,8 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../firebase/salon_auth.dart';
 import '../../theme.dart';
+import '../../widgets/app_dialog.dart';
+import '../legal/legal_pages.dart';
 import 'auth_provider.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -12,6 +14,9 @@ class LoginScreen extends ConsumerStatefulWidget {
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
+
+const _devLoginEmail = String.fromEnvironment('DEV_LOGIN_EMAIL');
+const _devLoginPassword = String.fromEnvironment('DEV_LOGIN_PASSWORD');
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
@@ -48,6 +53,72 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  void _showForgotPasswordDialog() {
+    final email = TextEditingController(text: _emailController.text.trim());
+    bool sending = false;
+    String? error;
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AppDialog(
+          icon: PhosphorIconsRegular.envelopeSimple,
+          title: 'Reset your password',
+          subtitle: "We'll email you a link to choose a new one",
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: email,
+                keyboardType: TextInputType.emailAddress,
+                autofillHints: const [AutofillHints.email],
+                decoration: appDialogFieldDecoration(label: 'Your sign-in email', icon: PhosphorIconsRegular.envelopeSimple),
+              ),
+              if (error != null) ...[
+                const SizedBox(height: 10),
+                Text(error!, style: const TextStyle(fontSize: 12.5, color: AppTheme.accentRed)),
+              ],
+            ],
+          ),
+          actions: AppDialogActions(
+            submitLabel: 'Send link',
+            submitting: sending,
+            onCancel: () => Navigator.pop(ctx),
+            onSubmit: () async {
+              final value = email.text.trim();
+              if (!value.contains('@') || !value.contains('.')) {
+                setDialogState(() => error = 'Enter the email you sign in with.');
+                return;
+              }
+              setDialogState(() {
+                sending = true;
+                error = null;
+              });
+              try {
+                await SalonAuth.sendResetEmailForLogin(value);
+                if (ctx.mounted) Navigator.pop(ctx);
+                // The same words whether or not the account exists, so this
+                // can't be used to find out who has one.
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text('If $value has an account, a reset link is on its way. Check spam if it doesn\'t arrive.'),
+                    behavior: SnackBarBehavior.floating,
+                    duration: const Duration(seconds: 6),
+                  ));
+                }
+              } catch (e) {
+                setDialogState(() {
+                  sending = false;
+                  error = e.toString();
+                });
+              }
+            },
+          ),
+        ),
+      ),
+    );
   }
 
   void _submit() {
@@ -97,7 +168,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         // Flat brand tile - the glow, gradient and the
                         // ambient background blob were decoration only.
                         decoration: BoxDecoration(
-                          color: const Color(0xFF0F766E),
+                          color: const Color(0xFF1E3A5F),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Center(
@@ -161,6 +232,27 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               ),
                               const SizedBox(height: 20),
 
+                              // Local development only. The login comes from
+                              // mobile/dev_login.json (git-ignored) via the
+                              // "flutter-web-login" launch entry's
+                              // --dart-define-from-file, so no password is ever
+                              // in the source or git history; kDebugMode keeps
+                              // the chip out of the release build entirely.
+                              if (kDebugMode && _devLoginEmail.isNotEmpty) ...[
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: ActionChip(
+                                    avatar: const Icon(PhosphorIconsRegular.user, size: 15),
+                                    label: const Text('Owner (test salon)', style: TextStyle(fontSize: 12)),
+                                    onPressed: () => setState(() {
+                                      _emailController.text = _devLoginEmail;
+                                      _passwordController.text = _devLoginPassword;
+                                    }),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                              ],
+
                               // Email Label & Pill Input
                               const Text(
                                 'Email Address',
@@ -200,7 +292,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                   ),
                                   focusedBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(14),
-                                    borderSide: const BorderSide(color: Color(0xFF0F766E), width: 1.5),
+                                    borderSide: const BorderSide(color: Color(0xFF1E3A5F), width: 1.5),
                                   ),
                                 ),
                                 validator: (value) {
@@ -224,21 +316,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                       color: Color(0xFF475569),
                                     ),
                                   ),
+                                  // Sends a real reset link - it used to only say
+                                  // "Contact your Salon Superadmin".
                                   GestureDetector(
-                                    onTap: () {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('Contact your Salon Superadmin to reset password.'),
-                                          behavior: SnackBarBehavior.floating,
-                                        ),
-                                      );
-                                    },
+                                    onTap: _showForgotPasswordDialog,
                                     child: const Text(
                                       'Forgot password?',
                                       style: TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w700,
-                                        color: Color(0xFF0F766E),
+                                        color: Color(0xFF1E3A5F),
                                       ),
                                     ),
                                   ),
@@ -288,7 +375,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                   ),
                                   focusedBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(14),
-                                    borderSide: const BorderSide(color: Color(0xFF0F766E), width: 1.5),
+                                    borderSide: const BorderSide(color: Color(0xFF1E3A5F), width: 1.5),
                                   ),
                                 ),
                                 validator: (value) {
@@ -305,7 +392,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               Container(
                                 height: 50,
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF0F766E),
+                                  color: const Color(0xFF1E3A5F),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Material(
@@ -372,7 +459,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 14),
+
+                      // Readable before signing in, as app stores expect.
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          TextButton(
+                            onPressed: () => openPrivacyPolicy(context),
+                            child: const Text('Privacy policy', style: TextStyle(fontSize: 12.5)),
+                          ),
+                          const Text('·', style: TextStyle(color: Color(0xFF94A3B8))),
+                          TextButton(
+                            onPressed: () => openDisclaimer(context),
+                            child: const Text('Disclaimer', style: TextStyle(fontSize: 12.5)),
+                          ),
+                        ],
+                      ),
 
                       if (_showSafariTip) ...[
                         const SizedBox(height: 18),

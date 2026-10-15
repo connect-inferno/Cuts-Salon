@@ -95,13 +95,7 @@ class OwnerShiftCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppTheme.borderSubtle),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.slateDark.withValues(alpha: 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        boxShadow: AppTheme.cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -211,8 +205,8 @@ class OwnerShiftCard extends StatelessWidget {
                       submitting
                           ? 'Saving...'
                           : _isClockedIn
-                              ? 'Clock Out'
-                              : 'Clock In',
+                              ? 'Clock out'
+                              : 'Clock in',
                       style: const TextStyle(
                         fontSize: 13.5,
                         fontWeight: FontWeight.w700,
@@ -223,7 +217,7 @@ class OwnerShiftCard extends StatelessWidget {
                           ? AppTheme.slateDark
                           : AppTheme.primaryBlue,
                       foregroundColor: Colors.white,
-                      disabledBackgroundColor: const Color(0xFF99F6E4),
+                      disabledBackgroundColor: const Color(0xFFC3D0E2),
                       padding: const EdgeInsets.symmetric(vertical: 13),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),

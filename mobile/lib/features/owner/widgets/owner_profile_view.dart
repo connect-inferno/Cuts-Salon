@@ -4,6 +4,7 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../../data/app_data_provider.dart';
 import '../../../theme.dart';
+import '../../../widgets/account_security.dart';
 import '../../auth/auth_provider.dart';
 
 /// The signed-in owner's own account page.
@@ -43,11 +44,9 @@ class OwnerProfileView extends ConsumerWidget {
             rows: [
               _Row(PhosphorIconsRegular.envelopeSimple, 'Email', email),
               if (phone != null) _Row(PhosphorIconsRegular.phone, 'Phone', phone),
-              // The Firebase Auth uid. Worth showing because it is the id of
-              // the owner's employees/{uid} document, which is what anyone
-              // fixing a permissions problem in the Console needs.
-              if (auth.userId != null)
-                _Row(PhosphorIconsRegular.identificationCard, 'User ID', auth.userId!),
+              // (User ID and Salon ID used to be listed too - internal
+              // Firebase ids that mean nothing to an owner. Find them in the
+              // Firebase Console when debugging.)
             ],
           ),
           const SizedBox(height: 14),
@@ -56,8 +55,6 @@ class OwnerProfileView extends ConsumerWidget {
             title: 'Salon',
             rows: [
               _Row(PhosphorIconsRegular.storefront, 'Salon', salonName),
-              if (auth.salonId != null)
-                _Row(PhosphorIconsRegular.hash, 'Salon ID', auth.salonId!),
               if (branch != null) _Row(PhosphorIconsRegular.buildings, 'Branch', branch),
               _Row(
                 PhosphorIconsRegular.usersThree,
@@ -84,6 +81,10 @@ class OwnerProfileView extends ConsumerWidget {
               ),
             ),
           if (me == null) const SizedBox(height: 14),
+
+          // Change password, reset link, privacy policy, disclaimer.
+          const AccountAndLegalCard(),
+          const SizedBox(height: 14),
 
           SizedBox(
             width: double.infinity,
@@ -127,7 +128,7 @@ class OwnerProfileView extends ConsumerWidget {
             height: 64,
             alignment: Alignment.center,
             decoration: const BoxDecoration(
-              color: Color(0xFF134E4A),
+              color: Color(0xFF0F2440),
               shape: BoxShape.circle,
             ),
             child: Text(
@@ -145,12 +146,12 @@ class OwnerProfileView extends ConsumerWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
             decoration: BoxDecoration(
-              color: const Color(0xFFF0FDFA),
+              color: const Color(0xFFEEF2F7),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
               role,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF0F766E)),
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF1E3A5F)),
             ),
           ),
           const SizedBox(height: 6),

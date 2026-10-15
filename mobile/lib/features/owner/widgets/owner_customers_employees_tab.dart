@@ -22,7 +22,10 @@ import '../../../data/birthday.dart';
 import '../../auth/auth_provider.dart';
 import 'add_employee_page.dart';
 import 'owner_shift_card.dart';
+import 'owner_birthdays_page.dart';
+import '../../../widgets/ds.dart';
 import 'owner_payroll_view.dart';
+import '../../../data/money.dart';
 
 /// How overdue a client is for their next appointment.
 ///
@@ -179,7 +182,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
     // AppDialog version, which had no scroll of its own).
     openAppSubPage(
       context,
-      title: 'Add Customer',
+      title: 'Add client',
       subtitle: 'Save their details to start tracking visits',
       child: AddCustomerPage(branches: branches),
     );
@@ -201,9 +204,15 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                   title: 'Clients',
                   subtitle: '${state.customers.length} on the books',
                   actions: [
-                    // Bell only. The gear here opened "Client Settings",
-                    // which held nothing but the archived list - already the
-                    // Archived filter chip on this page.
+                    // Add, then the bell. (The gear here opened "Client
+                    // Settings", which held nothing but the archived list -
+                    // already the Archived filter chip on this page.)
+                    AppPageAction(
+                      icon: PhosphorIconsBold.plus,
+                      label: 'Add',
+                      tooltip: 'Add client',
+                      onTap: () => _openAddCustomer(context, state.branches),
+                    ),
                     AppPageAction(
                       icon: PhosphorIconsRegular.bell,
                       tooltip: 'Requests',
@@ -271,7 +280,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
               backgroundColor: switch (followUp) {
                 FollowUp.overdue => const Color(0xFFFEE2E2),
                 FollowUp.dueSoon => const Color(0xFFFEF3C7),
-                FollowUp.none => const Color(0xFFF0FDFA),
+                FollowUp.none => AppTheme.avatarColorsFor(cust.name).$1,
               },
               child: Text(
                 _initials(cust.name),
@@ -281,7 +290,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                   color: switch (followUp) {
                     FollowUp.overdue => _kOverdueColor,
                     FollowUp.dueSoon => _kDueSoonColor,
-                    FollowUp.none => const Color(0xFF0F766E),
+                    FollowUp.none => AppTheme.avatarColorsFor(cust.name).$2,
                   },
                 ),
               ),
@@ -536,89 +545,20 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Add Customer. The page title and salon name used to be drawn here;
-                // AppPageHeader carries them now, so this row is just the action.
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    // Pending Payments. It was already reachable from the
-                    // gear's Client Settings, but "who owes us money" is a
-                    // daily question, not a setting - this puts it one tap
-                    // from the directory without moving it out of settings.
-                    OutlinedButton.icon(
-                      onPressed: () => openAppSubPage(
-                        context,
-                        title: 'Dues',
-                        subtitle: 'What clients still owe, by client',
-                        child: const DuesView(),
-                      ),
-                      icon: const Icon(PhosphorIconsRegular.handCoins, size: 15),
-                      label: Text(
-                        owingCount > 0 ? 'Dues ($owingCount)' : 'Dues',
-                        style: const TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor:
-                            owingCount > 0 ? AppTheme.accentAmber : AppTheme.slateMedium,
-                        backgroundColor: Colors.white,
-                        side: BorderSide(
-                          color: owingCount > 0
-                              ? const Color(0xFFFDE68A)
-                              : const Color(0xFFE2E8F0),
-                        ),
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        minimumSize: const Size(0, 36),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 20),
-                    DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Color(0xFF0F766E),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF0F766E).withValues(alpha: 0.06),
-                            blurRadius: 10,
-                            offset: const Offset(0, 3),
-                          ),
-                        ],
-                      ),
-                      child: ElevatedButton.icon(
-                        onPressed: () => _openAddCustomer(context, state.branches),
-                        icon: const Icon(PhosphorIconsBold.plus, size: 14, color: Colors.white),
-                        label: const Text(
-                          'Add Customer',
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.transparent,
-                          shadowColor: Colors.transparent,
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                          minimumSize: const Size(0, 36),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
+                // At-a-glance cards: money owed, birthdays coming up, and
+                // clients overdue for a visit - each opens where it's dealt
+                // with. (The old row here was a Dues pill and a floating Add
+                // button; Add now sits beside the search box.)
+                _buildClientSummary(context, state, owingCount, overdueCount, now),
+                const SizedBox(height: 14),
 
                 // 3. Search Bar
+                // Full-width search; Add is in the page header.
                 TextField(
                   controller: _searchController,
                   onChanged: (_) => setState(() {}),
                   decoration: InputDecoration(
-                    hintText: 'Search customers by name or phone...',
+                    hintText: 'Search name or phone',
                     hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
                     prefixIcon: const Icon(PhosphorIconsRegular.magnifyingGlass, color: Color(0xFF94A3B8), size: 18),
                     filled: true,
@@ -626,16 +566,16 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(14),
                       borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
                     ),
                     enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(14),
                       borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
                     ),
                     focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: const BorderSide(color: Color(0xFF0F766E), width: 1.5),
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFF1E3A5F), width: 1.5),
                     ),
                   ),
                 ),
@@ -698,7 +638,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
-                      'Customer Directory',
+                      'All clients',
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
@@ -743,13 +683,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: const Color(0xFFE2E8F0)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.03),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
+                      boxShadow: AppTheme.cardShadow,
                     ),
                     clipBehavior: Clip.antiAlias,
                     child: Column(
@@ -775,6 +709,117 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
     );
   }
 
+  Widget _buildClientSummary(BuildContext context, AppData state, int owingCount, int overdueCount, DateTime now) {
+    final dueTotal = state.bills.where((b) => !b.isFullyPaid).fold<double>(0, (sum, b) => sum + b.amountDue);
+    var birthdaysThisWeek = 0;
+    for (final c in state.customers) {
+      final d = OwnerBirthdaysPage.daysUntil(c, now);
+      if (d != null && d <= 6) birthdaysThisWeek++;
+    }
+    String rupees(double v) {
+      final whole = v.round().toString();
+      if (whole.length <= 3) return '₹$whole';
+      final last3 = whole.substring(whole.length - 3);
+      final rest = whole.substring(0, whole.length - 3).replaceAllMapped(RegExp(r'\B(?=(\d{2})+(?!\d))'), (m) => ',');
+      return '₹$rest,$last3';
+    }
+
+    Widget card({
+      required IconData icon,
+      required Color tint,
+      required Color tintBg,
+      required String label,
+      required String value,
+      required String caption,
+      required VoidCallback onTap,
+    }) {
+      return Expanded(
+        // Icon beside the number rather than stacked above it - the cards
+        // were taller than one figure each needs.
+        child: DsCard(
+          padding: const EdgeInsets.all(12),
+          onTap: onTap,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(color: tintBg, borderRadius: BorderRadius.circular(8)),
+                    child: Icon(icon, size: 15, color: tint),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(value,
+                          maxLines: 1,
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppTheme.slateDark, letterSpacing: -0.3)),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppTheme.slateDark)),
+              const SizedBox(height: 1),
+              Text(caption, maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11, color: AppTheme.textMuted)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        card(
+          icon: PhosphorIconsRegular.handCoins,
+          tint: AppTheme.accentOrange,
+          tintBg: AppTheme.accentOrangeBg,
+          label: 'Dues',
+          value: rupees(dueTotal),
+          caption: owingCount == 0 ? 'All paid' : '$owingCount client${owingCount == 1 ? '' : 's'}',
+          onTap: () => openAppSubPage(
+            context,
+            title: 'Dues',
+            subtitle: 'What clients still owe, by client',
+            child: const DuesView(),
+          ),
+        ),
+        const SizedBox(width: 10),
+        card(
+          icon: PhosphorIconsRegular.cake,
+          tint: AppTheme.accentRose,
+          tintBg: AppTheme.accentRoseBg,
+          label: 'Birthdays',
+          value: '$birthdaysThisWeek',
+          caption: 'this week',
+          onTap: () => openAppSubPage(
+            context,
+            title: 'Birthdays',
+            subtitle: 'Wish your clients on their day',
+            child: const OwnerBirthdaysPage(),
+          ),
+        ),
+        const SizedBox(width: 10),
+        card(
+          icon: PhosphorIconsRegular.clockCounterClockwise,
+          tint: AppTheme.accentBlue,
+          tintBg: AppTheme.accentBlueBg,
+          label: 'Due a visit',
+          value: '$overdueCount',
+          caption: '21+ days',
+          onTap: () => setState(() => _activeFilter = overdueCount > 0 ? 'Overdue' : 'All'),
+        ),
+      ],
+    );
+  }
+
   /// [accent] recolours the chip - used by the two follow-up markers so the
   /// red and amber dots read the same on the chip as they do in the list.
   /// Their icon keeps its colour whether the chip is selected or not; that
@@ -788,9 +833,9 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
     Color? accent,
     Color? accentBg,
   }) {
-    final fg = accent ?? const Color(0xFF0F766E);
-    final selectedBg = accentBg ?? const Color(0xFFF0FDFA);
-    final selectedBorder = accent ?? const Color(0xFF99F6E4);
+    final fg = accent ?? const Color(0xFF1E3A5F);
+    final selectedBg = accentBg ?? const Color(0xFFEEF2F7);
+    final selectedBorder = accent ?? const Color(0xFFC3D0E2);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(20),
@@ -930,48 +975,15 @@ class _OwnerCustomerDetailPageState extends ConsumerState<OwnerCustomerDetailPag
                   tooltip: 'Back to directory',
                   onPressed: () => Navigator.of(context).pop(),
                 ),
+                // Just a title - the card below already shows the avatar,
+                // name, phone and VIP badge, and they used to appear twice.
                 if (cust != null) ...[
-                  CircleAvatar(
-                    radius: 19,
-                    backgroundColor: const Color(0xFFF0FDFA),
+                  const Expanded(
                     child: Text(
-                      _initials(cust.name),
-                      style: const TextStyle(color: Color(0xFF0F766E), fontWeight: FontWeight.w700, fontSize: 13),
+                      'Client',
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Color(0xFF0F172A), letterSpacing: -0.3),
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          cust.name,
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A), letterSpacing: -0.3),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        Text(
-                          cust.phone,
-                          style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, color: Color(0xFF64748B)),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (cust.isVip)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFEF3C7),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Text(
-                        '★ VIP',
-                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFFD97706)),
-                      ),
-                    ),
                 ] else
                   const Spacer(),
               ],
@@ -988,6 +1000,63 @@ class _OwnerCustomerDetailPageState extends ConsumerState<OwnerCustomerDetailPag
 // sheet and the full visit-history sheet. Shared by OwnerCustomersTab (which
 // still uses the options sheet from its list) and by the pushed
 // OwnerCustomerDetailPage, so both render identical cards.
+/// The "Birthday & WhatsApp" dialog for one client - shared by the client
+/// page and the Birthdays page (owner_birthdays_page.dart).
+void showClientBirthdayDialog(BuildContext context, WidgetRef ref, Customer cust) {
+  String? birthday = parseBirthday(cust.birthday) == null ? null : cust.birthday;
+  bool optIn = cust.whatsappOptIn;
+  bool submitting = false;
+  showDialog(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setDialogState) => AppDialog(
+        icon: PhosphorIconsRegular.cake,
+        iconColor: const Color(0xFF16A34A),
+        iconBackground: const Color(0xFFDCFCE7),
+        title: cust.name,
+        subtitle: 'Birthday and WhatsApp consent',
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            BirthdayPicker(initial: birthday, onChanged: (b) => birthday = b),
+            const SizedBox(height: 8),
+            WhatsAppOptInTile(value: optIn, onChanged: (v) => setDialogState(() => optIn = v)),
+          ],
+        ),
+        actions: AppDialogActions(
+          submitLabel: 'Save',
+          submitting: submitting,
+          onCancel: () => Navigator.pop(ctx),
+          onSubmit: () async {
+            setDialogState(() => submitting = true);
+            try {
+              await ref.read(appDataProvider.notifier).updateCustomerWhatsApp(
+                    cust.id,
+                    birthday: birthday,
+                    whatsappOptIn: optIn,
+                  );
+              if (ctx.mounted) Navigator.pop(ctx);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('${cust.name} updated.'), backgroundColor: AppTheme.accentGreen),
+                );
+              }
+            } catch (e) {
+              setDialogState(() => submitting = false);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed),
+                );
+              }
+            }
+          },
+        ),
+      ),
+    ),
+  );
+}
+
 mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
   List<Bill>? get customerBills;
   bool get loadingBills;
@@ -996,13 +1065,16 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
   void _showCustomerOptions(BuildContext context, WidgetRef ref, Customer cust) {
     showModalBottomSheet(
       context: context,
+      // Scroll-controlled and scrollable: with Birthday & WhatsApp added
+      // the list outgrew the default half-height sheet and overflowed.
+      isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) {
         return SafeArea(
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1011,8 +1083,8 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                 Row(
                   children: [
                     CircleAvatar(
-                      backgroundColor: const Color(0xFFF0FDFA),
-                      child: Text(_initials(cust.name), style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF0F766E))),
+                      backgroundColor: AppTheme.avatarColorsFor(cust.name).$1,
+                      child: Text(_initials(cust.name), style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.avatarColorsFor(cust.name).$2)),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -1028,16 +1100,16 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                 ),
                 const SizedBox(height: 20),
                 ListTile(
-                  leading: const Icon(PhosphorIconsRegular.receipt, color: Color(0xFF0F766E)),
-                  title: const Text('Start New Bill', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                  leading: const Icon(PhosphorIconsRegular.receipt, color: Color(0xFF1E3A5F)),
+                  title: const Text('New bill', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
                   onTap: () {
                     Navigator.pop(ctx);
                     startBill?.call(cust);
                   },
                 ),
                 ListTile(
-                  leading: const Icon(PhosphorIconsRegular.phone, color: Color(0xFF0D9488)),
-                  title: const Text('Call Client', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  leading: const Icon(PhosphorIconsRegular.phone, color: Color(0xFF2F4E79)),
+                  title: const Text('Call', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                   onTap: () {
                     Navigator.pop(ctx);
                     _callClient(context, cust);
@@ -1045,15 +1117,15 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                 ),
                 ListTile(
                   leading: const Icon(PhosphorIconsRegular.whatsappLogo, color: Color(0xFF16A34A)),
-                  title: const Text('WhatsApp Client', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  title: const Text('WhatsApp', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                   onTap: () {
                     Navigator.pop(ctx);
                     _whatsappClient(context, cust);
                   },
                 ),
                 ListTile(
-                  leading: const Icon(PhosphorIconsRegular.clockCounterClockwise, color: Color(0xFF0F766E)),
-                  title: const Text('View All Visits', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  leading: const Icon(PhosphorIconsRegular.clockCounterClockwise, color: Color(0xFF1E3A5F)),
+                  title: const Text('All visits', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                   onTap: () {
                     Navigator.pop(ctx);
                     _showAllBillsDialog(context, cust, customerBills ?? []);
@@ -1077,7 +1149,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                 const Divider(height: 18, color: Color(0xFFF1F5F9)),
                 ListTile(
                   leading: const Icon(PhosphorIconsRegular.archive, color: AppTheme.accentRed),
-                  title: const Text('Remove Customer', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.accentRed)),
+                  title: const Text('Remove client', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.accentRed)),
                   subtitle: const Text('Hides them from the app - billing history is kept', style: TextStyle(fontSize: 11)),
                   onTap: () {
                     Navigator.pop(ctx);
@@ -1120,60 +1192,8 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
   // Clients registered before birthdays existed - or who only share one on
   // a later visit - get it here. These two fields drive the WhatsApp
   // messages (functions/index.js), which is why they're the editable ones.
-  void _editBirthdayAndWhatsApp(BuildContext context, WidgetRef ref, Customer cust) {
-    String? birthday = parseBirthday(cust.birthday) == null ? null : cust.birthday;
-    bool optIn = cust.whatsappOptIn;
-    bool submitting = false;
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AppDialog(
-          icon: PhosphorIconsRegular.cake,
-          iconColor: const Color(0xFF16A34A),
-          iconBackground: const Color(0xFFDCFCE7),
-          title: cust.name,
-          subtitle: 'Birthday and WhatsApp consent',
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              BirthdayPicker(initial: birthday, onChanged: (b) => birthday = b),
-              const SizedBox(height: 8),
-              WhatsAppOptInTile(value: optIn, onChanged: (v) => setDialogState(() => optIn = v)),
-            ],
-          ),
-          actions: AppDialogActions(
-            submitLabel: 'Save',
-            submitting: submitting,
-            onCancel: () => Navigator.pop(ctx),
-            onSubmit: () async {
-              setDialogState(() => submitting = true);
-              try {
-                await ref.read(appDataProvider.notifier).updateCustomerWhatsApp(
-                      cust.id,
-                      birthday: birthday,
-                      whatsappOptIn: optIn,
-                    );
-                if (ctx.mounted) Navigator.pop(ctx);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('${cust.name} updated.'), backgroundColor: AppTheme.accentGreen),
-                  );
-                }
-              } catch (e) {
-                setDialogState(() => submitting = false);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed),
-                  );
-                }
-              }
-            },
-          ),
-        ),
-      ),
-    );
-  }
+  void _editBirthdayAndWhatsApp(BuildContext context, WidgetRef ref, Customer cust) =>
+      showClientBirthdayDialog(context, ref, cust);
 
   // Firestore blocks real customer deletes (see archiveCustomer) - this hides
   // the client everywhere without touching a single bill.
@@ -1277,12 +1297,12 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                                 leading: Container(
                                   width: 38,
                                   height: 38,
-                                  decoration: BoxDecoration(color: const Color(0xFFF0FDFA), borderRadius: BorderRadius.circular(10)),
-                                  child: const Icon(PhosphorIconsBold.receipt, color: Color(0xFF0F766E), size: 18),
+                                  decoration: BoxDecoration(color: const Color(0xFFEEF2F7), borderRadius: BorderRadius.circular(10)),
+                                  child: const Icon(PhosphorIconsBold.receipt, color: Color(0xFF1E3A5F), size: 18),
                                 ),
-                                title: Text('#${bill.invoiceNumber} • ${_formatShortDate(bill.createdAt)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF0F172A))),
-                                subtitle: Text(itemNames.isNotEmpty ? itemNames : 'Standard Visit', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
-                                trailing: Text('₹${bill.finalAmount.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF0F172A))),
+                                title: Text(_formatShortDate(bill.createdAt), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5, color: Color(0xFF0F172A))),
+                                subtitle: Text('${bill.invoiceNumber}  ·  ${itemNames.isNotEmpty ? itemNames : 'No services listed'}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B))),
+                                trailing: Text('${formatInr(bill.finalAmount)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF0F172A))),
                               );
                             },
                           ),
@@ -1332,13 +1352,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF0F172A).withValues(alpha: 0.04),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        boxShadow: AppTheme.cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1348,13 +1362,13 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
             children: [
               CircleAvatar(
                 radius: 22,
-                backgroundColor: const Color(0xFFF0FDFA),
+                backgroundColor: AppTheme.avatarColorsFor(cust.name).$1,
                 child: Text(
                   _initials(cust.name),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w700,
                     fontSize: 16,
-                    color: Color(0xFF0F766E),
+                    color: AppTheme.avatarColorsFor(cust.name).$2,
                   ),
                 ),
               ),
@@ -1382,7 +1396,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFF0FDFA),
+                              color: const Color(0xFFEEF2F7),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: const Text(
@@ -1390,7 +1404,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                               style: TextStyle(
                                 fontSize: 9.5,
                                 fontWeight: FontWeight.w700,
-                                color: Color(0xFF0F766E),
+                                color: Color(0xFF1E3A5F),
                               ),
                             ),
                           ),
@@ -1427,12 +1441,12 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                 child: OutlinedButton.icon(
                   onPressed: () => _callClient(context, cust),
                   icon: const Icon(PhosphorIconsRegular.phone, size: 14, color: Color(0xFF334155)),
-                  label: const Text('Call', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF334155))),
+                  label: FittedBox(fit: BoxFit.scaleDown, child: const Text('Call', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF334155)))),
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: Color(0xFFCBD5E1)),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    minimumSize: const Size(0, 36),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                    minimumSize: const Size(0, 40),
                   ),
                 ),
               ),
@@ -1441,12 +1455,12 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                 child: OutlinedButton.icon(
                   onPressed: () => _whatsappClient(context, cust),
                   icon: const Icon(PhosphorIconsRegular.whatsappLogo, size: 14, color: Color(0xFF16A34A)),
-                  label: const Text('WhatsApp', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF334155))),
+                  label: FittedBox(fit: BoxFit.scaleDown, child: const Text('WhatsApp', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF334155)))),
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: Color(0xFFCBD5E1)),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    minimumSize: const Size(0, 36),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                    minimumSize: const Size(0, 40),
                   ),
                 ),
               ),
@@ -1455,14 +1469,13 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                 child: ElevatedButton.icon(
                   onPressed: () => startBill?.call(cust),
                   icon: const Icon(PhosphorIconsBold.receipt, size: 14, color: Colors.white),
-                  label: const Text('New Bill', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white)),
+                  label: FittedBox(fit: BoxFit.scaleDown, child: const Text('New bill', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white))),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0F766E),
-                    shadowColor: const Color(0xFF0F766E).withValues(alpha: 0.3),
-                    elevation: 3,
+                    backgroundColor: const Color(0xFF1E3A5F),
+                    elevation: 0,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    minimumSize: const Size(0, 36),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                    minimumSize: const Size(0, 40),
                   ),
                 ),
               ),
@@ -1519,7 +1532,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                       ),
                     ),
                     Text(
-                      '₹${outstanding.toStringAsFixed(0)}',
+                      '${formatInr(outstanding)}',
                       style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Color(0xFF78350F)),
                     ),
                     const SizedBox(width: 6),
@@ -1537,18 +1550,18 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
               Expanded(
                 child: _buildMetricTile(
                   icon: PhosphorIconsFill.wallet,
-                  iconBg: const Color(0xFFF0FDFA),
-                  iconColor: const Color(0xFF0F766E),
-                  label: 'Total Spent',
-                  value: '₹${totalSpent.toStringAsFixed(0)}',
+                  iconBg: AppTheme.accentVioletBg,
+                  iconColor: AppTheme.accentViolet,
+                  label: 'Total spent',
+                  value: '${formatInr(totalSpent)}',
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: _buildMetricTile(
                   icon: PhosphorIconsFill.calendarBlank,
-                  iconBg: const Color(0xFFEFF6FF),
-                  iconColor: const Color(0xFF1D4ED8),
+                  iconBg: AppTheme.accentBlueBg,
+                  iconColor: AppTheme.accentBlue,
                   label: 'Visits',
                   value: '$visits',
                 ),
@@ -1557,9 +1570,9 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
               Expanded(
                 child: _buildMetricTile(
                   icon: PhosphorIconsFill.clock,
-                  iconBg: const Color(0xFFFEF3C7),
-                  iconColor: const Color(0xFFD97706),
-                  label: 'Last Visit',
+                  iconBg: AppTheme.accentOrangeBg,
+                  iconColor: AppTheme.accentOrange,
+                  label: 'Last visit',
                   value: lastVisit,
                 ),
               ),
@@ -1659,7 +1672,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                     style: TextStyle(
                       fontSize: 11.5,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF0F766E),
+                      color: Color(0xFF1E3A5F),
                     ),
                   ),
                 ),
@@ -1676,7 +1689,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                 child: SizedBox(
                   width: 20,
                   height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0F766E)),
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF1E3A5F)),
                 ),
               ),
             )
@@ -1701,12 +1714,12 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                       width: 34,
                       height: 34,
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF0FDFA),
+                        color: const Color(0xFFEEF2F7),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: const Icon(
                         PhosphorIconsBold.receipt,
-                        color: Color(0xFF0F766E),
+                        color: Color(0xFF1E3A5F),
                         size: 16,
                       ),
                     ),
@@ -1716,16 +1729,19 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '#${bill.invoiceNumber} • ${_formatShortDate(bill.createdAt)}',
+                            _formatShortDate(bill.createdAt),
                             style: const TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
                               color: Color(0xFF0F172A),
                             ),
                           ),
                           const SizedBox(height: 1),
+                          // Real items only - this used to fall back to a
+                          // made-up "Haircut & Styling".
                           Text(
-                            itemSummary.isNotEmpty ? itemSummary : 'Haircut & Styling',
+                            '${bill.invoiceNumber}  ·  ${itemSummary.isNotEmpty ? itemSummary : 'No services listed'}',
+                            maxLines: 1,
                             style: const TextStyle(
                               fontSize: 11,
                               color: Color(0xFF64748B),
@@ -1736,7 +1752,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                       ),
                     ),
                     Text(
-                      '₹${bill.finalAmount.toStringAsFixed(0)}',
+                      '${formatInr(bill.finalAmount)}',
                       style: const TextStyle(
                         fontSize: 13.5,
                         fontWeight: FontWeight.w700,
@@ -1864,18 +1880,17 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
     final status = _todayStatus(state, emp.id);
     final isPresent = status == 'PRESENT';
     final isLate = status == 'LATE';
-    final bg = _kRosterAvatarBgs[idx % _kRosterAvatarBgs.length];
-    final fg = _kRosterAvatarFgs[idx % _kRosterAvatarFgs.length];
+    final (bg, fg) = AppTheme.avatarColorsFor(emp.name);
 
     return InkWell(
       onTap: () => _openEmployeeDetail(context, emp),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Row(
           children: [
             Container(
-              width: 34,
-              height: 34,
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
               alignment: Alignment.center,
               child: Text(
@@ -1885,15 +1900,29 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                emp.name,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF0F172A),
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    emp.name,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF0F172A),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  // Role and today's state in words - the dot alone didn't
+                  // say what grey meant.
+                  Text(
+                    '${emp.roleTitle.isEmpty ? 'Staff' : emp.roleTitle} · ${isPresent ? 'In today' : isLate ? 'Late today' : 'Not in yet'}',
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ),
             ),
             Container(
@@ -1959,10 +1988,16 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                         subtitle:
                             '${state.employees.length} staff · $present in today',
                         actions: [
-                          // Bell only - Attendance and Payroll were behind a
-                          // "Team settings" gear; they're buttons on the page
-                          // now (see _buildBody), and discount requests are
-                          // in the bell's inbox.
+                          // Add, then the bell - Attendance and Payroll were
+                          // behind a "Team settings" gear; they're buttons on
+                          // the page now (see _buildBody), and discount
+                          // requests are in the bell's inbox.
+                          AppPageAction(
+                            icon: PhosphorIconsBold.plus,
+                            label: 'Add',
+                            tooltip: 'Add staff',
+                            onTap: () => _openAddEmployee(context, state.branches),
+                          ),
                           AppPageAction(
                             icon: PhosphorIconsRegular.bell,
                             tooltip: 'Requests',
@@ -1992,40 +2027,14 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
     return InkWell(
       onTap: () => setState(() => _activeFilter = filterKey),
       borderRadius: BorderRadius.circular(20),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOut,
-        height: 34,
-        padding: EdgeInsets.only(left: 14, right: count == null ? 14 : 7),
-        alignment: Alignment.center,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: isSelected ? null : Colors.white,
-          gradient: isSelected
-              ? const LinearGradient(
-                  colors: [Color(0xFF0F766E), Color(0xFF0D9488)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                )
-              : null,
+          color: isSelected ? AppTheme.primaryLight : Colors.white,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isSelected ? Colors.transparent : const Color(0xFFE2E8F0),
+            color: isSelected ? const Color(0xFFC3D0E2) : const Color(0xFFE2E8F0),
           ),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: const Color(0xFF0F766E).withValues(alpha: 0.06),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
-                  )
-                ]
-              : [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.03),
-                    blurRadius: 4,
-                    offset: const Offset(0, 1),
-                  )
-                ],
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -2033,30 +2042,19 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
             Text(
               label,
               style: TextStyle(
-                fontSize: 12.5,
+                fontSize: 11.5,
                 fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-                color: isSelected ? Colors.white : const Color(0xFF475467),
+                color: isSelected ? AppTheme.primaryBlue : const Color(0xFF64748B),
               ),
             ),
             if (count != null) ...[
-              const SizedBox(width: 7),
-              Container(
-                constraints: const BoxConstraints(minWidth: 20),
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? Colors.white.withValues(alpha: 0.25)
-                      : const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  '$count',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: isSelected ? Colors.white : const Color(0xFF64748B),
-                  ),
+              const SizedBox(width: 5),
+              Text(
+                '$count',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w500,
+                  color: isSelected ? AppTheme.primaryBlue : const Color(0xFF94A3B8),
                 ),
               ),
             ],
@@ -2088,7 +2086,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(PhosphorIconsFill.mapPin, size: 14, color: Color(0xFF0F766E)),
+            const Icon(PhosphorIconsFill.mapPin, size: 14, color: Color(0xFF1E3A5F)),
             const SizedBox(width: 7),
             // Flexible, because this pill now shares its line with the Add
             // Staff button: a long branch name has to give way rather than
@@ -2136,7 +2134,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
             leading: Icon(
               branchId == null ? PhosphorIconsRegular.buildings : PhosphorIconsRegular.storefront,
               size: 19,
-              color: isSelected ? const Color(0xFF0F766E) : const Color(0xFF94A3B8),
+              color: isSelected ? const Color(0xFF1E3A5F) : const Color(0xFF94A3B8),
             ),
             title: Text(
               label,
@@ -2151,7 +2149,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
               style: const TextStyle(fontSize: 11.5, color: Color(0xFF94A3B8)),
             ),
             trailing: isSelected
-                ? const Icon(PhosphorIconsBold.check, size: 17, color: Color(0xFF0F766E))
+                ? const Icon(PhosphorIconsBold.check, size: 17, color: Color(0xFF1E3A5F))
                 : null,
             onTap: () {
               setState(() => _branchFilterId = branchId);
@@ -2219,48 +2217,47 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 2. Branch scope + Add Staff, on one line.
-          //
-          // The branch pill used to sit on its own row under this one, which
-          // left a half-empty band of white between the header and the
-          // search box and read as two unrelated toolbars. They are both
-          // "what am I looking at / what can I add here", so they share a
-          // line: scope on the left, the action on the right.
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              if (state.branches.length > 1)
-                Flexible(child: _buildBranchSelectorPill(state))
-              else
-                const SizedBox.shrink(),
-              InkWell(
-                onTap: () => _openAddEmployee(context, state.branches),
-                borderRadius: BorderRadius.circular(22),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8.5),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primaryBlue,
-                    borderRadius: BorderRadius.circular(22),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(PhosphorIconsBold.plus, color: Colors.white, size: 13),
-                      SizedBox(width: 5),
-                      Text(
-                        'Add Staff',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
+          // Branch scope only when there is more than one branch.
+          if (state.branches.length > 1) ...[
+            _buildBranchSelectorPill(state),
+            const SizedBox(height: 12),
+          ],
+          // Full-width search; Add is in the page header.
+          TextField(
+                  controller: _searchController,
+                  onChanged: (_) => setState(() {}),
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                  decoration: InputDecoration(
+                    hintText: 'Search name or role',
+                    hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+                    prefixIcon: const Icon(PhosphorIconsRegular.magnifyingGlass, size: 18, color: Color(0xFF94A3B8)),
+                    suffixIcon: _searchController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(PhosphorIconsRegular.xCircle, size: 18, color: Color(0xFF94A3B8)),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() {});
+                            },
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: Colors.white,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFF1E3A5F), width: 1.5),
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
           const SizedBox(height: 12),
 
           // Attendance and Payroll are daily/monthly team jobs, so they're
@@ -2298,38 +2295,6 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
           ),
           const SizedBox(height: 14),
 
-          // 3. Search Bar
-          Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: TextField(
-              controller: _searchController,
-              onChanged: (_) => setState(() {}),
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-              decoration: InputDecoration(
-                hintText: 'Search staff or role...',
-                hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
-                prefixIcon: const Icon(PhosphorIconsRegular.magnifyingGlass, size: 18, color: Color(0xFF94A3B8)),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(PhosphorIconsRegular.xCircle, size: 18, color: Color(0xFF94A3B8)),
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() {});
-                        },
-                      )
-                    : null,
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                isDense: true,
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-
           // 4. Filter Chips
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -2348,12 +2313,12 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
 
           const SizedBox(height: 18),
 
-          // 5. Team Roster - names only; tapping opens the full detail page.
+          // 5. Staff list - tapping a row opens the full detail page.
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
-                'Team Roster',
+                'All staff',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
@@ -2384,13 +2349,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: const Color(0xFFE2E8F0)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.03),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
+                boxShadow: AppTheme.cardShadow,
               ),
               clipBehavior: Clip.antiAlias,
               child: Column(
@@ -2633,7 +2592,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
             children: [
               Expanded(child: _buildMetricCard('Attendance (Month)', '${attendancePct.toStringAsFixed(0)}%', PhosphorIconsRegular.calendarBlank, AppTheme.accentGreen)),
               const SizedBox(width: 10),
-              Expanded(child: _buildMetricCard('Base Salary', '₹${emp.baseSalary.toStringAsFixed(0)}', PhosphorIconsRegular.money, AppTheme.slateDark)),
+              Expanded(child: _buildMetricCard('Base Salary', '${formatInr(emp.baseSalary)}', PhosphorIconsRegular.money, AppTheme.slateDark)),
             ],
           ),
           const SizedBox(height: 10),
@@ -2658,7 +2617,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                     Text('Base salary + pending commission', style: TextStyle(color: AppTheme.slateLight, fontSize: 11)),
                   ],
                 ),
-                Text('₹${projectedPayout.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.accentGreen)),
+                Text('${formatInr(projectedPayout)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: AppTheme.accentGreen)),
               ],
             ),
           ),
@@ -2803,35 +2762,12 @@ class _OwnerEmployeeDetailPageState extends State<OwnerEmployeeDetailPage> with 
             tooltip: 'Back to roster',
             onPressed: () => Navigator.of(context).pop(),
           ),
-          Container(
-            width: 38,
-            height: 38,
-            decoration: const BoxDecoration(color: Color(0xFFF0FDFA), shape: BoxShape.circle),
-            alignment: Alignment.center,
+          // Just a title (plus today's status) - the card below already
+          // shows the avatar, name and role, which used to appear twice.
+          const Expanded(
             child: Text(
-              _initials(emp.name),
-              style: const TextStyle(color: Color(0xFF0F766E), fontWeight: FontWeight.w700, fontSize: 13),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  emp.name,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A), letterSpacing: -0.3),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  emp.roleTitle.isEmpty ? 'Staff' : emp.roleTitle,
-                  style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, color: Color(0xFF64748B)),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+              'Staff',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Color(0xFF0F172A), letterSpacing: -0.3),
             ),
           ),
           const SizedBox(width: 8),
@@ -2982,7 +2918,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                     onChanged: (val) => setDialogState(() => branchId = val),
                   ),
                 ),
-              TextField(controller: salaryController, keyboardType: TextInputType.number, decoration: appDialogFieldDecoration(label: 'Base Retainer (Rs.)', icon: PhosphorIconsRegular.wallet)),
+              TextField(controller: salaryController, keyboardType: TextInputType.number, decoration: appDialogFieldDecoration(label: 'Base salary (₹ per month)', icon: PhosphorIconsRegular.wallet)),
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -3125,7 +3061,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                 value: type,
                 decoration: appDialogFieldDecoration(label: 'Target Type', icon: PhosphorIconsRegular.flag),
                 items: const [
-                  DropdownMenuItem(value: 'SERVICE_VOLUME', child: Text('Service Revenue (Rs.)')),
+                  DropdownMenuItem(value: 'SERVICE_VOLUME', child: Text('Service Revenue (₹)')),
                   DropdownMenuItem(value: 'PRODUCT_SALES_COUNT', child: Text('Product Units Sold')),
                 ],
                 onChanged: (val) => setDialogState(() => type = val ?? type),
@@ -3134,7 +3070,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
               TextField(
                 controller: targetValueController,
                 keyboardType: TextInputType.number,
-                decoration: appDialogFieldDecoration(label: type == 'SERVICE_VOLUME' ? 'Target Revenue (Rs.) *' : 'Target Units *', icon: PhosphorIconsRegular.trendUp),
+                decoration: appDialogFieldDecoration(label: type == 'SERVICE_VOLUME' ? 'Target Revenue (₹) *' : 'Target Units *', icon: PhosphorIconsRegular.trendUp),
               ),
               const SizedBox(height: 12),
               // Two date fields, laid out by how much room there actually is.
@@ -3316,13 +3252,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        boxShadow: AppTheme.cardShadow,
       ),
       padding: const EdgeInsets.all(18),
       child: Column(
@@ -3333,14 +3263,14 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                 width: 48,
                 height: 48,
                 decoration: const BoxDecoration(
-                  color: Color(0xFFDBEAFE),
+                  color: Color(0xFFDCE4EF),
                   shape: BoxShape.circle,
                 ),
                 alignment: Alignment.center,
                 child: Text(
                   _initials(emp.name),
                   style: const TextStyle(
-                    color: Color(0xFF0D9488),
+                    color: Color(0xFF2F4E79),
                     fontWeight: FontWeight.w700,
                     fontSize: 16,
                   ),
@@ -3368,7 +3298,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                         const Icon(
                           PhosphorIconsFill.checkCircle,
                           size: 16,
-                          color: Color(0xFF0D9488),
+                          color: Color(0xFF2F4E79),
                         ),
                       ],
                     ),
@@ -3376,7 +3306,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFDBEAFE),
+                        color: const Color(0xFFDCE4EF),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
@@ -3384,7 +3314,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                         style: const TextStyle(
                           fontSize: 10.5,
                           fontWeight: FontWeight.w700,
-                          color: Color(0xFF0D9488),
+                          color: Color(0xFF2F4E79),
                         ),
                       ),
                     ),
@@ -3537,13 +3467,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: const Color(0xFFE2E8F0)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.03),
-              blurRadius: 10,
-              offset: const Offset(0, 3),
-            ),
-          ],
+          boxShadow: AppTheme.cardShadow,
         ),
         padding: const EdgeInsets.all(18),
         child: Row(
@@ -3596,13 +3520,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        boxShadow: AppTheme.cardShadow,
       ),
       padding: const EdgeInsets.all(18),
       child: Column(
@@ -3613,12 +3531,12 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
               Container(
                 padding: const EdgeInsets.all(7),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFDBEAFE),
+                  color: const Color(0xFFDCE4EF),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
                   PhosphorIconsRegular.trendUp,
-                  color: Color(0xFF0D9488),
+                  color: Color(0xFF2F4E79),
                   size: 18,
                 ),
               ),
@@ -3636,7 +3554,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFDBEAFE),
+                  color: const Color(0xFFDCE4EF),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
@@ -3644,7 +3562,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                   style: const TextStyle(
                     fontWeight: FontWeight.w700,
                     fontSize: 11,
-                    color: Color(0xFF0D9488),
+                    color: Color(0xFF2F4E79),
                   ),
                 ),
               ),
@@ -3656,7 +3574,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
             textBaseline: TextBaseline.alphabetic,
             children: [
               Text(
-                '₹${targetAchieved.toStringAsFixed(0)}',
+                '${formatInr(targetAchieved)}',
                 style: const TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
@@ -3667,7 +3585,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
               const SizedBox(width: 6),
               Flexible(
                 child: Text(
-                  'of ₹${targetGoal.toStringAsFixed(0)} goal',
+                  'of ${formatInr(targetGoal)} goal',
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 12,
@@ -3684,8 +3602,8 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
             child: LinearProgressIndicator(
               value: targetPct.clamp(0.0, 1.0),
               minHeight: 7,
-              backgroundColor: const Color(0xFFF0FDFA),
-              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF0D9488)),
+              backgroundColor: const Color(0xFFEEF2F7),
+              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF2F4E79)),
             ),
           ),
           const SizedBox(height: 10),
@@ -3703,15 +3621,15 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFDBEAFE),
+                  color: const Color(0xFFDCE4EF),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
-                  '₹${toTarget.toStringAsFixed(0)} to target',
+                  '${formatInr(toTarget)} to target',
                   style: const TextStyle(
                     fontSize: 10.5,
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFF0D9488),
+                    color: Color(0xFF2F4E79),
                   ),
                 ),
               ),
@@ -3728,154 +3646,66 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
     final presentDays = monthAttendance.where((a) => a.status == 'PRESENT' || a.status == 'LATE').length;
     final attendancePct = monthAttendance.isEmpty ? 0.0 : (presentDays / monthAttendance.length) * 100;
 
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 10,
-      mainAxisSpacing: 10,
-      childAspectRatio: 1.45,
-      children: [
-        _buildMetricItemTile(
-          icon: PhosphorIconsRegular.checkCircle,
-          iconColor: const Color(0xFF10B981),
-          iconBg: const Color(0xFFECFDF5),
-          badgeText: 'This Month',
-          badgeColor: const Color(0xFF10B981),
-          badgeBg: const Color(0xFFECFDF5),
-          value: '${attendancePct.toInt()}%',
-          title: 'Attendance %',
-          subtext: '$presentDays/${monthAttendance.length} Days Logged',
-        ),
-        _buildMetricItemTile(
-          icon: PhosphorIconsRegular.identificationCard,
-          iconColor: const Color(0xFF0D9488),
-          iconBg: const Color(0xFFDBEAFE),
-          badgeText: 'Fixed',
-          badgeColor: const Color(0xFF0D9488),
-          badgeBg: const Color(0xFFDBEAFE),
-          value: '₹${emp.baseSalary.toStringAsFixed(0)}',
-          title: 'Base Salary',
-          subtext: 'Fixed Monthly',
-        ),
-        _buildMetricItemTile(
-          icon: PhosphorIconsRegular.scissors,
-          iconColor: const Color(0xFF3B82F6),
-          iconBg: const Color(0xFFEFF6FF),
-          badgeText: '${emp.serviceCommissionPct.toInt()}% Tier',
-          badgeColor: const Color(0xFF3B82F6),
-          badgeBg: const Color(0xFFEFF6FF),
-          value: '${emp.serviceCommissionPct.toInt()}%',
-          title: 'Service Comm.',
-          subtext: 'On services',
-        ),
-        _buildMetricItemTile(
-          icon: PhosphorIconsRegular.tote,
-          iconColor: const Color(0xFFD97706),
-          iconBg: const Color(0xFFFEF3C7),
-          badgeText: '${emp.productCommissionPct.toInt()}% Tier',
-          badgeColor: const Color(0xFFD97706),
-          badgeBg: const Color(0xFFFEF3C7),
-          value: '${emp.productCommissionPct.toInt()}%',
-          title: 'Product Comm.',
-          subtext: 'On retail',
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMetricItemTile({
-    required IconData icon,
-    required Color iconColor,
-    required Color iconBg,
-    required String badgeText,
-    required Color badgeColor,
-    required Color badgeBg,
-    required String value,
-    required String title,
-    required String subtext,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.all(12),
+    // One card of four compact tiles, like Home's figures. It was a grid of
+    // fixed-ratio cards each with its own badge ("This Month", "Fixed",
+    // "0% Tier") - noisy, and the fixed ratio overflowed on phone widths.
+    const vDivider = VerticalDivider(width: 1, thickness: 1, color: AppTheme.borderSubtle);
+    return DsCard(
+      padding: EdgeInsets.zero,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: iconBg,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(icon, color: iconColor, size: 16),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: badgeBg,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  badgeText,
-                  style: TextStyle(
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w700,
-                    color: badgeColor,
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: DsStatTile(
+                    icon: PhosphorIconsRegular.calendarCheck,
+                    tint: AppTheme.accentBlue,
+                    tintBg: AppTheme.accentBlueBg,
+                    label: 'Attendance',
+                    value: '${attendancePct.toInt()}%',
                   ),
                 ),
-              ),
-            ],
+                vDivider,
+                Expanded(
+                  child: DsStatTile(
+                    icon: PhosphorIconsRegular.money,
+                    tint: AppTheme.accentViolet,
+                    tintBg: AppTheme.accentVioletBg,
+                    label: 'Base salary',
+                    value: '${formatInr(emp.baseSalary)}',
+                  ),
+                ),
+              ],
+            ),
           ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF0F172A),
+          const Divider(height: 1, color: AppTheme.borderSubtle),
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: DsStatTile(
+                    icon: PhosphorIconsRegular.scissors,
+                    tint: AppTheme.accentOrange,
+                    tintBg: AppTheme.accentOrangeBg,
+                    label: 'On services',
+                    value: '${emp.serviceCommissionPct.toInt()}%',
+                  ),
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 1),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF64748B),
+                vDivider,
+                Expanded(
+                  child: DsStatTile(
+                    icon: PhosphorIconsRegular.tote,
+                    tint: AppTheme.accentRose,
+                    tintBg: AppTheme.accentRoseBg,
+                    label: 'On products',
+                    value: '${emp.productCommissionPct.toInt()}%',
+                  ),
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              Text(
-                subtext,
-                style: const TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w500,
-                  color: Color(0xFF94A3B8),
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
@@ -3908,9 +3738,10 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFFEFF6FF),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFBFDBFE)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.borderSubtle),
+        boxShadow: AppTheme.cardShadow,
       ),
       padding: const EdgeInsets.all(18),
       child: Column(
@@ -3922,18 +3753,8 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'PAYROLL ESTIMATE',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF0D9488),
-                      letterSpacing: 1.1,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
                   Text(
-                    'Projected Payout (${monthName.substring(0, 3)})',
+                    "$monthName pay",
                     style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
@@ -3944,13 +3765,13 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
               ),
               Container(
                 padding: const EdgeInsets.all(8),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF0D9488),
-                  shape: BoxShape.circle,
+                decoration: BoxDecoration(
+                  color: AppTheme.accentVioletBg,
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
                   PhosphorIconsRegular.receipt,
-                  color: Colors.white,
+                  color: AppTheme.accentViolet,
                   size: 16,
                 ),
               ),
@@ -3962,17 +3783,17 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
             textBaseline: TextBaseline.alphabetic,
             children: [
               Text(
-                '₹${projectedPayout.toStringAsFixed(0)}',
+                '${formatInr(projectedPayout)}',
                 style: const TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF0F766E),
+                  color: Color(0xFF1E3A5F),
                   letterSpacing: -0.5,
                 ),
               ),
               const SizedBox(width: 6),
               Text(
-                slip == null ? 'gross earnings' : (slip.status == 'PAID' ? 'slip paid' : 'slip generated'),
+                slip == null ? 'so far this month' : (slip.status == 'PAID' ? 'slip paid' : 'slip made'),
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
@@ -3982,41 +3803,41 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
             ],
           ),
           const SizedBox(height: 12),
-          const Divider(height: 1, color: Color(0xFFBFDBFE)),
+          const Divider(height: 1, color: AppTheme.borderSubtle),
           const SizedBox(height: 10),
           if (slip != null) ...[
             _buildPayrollBreakdownRow(
               '${monthName.substring(0, 3)} slip (base + commission - deductions)',
-              '₹${slip.totalPaid.toStringAsFixed(0)}',
+              '${formatInr(slip.totalPaid)}',
             ),
             const SizedBox(height: 6),
             _buildPayrollBreakdownRow(
               'Service Commission since slip (${emp.serviceCommissionPct.toInt()}%)',
-              '+ ₹${serviceComm.toStringAsFixed(0)}',
+              '+ ${formatInr(serviceComm)}',
             ),
             const SizedBox(height: 6),
             _buildPayrollBreakdownRow(
               'Product Commission since slip (${emp.productCommissionPct.toInt()}%)',
-              '+ ₹${productComm.toStringAsFixed(0)}',
+              '+ ${formatInr(productComm)}',
             ),
           ] else ...[
-            _buildPayrollBreakdownRow('Base Pay', '₹${emp.baseSalary.toStringAsFixed(0)}'),
+            _buildPayrollBreakdownRow('Base salary', '${formatInr(emp.baseSalary)}'),
             const SizedBox(height: 6),
             _buildPayrollBreakdownRow(
-              'Service Commission (${emp.serviceCommissionPct.toInt()}%)',
-              '+ ₹${serviceComm.toStringAsFixed(0)}',
+              'Commission on services (${emp.serviceCommissionPct.toInt()}%)',
+              '+ ${formatInr(serviceComm)}',
             ),
             const SizedBox(height: 6),
             _buildPayrollBreakdownRow(
-              'Product Commission (${emp.productCommissionPct.toInt()}%)',
-              '+ ₹${productComm.toStringAsFixed(0)}',
+              'Commission on products (${emp.productCommissionPct.toInt()}%)',
+              '+ ${formatInr(productComm)}',
             ),
           ],
           if (unattributedComm.abs() >= 1) ...[
             const SizedBox(height: 6),
             _buildPayrollBreakdownRow(
               'Other pending commission',
-              '+ ₹${unattributedComm.toStringAsFixed(0)}',
+              '+ ${formatInr(unattributedComm)}',
             ),
           ],
           const SizedBox(height: 16),
@@ -4026,10 +3847,10 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
             child: ElevatedButton(
               onPressed: () => _showDetailedSlipSheet(context, ref, state, emp),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0D9488),
+                backgroundColor: AppTheme.primaryBlue,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(22),
+                  borderRadius: BorderRadius.circular(14),
                 ),
                 elevation: 0,
               ),
@@ -4037,7 +3858,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    'View Detailed Slip',
+                    'See full breakdown',
                     style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
                   ),
                   SizedBox(width: 6),
@@ -4235,7 +4056,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                           Navigator.pop(ctx);
                           _showGenerateSalaryDialog(context, ref, forEmployee: emp);
                         },
-                        icon: const Icon(PhosphorIconsRegular.calendarPlus, color: Color(0xFF0D9488)),
+                        icon: const Icon(PhosphorIconsRegular.calendarPlus, color: Color(0xFF2F4E79)),
                         tooltip: 'Generate Salary',
                       ),
                     ],
@@ -4296,7 +4117,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                       Text(_formatDate(c.calculatedAt), style: const TextStyle(fontSize: 11, color: AppTheme.slateLight)),
                       Row(
                         children: [
-                          Text('₹${c.amount.toStringAsFixed(0)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                          Text('${formatInr(c.amount)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                           const SizedBox(width: 8),
                           SizedBox(
                             height: 26,
@@ -4356,7 +4177,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
           ),
           const SizedBox(height: 8),
           if (records.isEmpty)
-            const Text('No salary records yet - generate one for a past month above.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
+            const Text('No slips yet - tap Generate to make one.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
           else
             ListView.builder(
               shrinkWrap: true,
@@ -4376,12 +4197,12 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text('${_monthNames[r.month - 1]} ${r.year}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
-                            Text('Base ₹${r.baseSalary.toStringAsFixed(0)} + Commission ₹${r.commissionEarned.toStringAsFixed(0)} - Deductions ₹${r.deductions.toStringAsFixed(0)}',
+                            Text('Base ${formatInr(r.baseSalary)} + Commission ${formatInr(r.commissionEarned)} - Deductions ${formatInr(r.deductions)}',
                                 style: const TextStyle(color: AppTheme.slateLight, fontSize: 10)),
                           ],
                         ),
                       ),
-                      Text('₹${r.totalPaid.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                      Text('${formatInr(r.totalPaid)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
                       const SizedBox(width: 10),
                       if (isPaid)
                         const Icon(PhosphorIconsRegular.checkCircle, color: AppTheme.accentGreen, size: 20)
@@ -4424,23 +4245,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
 
 // --- ATTENDANCE TAB ---
 
-const List<Color> _kRosterAvatarBgs = [
-  Color(0xFFF0FDFA),
-  Color(0xFFFEF3C7),
-  Color(0xFFEFF6FF),
-  Color(0xFFCCFBF1),
-  Color(0xFFFFF1F2),
-  Color(0xFFF1F5F9),
-];
 
-const List<Color> _kRosterAvatarFgs = [
-  Color(0xFF0F766E),
-  Color(0xFFD97706),
-  Color(0xFF2563EB),
-  Color(0xFF0D9488),
-  Color(0xFFBE123C),
-  Color(0xFF475467),
-];
 
 /// The day from [d] and the time from [clockIn]. A record's `date` is always
 /// stored as local midnight, so formatting its time - as this used to - put
@@ -4690,7 +4495,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
       badgeFg = const Color(0xFFDC2626);
     } else if (rec.status == 'LEAVE') {
       dotColor = const Color(0xFFF97316);
-      badgeBg = const Color(0xFFFFF7ED);
+      badgeBg = const Color(0xFFFFFBEB);
       badgeFg = const Color(0xFFEA580C);
     }
 
@@ -4783,66 +4588,66 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
     );
   }
 
+  // Name on top, the three status buttons full-width underneath: side by
+  // side, the buttons squeezed the name down to "A..." on a phone, so the
+  // owner couldn't see whom they were marking.
   Widget _buildStaffRosterRow(EmployeeProfile emp, int index, String currentStatus) {
-    final bg = _kRosterAvatarBgs[index % _kRosterAvatarBgs.length];
-    final fg = _kRosterAvatarFgs[index % _kRosterAvatarFgs.length];
+    final (bg, fg) = AppTheme.avatarColorsFor(emp.name);
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14.0),
-      child: Row(
+      padding: const EdgeInsets.only(bottom: 16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Initials Avatar Squircle
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: bg,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Center(
-              child: Text(
-                _initials(emp.name),
-                style: TextStyle(fontWeight: FontWeight.w700, color: fg, fontSize: 13),
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+                child: Center(
+                  child: Text(
+                    _initials(emp.name),
+                    style: TextStyle(fontWeight: FontWeight.w700, color: fg, fontSize: 13),
+                  ),
+                ),
               ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          // Name and Role
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  emp.name,
-                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: Color(0xFF0F172A)),
-                  overflow: TextOverflow.ellipsis,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      emp.name,
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Color(0xFF0F172A)),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      emp.roleTitle.isNotEmpty ? emp.roleTitle : 'Staff',
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  emp.roleTitle.isNotEmpty ? emp.roleTitle : 'Stylist Specialist',
-                  style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B)),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          // 3-Way Status Toggle Capsule
+          const SizedBox(height: 10),
           Container(
-            height: 36,
+            height: 38,
             padding: const EdgeInsets.all(3),
             decoration: BoxDecoration(
               color: const Color(0xFFF1F5F9),
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
-              mainAxisSize: MainAxisSize.min,
               children: [
-                _buildStatusCircle(emp.id, 'Present', 'PRESENT', currentStatus == 'PRESENT', const Color(0xFF10B981)),
-                const SizedBox(width: 4),
-                _buildStatusCircle(emp.id, 'Late', 'LATE', currentStatus == 'LATE', const Color(0xFFF59E0B)),
-                const SizedBox(width: 4),
-                _buildStatusCircle(emp.id, 'Absent', 'ABSENT', currentStatus == 'ABSENT', const Color(0xFFEF4444)),
+                Expanded(child: _buildStatusCircle(emp.id, 'Present', 'PRESENT', currentStatus == 'PRESENT', AppTheme.accentGreen)),
+                const SizedBox(width: 3),
+                Expanded(child: _buildStatusCircle(emp.id, 'Late', 'LATE', currentStatus == 'LATE', AppTheme.accentAmber)),
+                const SizedBox(width: 3),
+                Expanded(child: _buildStatusCircle(emp.id, 'Absent', 'ABSENT', currentStatus == 'ABSENT', AppTheme.accentRed)),
               ],
             ),
           ),
@@ -4863,11 +4668,11 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
       // receptionist marking the roster for the first time.
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
-        height: 30,
+        height: 32,
         padding: const EdgeInsets.symmetric(horizontal: 9),
         decoration: BoxDecoration(
           color: isSelected ? activeColor : Colors.transparent,
-          borderRadius: BorderRadius.circular(15),
+          borderRadius: BorderRadius.circular(9),
           boxShadow: isSelected
               ? [
                   BoxShadow(
@@ -4931,39 +4736,9 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // The page title and the salon name/bell/avatar row that
-                // used to sit above it are now the shared page header.
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    InkWell(
-                      onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Date set to $todayFormatted'), behavior: SnackBarBehavior.floating, duration: const Duration(seconds: 1)),
-                        );
-                      },
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-                              blurRadius: 6,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: const Icon(PhosphorIconsRegular.calendarBlank, size: 20, color: Color(0xFF0F766E)),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
+                // (A calendar button sat here. It only showed a "Date set
+                // to today" snackbar - there's no picking another day - so
+                // it's gone; the roster card below says which day it is.)
                 // The owner's own shift, above the roster they mark for
                 // everyone else. They already appear in that roster and can
                 // be given a status letter there, but a letter records no
@@ -4999,16 +4774,14 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                           children: [
                             Container(width: 7, height: 7, decoration: const BoxDecoration(color: Color(0xFF10B981), shape: BoxShape.circle)),
                             const SizedBox(width: 6),
+                            // Just the count - the date was squeezed to
+                            // "Today, ..." beside it on a phone.
                             Flexible(
                               child: Text(
-                                '$todayFormatted  •  ',
-                                style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF334155)),
+                                '$presentCount of ${state.employees.length} in today',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
                                 overflow: TextOverflow.ellipsis,
                               ),
-                            ),
-                            Text(
-                              '$presentCount/${state.employees.length} Present',
-                              style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF10B981)),
                             ),
                           ],
                         ),
@@ -5024,25 +4797,25 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                           }
                         });
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('All staff marked Present for today! Tap Confirm to save.'), behavior: SnackBarBehavior.floating, duration: Duration(seconds: 2)),
+                          const SnackBar(content: Text('Everyone marked Present - tap Save attendance to keep it.'), behavior: SnackBarBehavior.floating, duration: Duration(seconds: 2)),
                         );
                       },
                       borderRadius: BorderRadius.circular(20),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFF0FDFA),
+                          color: const Color(0xFFEEF2F7),
                           borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: const Color(0xFFCCFBF1)),
+                          border: Border.all(color: const Color(0xFFDCE4EF)),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: const [
-                            Icon(PhosphorIconsBold.check, size: 13, color: Color(0xFF0F766E)),
+                            Icon(PhosphorIconsBold.check, size: 13, color: Color(0xFF1E3A5F)),
                             SizedBox(width: 5),
                             Text(
-                              'Mark All Present',
-                              style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF0F766E)),
+                              'All present',
+                              style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF1E3A5F)),
                             ),
                           ],
                         ),
@@ -5057,15 +4830,9 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(22),
+                    borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: const Color(0xFFE2E8F0)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF0F172A).withValues(alpha: 0.04),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
+                    boxShadow: AppTheme.cardShadow,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -5074,11 +4841,14 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
+                          // Today's date under the title - the old subtitle
+                          // was a hardcoded "Shift: Morning & Evening" and a
+                          // "Live" pill that meant nothing.
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
-                            children: const [
-                              Text(
-                                'Mark Roster Today',
+                            children: [
+                              const Text(
+                                "Today's roster",
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w700,
@@ -5086,23 +4856,12 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                                   letterSpacing: -0.2,
                                 ),
                               ),
-                              SizedBox(height: 2),
+                              const SizedBox(height: 2),
                               Text(
-                                'Shift: Morning & Evening',
-                                style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                                todayFormatted,
+                                style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
                               ),
                             ],
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF0FDFA),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Text(
-                              'Live',
-                              style: TextStyle(color: Color(0xFF0F766E), fontSize: 11, fontWeight: FontWeight.w700),
-                            ),
                           ),
                         ],
                       ),
@@ -5179,15 +4938,9 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(22),
+                    borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: const Color(0xFFE2E8F0)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF0F172A).withValues(alpha: 0.04),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
+                    boxShadow: AppTheme.cardShadow,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -5196,23 +4949,29 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Row(
+                          // Expanded + ellipsis: the title and "View History"
+                          // overflowed the card on a phone-width screen.
+                          Expanded(
+                          child: Row(
                             children: [
                               Container(
                                 padding: const EdgeInsets.all(7),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFF0FDFA),
+                                  color: const Color(0xFFEEF2F7),
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: const Icon(
                                   PhosphorIconsBold.clockCounterClockwise,
-                                  color: Color(0xFF0F766E),
+                                  color: Color(0xFF1E3A5F),
                                   size: 16,
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              const Text(
-                                'Recent Attendance Log',
+                              const Flexible(
+                                child: Text(
+                                'Recent attendance',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w700,
@@ -5220,7 +4979,9 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                                   letterSpacing: -0.2,
                                 ),
                               ),
+                              ),
                             ],
+                          ),
                           ),
                           InkWell(
                             onTap: () => _showAllHistoryModal(context, recentAttendance, state),
@@ -5228,11 +4989,11 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                             child: const Padding(
                               padding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                               child: Text(
-                                'View History',
+                                'View all',
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w700,
-                                  color: Color(0xFF0F766E),
+                                  color: Color(0xFF1E3A5F),
                                 ),
                               ),
                             ),

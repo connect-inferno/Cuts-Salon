@@ -110,8 +110,8 @@ class PaymentMethodReport extends StatelessWidget {
   });
 
   static const _cashColor = AppTheme.accentGreen;
-  static const _upiColor = Color(0xFF3B82F6);
-  static const _cardColor = Color(0xFF3B82F6);
+  static const _upiColor = Color(0xFF3E5F8A);
+  static const _cardColor = Color(0xFF3E5F8A);
   static const _laterColor = AppTheme.accentAmber;
 
   @override
@@ -123,13 +123,7 @@ class PaymentMethodReport extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        boxShadow: AppTheme.cardShadow,
       ),
       padding: const EdgeInsets.all(18),
       child: Column(

@@ -21,30 +21,31 @@ TextStyle _pjs({
 }
 
 class AppTheme {
-  // Deep teal, professional: teal is the brand - buttons, the current tab,
-  // links, progress and selection - on slate neutrals, with green / amber /
-  // red only for status. Colour is used flat: no gradients and no coloured
-  // glows, which were most of what made the old indigo design read as
-  // machine-made. The names are kept from that design (primaryBlue is now
-  // teal) so every screen picks the palette up from here.
-  static const Color primaryBlue = Color(0xFF0F766E);
-  static const Color primaryDark = Color(0xFF115E59);
-  static const Color primaryDarker = Color(0xFF134E4A);
-  static const Color primaryLight = Color(0xFFF0FDFA);
-  static const Color primarySoft = Color(0xFFCCFBF1);
+  // Deep navy, professional: navy is the brand - buttons, the current tab,
+  // links, progress and selection - on cool slate neutrals, with amber / red
+  // (and a muted green for "paid") only for status. Colour is used flat and
+  // sparingly; depth comes from a fine border plus a very soft shadow
+  // (cardShadow), never from gradients or coloured glows. The names are kept
+  // from the original indigo design (primaryBlue is now navy) so every screen
+  // picks the palette up from here.
+  static const Color primaryBlue = Color(0xFF1E3A5F);
+  static const Color primaryDark = Color(0xFF172E4C);
+  static const Color primaryDarker = Color(0xFF0F2440);
+  static const Color primaryLight = Color(0xFFEEF2F7);
+  static const Color primarySoft = Color(0xFFDCE4EF);
 
   // Neutrals.
   static const Color slateDark = Color(0xFF0F172A);
   static const Color slateMedium = Color(0xFF475467);
   static const Color slateLight = Color(0xFF667085);
   static const Color textMuted = Color(0xFF98A2B3);
-  static const Color borderSubtle = Color(0xFFE4E8EF);
+  static const Color borderSubtle = Color(0xFFE6E9EF);
   static const Color borderStrong = Color(0xFFD0D5DD);
-  static const Color bgSurface = Color(0xFFF6F8FA);
+  static const Color bgSurface = Color(0xFFF4F6F9);
   static const Color cardBg = Color(0xFFFFFFFF);
 
   // Status.
-  static const Color accentGreen = Color(0xFF16A34A);
+  static const Color accentGreen = Color(0xFF15803D);
   static const Color accentGreenBg = Color(0xFFF0FDF4);
   static const Color accentRed = Color(0xFFDC2626);
   static const Color accentRedBg = Color(0xFFFEF2F2);
@@ -52,18 +53,53 @@ class AppTheme {
   static const Color accentAmberBg = Color(0xFFFFFBEB);
   static const Color accentGold = Color(0xFFF59E0B);
 
-  // Supporting tints for icons beside figures (see DsStat): one hue per
-  // kind of number, always as a soft tile, never as a gradient.
-  static const Color statViolet = Color(0xFF2563EB);
-  static const Color statTeal = Color(0xFF0D9488);
-  static const Color tintTeal = Color(0xFF0F766E);
-  static const Color tintTealBg = Color(0xFFF0FDFA);
-  static const Color tintBlue = Color(0xFF2563EB);
-  static const Color tintBlueBg = Color(0xFFEFF6FF);
-  static const Color tintAmber = Color(0xFFD97706);
-  static const Color tintAmberBg = Color(0xFFFFF7ED);
-  static const Color tintRose = Color(0xFFE11D48);
-  static const Color tintRoseBg = Color(0xFFFFF1F2);
+  // Icon tiles beside figures (see DsStat). All one quiet navy tint: four
+  // different hues on one card read as busy rather than informative.
+  static const Color statViolet = Color(0xFF1E3A5F);
+  static const Color statTeal = Color(0xFF1E3A5F);
+  static const Color tintTeal = Color(0xFF1E3A5F);
+  static const Color tintTealBg = Color(0xFFEEF2F7);
+  static const Color tintBlue = Color(0xFF1E3A5F);
+  static const Color tintBlueBg = Color(0xFFEEF2F7);
+  static const Color tintAmber = Color(0xFF1E3A5F);
+  static const Color tintAmberBg = Color(0xFFEEF2F7);
+  static const Color tintRose = Color(0xFF1E3A5F);
+  static const Color tintRoseBg = Color(0xFFEEF2F7);
+
+  // Soft accents: one per kind of figure, always a pastel tile with a
+  // deeper icon - colour that tells figures apart without shouting.
+  static const Color accentBlue = Color(0xFF2F6FED);
+  static const Color accentBlueBg = Color(0xFFEAF1FE);
+  static const Color accentViolet = Color(0xFF7C5CFA);
+  static const Color accentVioletBg = Color(0xFFF1EDFE);
+  static const Color accentOrange = Color(0xFFE07B1F);
+  static const Color accentOrangeBg = Color(0xFFFEF3E7);
+  static const Color accentRose = Color(0xFFE5484D);
+  static const Color accentRoseBg = Color(0xFFFDEDED);
+
+  /// Muted (background, foreground) pairs for initials avatars, picked by
+  /// name so a person keeps the same colour everywhere.
+  static const List<(Color, Color)> avatarPalette = [
+    (Color(0xFFEAF1FE), Color(0xFF2456C4)),
+    (Color(0xFFF1EDFE), Color(0xFF5B3FD0)),
+    (Color(0xFFFEF3E7), Color(0xFFB35C10)),
+    (Color(0xFFFDEDED), Color(0xFFC03035)),
+    (Color(0xFFE8F4F8), Color(0xFF1F6F8B)),
+    (Color(0xFFEEF2F7), Color(0xFF1E3A5F)),
+  ];
+
+  /// A person's avatar colours - stable for a given name.
+  static (Color, Color) avatarColorsFor(String name) {
+    final hash = name.codeUnits.fold<int>(0, (h, c) => (h * 31 + c) & 0x7fffffff);
+    return avatarPalette[hash % avatarPalette.length];
+  }
+
+  /// The one shadow cards use: barely there, just enough to lift a white
+  /// card off the grey page. Pair it with the borderSubtle hairline.
+  static List<BoxShadow> get cardShadow => [
+        BoxShadow(color: const Color(0xFF101828).withValues(alpha: 0.04), blurRadius: 2, offset: const Offset(0, 1)),
+        BoxShadow(color: const Color(0xFF101828).withValues(alpha: 0.05), blurRadius: 12, offset: const Offset(0, 4)),
+      ];
 
   static List<BoxShadow> get shadowSm => [
         BoxShadow(color: slateDark.withValues(alpha: 0.04), blurRadius: 2, offset: const Offset(0, 1)),

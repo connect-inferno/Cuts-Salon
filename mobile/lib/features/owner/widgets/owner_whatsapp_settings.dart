@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../../data/app_data_provider.dart';
+import '../../../data/support_contact.dart';
 import '../../../theme.dart';
+import '../../../widgets/open_link.dart';
 
 /// Settings > WhatsApp: the owner's on/off switch for automatic messages,
 /// plus two buttons for checking the setup works.
@@ -90,21 +92,19 @@ class _OwnerWhatsAppCardState extends ConsumerState<OwnerWhatsAppCard> {
 
   @override
   Widget build(BuildContext context) {
-    final enabled = ref.watch(appDataProvider).valueOrNull?.settings?.whatsappEnabled ?? false;
+    final settings = ref.watch(appDataProvider).valueOrNull?.settings;
+    // Not set up for this salon yet: offer to set it up instead of a switch
+    // that would do nothing (see SalonFirestore.isWhatsAppReady).
+    if (settings?.whatsappReady != true) return const _WhatsAppNotSetUpCard();
+    final enabled = settings?.whatsappEnabled ?? false;
 
     return Container(
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFF1F5F9), width: 1.2),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        boxShadow: AppTheme.cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -152,7 +152,6 @@ class _OwnerWhatsAppCardState extends ConsumerState<OwnerWhatsAppCard> {
               contentPadding: EdgeInsets.zero,
               dense: true,
               value: enabled,
-              activeColor: const Color(0xFF16A34A),
               onChanged: _savingSwitch ? null : _toggle,
               title: const Text(
                 'Send automatic WhatsApp messages',
@@ -183,7 +182,7 @@ class _OwnerWhatsAppCardState extends ConsumerState<OwnerWhatsAppCard> {
                   keyboardType: TextInputType.phone,
                   style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
                   decoration: InputDecoration(
-                    hintText: 'Your mobile number',
+                    hintText: 'Your number',
                     hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
                     prefixIcon: const Icon(PhosphorIconsRegular.phone, size: 18, color: Color(0xFF94A3B8)),
                     filled: true,
@@ -266,6 +265,103 @@ class _OwnerWhatsAppCardState extends ConsumerState<OwnerWhatsAppCard> {
         side: const BorderSide(color: Color(0xFFBBF7D0)),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      ),
+    );
+  }
+}
+
+/// Shown in place of the WhatsApp switch until this salon's WhatsApp has
+/// been set up by the Stylux team: what it does, and how to ask for it.
+class _WhatsAppNotSetUpCard extends StatelessWidget {
+  const _WhatsAppNotSetUpCard();
+
+  void _open(BuildContext context, String url) {
+    if (!openLink(url)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Could not open that here. Email $kSupportEmail instead.'),
+      ));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const message = "Hi, I'd like to set up automatic WhatsApp messages for my salon on Stylux.";
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.borderSubtle),
+        boxShadow: AppTheme.cardShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: const Color(0xFFDCFCE7), borderRadius: BorderRadius.circular(10)),
+                child: const Icon(PhosphorIconsFill.whatsappLogo, size: 18, color: Color(0xFF16A34A)),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'WhatsApp messages',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppTheme.slateDark),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(color: AppTheme.bgSurface, borderRadius: BorderRadius.circular(10)),
+                child: const Text('Not set up', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.slateLight)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Send every bill, birthday wishes and "come back" reminders automatically - from your own WhatsApp Business number.',
+            style: TextStyle(fontSize: 13.5, height: 1.45, color: AppTheme.slateMedium),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'It is not set up for your salon yet. Contact us and we will set it up for you.',
+            style: TextStyle(fontSize: 13, height: 1.45, color: AppTheme.slateLight),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => _open(context, 'https://wa.me/$kSupportWhatsApp?text=${Uri.encodeComponent(message)}'),
+                  icon: const Icon(PhosphorIconsFill.whatsappLogo, size: 17),
+                  label: const Text('WhatsApp us'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF16A34A),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _open(
+                    context,
+                    'mailto:$kSupportEmail?subject=${Uri.encodeComponent('WhatsApp messages for my salon')}&body=${Uri.encodeComponent(message)}',
+                  ),
+                  icon: const Icon(PhosphorIconsRegular.envelopeSimple, size: 17),
+                  label: const Text('Email us'),
+                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'You can already tick "OK to send WhatsApp messages" on clients - those ticks are used once it is switched on.',
+            style: TextStyle(fontSize: 12, height: 1.4, color: AppTheme.slateLight),
+          ),
+        ],
       ),
     );
   }

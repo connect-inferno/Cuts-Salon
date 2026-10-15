@@ -749,6 +749,10 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     required String branchId,
     required String paymentMethod,
     double? discountAmount,
+    /// The approved discount request [discountAmount] comes from (staff
+    /// bills). Checked here: it must be this person's, approved, and not
+    /// already on another bill.
+    String? discountRequestId,
     required List<BillItemInput> items,
     /// What the client is handing over now. null = the whole bill (the
     /// ordinary case); 0 = paying entirely later. The balance becomes a due
@@ -761,6 +765,15 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
 
     final customerMatch = current.customers.where((c) => c.id == customerId);
     if (customerMatch.isEmpty) throw Exception('Customer not found');
+    if (discountRequestId != null) {
+      final req = current.discountRequests.where((r) => r.id == discountRequestId);
+      if (req.isEmpty || req.first.status != 'APPROVED' || req.first.requestedBy != auth.userId) {
+        throw Exception('That discount is not approved for you.');
+      }
+      if (current.bills.any((b) => b.discountRequestId == discountRequestId)) {
+        throw Exception('That discount has already been used on another bill.');
+      }
+    }
     if (current.branchById(branchId) == null) throw Exception('Branch not found');
 
     // Resolve catalog price, employee commission rate, and stock
@@ -824,6 +837,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       // what folds the on/off switch into the configured rate.
       gstRate: current.settings?.effectiveGstRate ?? 0,
       billDiscountAmount: discountAmount ?? 0,
+      discountRequestId: discountRequestId,
       items: drafts,
       amountPaidNow: amountPaidNow,
     );
@@ -1268,8 +1282,11 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
 
   Future<void> updateSettings(Map<String, dynamic> changes) async {
     await _fs.updateSettings(changes);
-    final updated = settingsFromFS(await _fs.getSettings());
     final current = state.value;
+    final updated = settingsFromFS(
+      await _fs.getSettings(),
+      whatsappReady: current?.settings?.whatsappReady ?? false,
+    );
     if (current != null) state = AsyncData(current.copyWith(settings: updated));
   }
 }

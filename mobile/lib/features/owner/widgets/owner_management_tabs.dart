@@ -262,7 +262,6 @@ class OwnerBranchTab extends StatelessWidget {
   /// One stat on a branch card: a quiet label line with its icon, then the
   /// number on its own line at full box width.
   Widget _branchStatBox({
-    required IconData icon,
     required String label,
     required String value,
     Color? valueColor,
@@ -278,23 +277,17 @@ class OwnerBranchTab extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              Icon(icon, size: 13, color: const Color(0xFF94A3B8)),
-              const SizedBox(width: 5),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF64748B),
-                  ),
-                ),
-              ),
-            ],
+          // Label only - at a third of a phone width the little icon in
+          // front of it was what pushed "Per staff" into "Per sta...".
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF64748B),
+            ),
           ),
           const SizedBox(height: 5),
           FittedBox(
@@ -339,7 +332,7 @@ class OwnerBranchTab extends StatelessWidget {
                     // two-line title stacked a second heading under the first
                     // and pushed the Add Branch button out of line with it.
                     const Text(
-                      'Multi-Branch Performance',
+                      'Branches',
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
                         fontSize: 19,
@@ -350,10 +343,10 @@ class OwnerBranchTab extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      '$activeCount Active Branch${activeCount == 1 ? '' : 'es'} • Real-time Overview',
+                      '$activeCount active · ${_formatRupees(totalRevenue)} this month',
                       style: const TextStyle(
                         color: Color(0xFF64748B),
-                        fontSize: 11,
+                        fontSize: 12.5,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -364,7 +357,7 @@ class OwnerBranchTab extends StatelessWidget {
                 onPressed: () => _showAddBranchDialog(context, ref),
                 icon: const Icon(PhosphorIconsBold.plus, size: 14, color: Colors.white),
                 label: const Text(
-                  'Add Branch',
+                  'Add branch',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
@@ -372,7 +365,7 @@ class OwnerBranchTab extends StatelessWidget {
                   ),
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0F766E),
+                  backgroundColor: const Color(0xFF1E3A5F),
                   elevation: 0,
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -382,20 +375,16 @@ class OwnerBranchTab extends StatelessWidget {
           ),
           const SizedBox(height: 18),
 
-          // "TOTAL NETWORK GROSS" Banner Card
+          // All-branches total - only with more than one branch; with one it
+          // repeated that branch's own number right underneath.
+          if (state.branches.length > 1) ...[
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: const Color(0xFFF1F5F9), width: 1.2),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
-                ),
-              ],
+              boxShadow: AppTheme.cardShadow,
             ),
             child: Row(
               children: [
@@ -403,13 +392,13 @@ class OwnerBranchTab extends StatelessWidget {
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF0FDFA),
+                    color: const Color(0xFFEEF2F7),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: const Icon(
                     PhosphorIconsFill.buildings,
                     size: 22,
-                    color: Color(0xFF0F766E),
+                    color: Color(0xFF1E3A5F),
                   ),
                 ),
                 const SizedBox(width: 14),
@@ -418,7 +407,7 @@ class OwnerBranchTab extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'TOTAL NETWORK GROSS',
+                        'ALL BRANCHES THIS MONTH',
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
@@ -472,6 +461,8 @@ class OwnerBranchTab extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 18),
+          ] else
+            const SizedBox(height: 4),
 
           // Active Branches Vertical List
           if (state.branches.isEmpty)
@@ -499,15 +490,9 @@ class OwnerBranchTab extends StatelessWidget {
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(22),
+                    borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: const Color(0xFFF1F5F9), width: 1.2),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-                        blurRadius: 18,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
+                    boxShadow: AppTheme.cardShadow,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -535,12 +520,11 @@ class OwnerBranchTab extends StatelessWidget {
                                 ),
                                 const SizedBox(width: 5),
                                 Text(
-                                  branch.active ? 'ACTIVE' : 'INACTIVE',
+                                  branch.active ? 'Active' : 'Inactive',
                                   style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w700,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
                                     color: branch.active ? const Color(0xFF16A34A) : const Color(0xFF94A3B8),
-                                    letterSpacing: 0.4,
                                   ),
                                 ),
                               ],
@@ -579,10 +563,10 @@ class OwnerBranchTab extends StatelessWidget {
                           Expanded(
                             child: Text(
                               branch.address?.isNotEmpty == true
-                                  ? '${branch.address} • ${branch.employeeCount} staff'
-                                  : '${branch.employeeCount} staff',
+                                  ? branch.address!
+                                  : 'No address yet',
                               style: const TextStyle(
-                                fontSize: 11,
+                                fontSize: 12,
                                 color: Color(0xFF64748B),
                                 fontWeight: FontWeight.w500,
                               ),
@@ -595,7 +579,7 @@ class OwnerBranchTab extends StatelessWidget {
 
                       // Monthly Revenue Row
                       const Text(
-                        'MONTHLY REVENUE',
+                        'THIS MONTH',
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
@@ -645,7 +629,6 @@ class OwnerBranchTab extends StatelessWidget {
                           children: [
                           Expanded(
                             child: _branchStatBox(
-                              icon: PhosphorIconsRegular.users,
                               // "Served here", not "belong here" - the client
                               // directory is shared by every branch, so this
                               // counts distinct clients billed at this one.
@@ -656,7 +639,6 @@ class OwnerBranchTab extends StatelessWidget {
                           const SizedBox(width: 8),
                           Expanded(
                             child: _branchStatBox(
-                              icon: PhosphorIconsRegular.identificationBadge,
                               label: 'Staff',
                               value: '${branch.employeeCount}',
                             ),
@@ -664,10 +646,11 @@ class OwnerBranchTab extends StatelessWidget {
                           const SizedBox(width: 8),
                           Expanded(
                             child: _branchStatBox(
-                              icon: PhosphorIconsRegular.trendUp,
-                              label: 'Rev/Emp',
-                              value: _formatRupees(revenuePerEmployee),
-                              valueColor: const Color(0xFF0F766E),
+                              label: 'Per staff',
+                              // A dash, not "₹0", when nobody is assigned -
+                              // zero staff isn't zero takings per person.
+                              value: branch.employeeCount > 0 ? _formatRupees(revenuePerEmployee) : '-',
+                              valueColor: const Color(0xFF1E3A5F),
                             ),
                           ),
                           ],
@@ -919,16 +902,18 @@ class _OwnerDiscountsTabState extends State<OwnerDiscountsTab> {
                                       ),
                                     ],
                                   ),
-                                  if (isApproved && req.authorizedCode != null) ...[
+                                  // Where an approved discount went: staff pick it
+                                  // on their bill screen, and the bill keeps its id.
+                                  if (isApproved) ...[
                                     const SizedBox(height: 6),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(color: AppTheme.accentGreenBg, borderRadius: BorderRadius.circular(6)),
-                                      child: Text(
-                                        'Code: ${req.authorizedCode}',
-                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.accentGreen, letterSpacing: 0.5),
-                                      ),
-                                    ),
+                                    Builder(builder: (context) {
+                                      final bills = ProviderScope.containerOf(context).read(appDataProvider).valueOrNull?.bills ?? const <Bill>[];
+                                      final usedOn = bills.where((b) => b.discountRequestId == req.id).map((b) => b.invoiceNumber).firstOrNull;
+                                      return Text(
+                                        usedOn != null ? 'Used on $usedOn' : 'Not used on a bill yet',
+                                        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: AppTheme.slateLight),
+                                      );
+                                    }),
                                   ],
                                 ],
                               ),
@@ -1157,15 +1142,9 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(22),
+                      borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: const Color(0xFFF1F5F9), width: 1.2),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-                          blurRadius: 18,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
+                      boxShadow: AppTheme.cardShadow,
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1176,7 +1155,7 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
                               width: 52,
                               height: 52,
                               decoration: const BoxDecoration(
-                                color: Color(0xFF0F766E),
+                                color: Color(0xFF1E3A5F),
                                 shape: BoxShape.circle,
                               ),
                               // A generic person glyph rather than invented
@@ -1229,7 +1208,9 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
                                   if (ownerRole != null) ...[
                                     const SizedBox(height: 2),
                                     Text(
-                                      'Role: $ownerRole Account',
+                                      // "Owner", not the stored code
+                                      // ("Role: OWNER Account").
+                                      ownerRole == 'OWNER' ? 'Owner' : 'Staff',
                                       style: const TextStyle(
                                         color: Color(0xFF64748B),
                                         fontSize: 11,
@@ -1245,111 +1226,24 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
                                     const SizedBox(height: 1),
                                     Text(
                                       ownerEmail,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(
                                         color: Color(0xFF94A3B8),
-                                        fontSize: 11,
+                                        fontSize: 12,
                                       ),
                                     ),
                                   ],
                                 ],
                               ),
                             ),
-                            // Logout Button
-                            Material(
-                              color: const Color(0xFFFEE2E2),
-                              borderRadius: BorderRadius.circular(10),
-                              child: InkWell(
-                                onTap: () {
-                                  showDialog(
-                                    context: context,
-                                    builder: (ctx) => AppDialog(
-                                      icon: PhosphorIconsRegular.signOut,
-                                      iconColor: AppTheme.accentRed,
-                                      iconBackground: AppTheme.accentRedBg,
-                                      title: 'Confirm Logout',
-                                      child: const Text(
-                                        'Are you sure you want to end this session?',
-                                        style: TextStyle(fontSize: 14, color: AppTheme.slateMedium),
-                                      ),
-                                      actions: AppDialogActions(
-                                        submitLabel: 'Logout',
-                                        submitColor: AppTheme.accentRed,
-                                        onCancel: () => Navigator.pop(ctx),
-                                        onSubmit: () {
-                                          Navigator.pop(ctx);
-                                          // See the employee dashboard's note:
-                                          // a pushed settings page survives the
-                                          // logout redirect unless popped.
-                                          Navigator.of(context)
-                                              .popUntil((r) => r.isFirst);
-                                          ref.read(authControllerProvider.notifier).logout();
-                                        },
-                                      ),
-                                    ),
-                                  );
-                                },
-                                borderRadius: BorderRadius.circular(10),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                                  child: const Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(PhosphorIconsRegular.signOut, size: 14, color: Color(0xFFDC2626)),
-                                      SizedBox(width: 4),
-                                      Text(
-                                        'Logout',
-                                        style: TextStyle(
-                                          color: Color(0xFFDC2626),
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
+                            // (A Logout button sat here too - the Menu
+                            // drawer's Log Out is the one place for it.)
                           ],
                         ),
-                        const SizedBox(height: 16),
-
-                        // Active Owner Mode Pill
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFDCFCE7).withValues(alpha: 0.6),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFBBF7D0)),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 7,
-                                height: 7,
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFF16A34A),
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              const Expanded(
-                                child: Text(
-                                  'Active Owner Mode • Full Access',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF16A34A),
-                                  ),
-                                ),
-                              ),
-                              const Icon(
-                                PhosphorIconsFill.shieldCheck,
-                                size: 16,
-                                color: Color(0xFF16A34A),
-                              ),
-                            ],
-                          ),
-                        ),
+                        // (An "Active Owner Mode • Full Access" pill used
+                        // to sit here - decoration that told the owner
+                        // nothing they didn't know.)
                       ],
                     ),
                   ),
@@ -1360,15 +1254,9 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
                     padding: const EdgeInsets.all(22),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(22),
+                      borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: const Color(0xFFF1F5F9), width: 1.2),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-                          blurRadius: 18,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
+                      boxShadow: AppTheme.cardShadow,
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1379,10 +1267,10 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
                             Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFF0FDFA),
+                                color: const Color(0xFFEEF2F7),
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              child: const Icon(PhosphorIconsFill.slidersHorizontal, size: 16, color: Color(0xFF0F766E)),
+                              child: const Icon(PhosphorIconsFill.slidersHorizontal, size: 16, color: Color(0xFF1E3A5F)),
                             ),
                             const SizedBox(width: 10),
                             const Expanded(
@@ -1390,7 +1278,7 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Salon Business Configuration',
+                                    'Salon details',
                                     style: TextStyle(
                                       fontWeight: FontWeight.w700,
                                       fontSize: 14,
@@ -1399,7 +1287,7 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
                                   ),
                                   SizedBox(height: 2),
                                   Text(
-                                    'Manage core salon profile, billing tax rules, and operational penalties.',
+                                    'Printed on bills, plus GST and the late fine.',
                                     style: TextStyle(
                                       fontSize: 11,
                                       color: Color(0xFF64748B),
@@ -1415,7 +1303,7 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
 
                         // BUSINESS TRADING NAME
                         const Text(
-                          'BUSINESS TRADING NAME',
+                          'SALON NAME',
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.w700,
@@ -1436,7 +1324,7 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
 
                         // SUPPORT PHONE
                         const Text(
-                          'SUPPORT PHONE',
+                          'PHONE',
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.w700,
@@ -1549,7 +1437,7 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const Text(
-                                    'ATTENDANCE PENALTY',
+                                    'LATE FINE (PER DAY)',
                                     style: TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.w700,
@@ -1574,19 +1462,12 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
                         ),
                         const SizedBox(height: 22),
 
-                        // Gradient Save Business Configuration Button
+                        // Save - the app's flat primary button colour.
                         Container(
                           height: 48,
                           decoration: BoxDecoration(
-                            color: Color(0xFF0D9488),
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF0F766E).withValues(alpha: 0.06),
-                                blurRadius: 14,
-                                offset: const Offset(0, 6),
-                              ),
-                            ],
+                            color: AppTheme.primaryBlue,
+                            borderRadius: BorderRadius.circular(14),
                           ),
                           child: Material(
                             color: Colors.transparent,
@@ -1606,7 +1487,7 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
                                           Icon(PhosphorIconsFill.checkCircle, size: 18, color: Colors.white),
                                           SizedBox(width: 8),
                                           Text(
-                                            'Save Business Configuration',
+                                            'Save changes',
                                             style: TextStyle(
                                               fontWeight: FontWeight.w700,
                                               fontSize: 14,
@@ -1670,7 +1551,7 @@ class _OwnerSettingsTabState extends ConsumerState<OwnerSettingsTab> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: Color(0xFF0F766E), width: 1.5),
+        borderSide: const BorderSide(color: Color(0xFF1E3A5F), width: 1.5),
       ),
     );
   }

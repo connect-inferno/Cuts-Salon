@@ -147,13 +147,7 @@ class ClientRetentionReport extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: const Color(0xFFE2E8F0)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.03),
-              blurRadius: 10,
-              offset: const Offset(0, 3),
-            ),
-          ],
+          boxShadow: AppTheme.cardShadow,
         ),
         padding: const EdgeInsets.all(18),
         child: child,
@@ -412,7 +406,7 @@ class ClientRetentionReport extends StatelessWidget {
                                       ]
                                     : [
                                         AppTheme.primaryBlue,
-                                        const Color(0xFF0D9488),
+                                        const Color(0xFF2F4E79),
                                       ],
                               ),
                               borderRadius: BorderRadius.circular(8),

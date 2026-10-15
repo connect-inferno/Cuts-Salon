@@ -50,11 +50,11 @@ class _AppLoadingViewState extends State<AppLoadingView> with SingleTickerProvid
                   width: 62,
                   height: 62,
                   decoration: BoxDecoration(
-                    color: Color(0xFF0F766E),
+                    color: Color(0xFF1E3A5F),
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF0F766E).withValues(alpha: 0.18 + (t * 0.22)),
+                        color: const Color(0xFF1E3A5F).withValues(alpha: 0.18 + (t * 0.22)),
                         blurRadius: 18 + (t * 10),
                         offset: const Offset(0, 6),
                       ),
@@ -72,7 +72,7 @@ class _AppLoadingViewState extends State<AppLoadingView> with SingleTickerProvid
                 child: const LinearProgressIndicator(
                   minHeight: 3,
                   backgroundColor: Color(0xFFE2E8F0),
-                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0F766E)),
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1E3A5F)),
                 ),
               ),
             ),

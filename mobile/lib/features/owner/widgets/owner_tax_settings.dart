@@ -192,13 +192,13 @@ class _OwnerTaxSettingsPageState extends ConsumerState<OwnerTaxSettingsPage> {
                             Container(
                               padding: const EdgeInsets.all(9),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFEFF6FF),
+                                color: const Color(0xFFF1F4F8),
                                 borderRadius: BorderRadius.circular(11),
                               ),
                               child: const Icon(
                                 PhosphorIconsFill.percent,
                                 size: 17,
-                                color: Color(0xFF2563EB),
+                                color: Color(0xFF3E5F8A),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -288,7 +288,7 @@ class _OwnerTaxSettingsPageState extends ConsumerState<OwnerTaxSettingsPage> {
                               : 'GST (off)',
                           _formatRupees(sampleTax),
                         ),
-                        const Divider(height: 16, color: Color(0xFF99F6E4)),
+                        const Divider(height: 16, color: Color(0xFFC3D0E2)),
                         _taxPreviewRow(
                           'Client pays',
                           _formatRupees(sample + sampleTax),

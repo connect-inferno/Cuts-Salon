@@ -138,8 +138,8 @@ class _StyluxSplashScreenState extends State<StyluxSplashScreen>
                         shape: BoxShape.circle,
                         gradient: RadialGradient(
                           colors: [
-                            const Color(0xFF0F766E).withValues(alpha: 0.12 + (t * 0.08)),
-                            const Color(0xFF2563EB).withValues(alpha: 0.06 + (t * 0.04)),
+                            const Color(0xFF1E3A5F).withValues(alpha: 0.12 + (t * 0.08)),
+                            const Color(0xFF3E5F8A).withValues(alpha: 0.06 + (t * 0.04)),
                             Colors.transparent,
                           ],
                           stops: const [0.0, 0.5, 1.0],
@@ -220,7 +220,7 @@ class _StyluxSplashScreenState extends State<StyluxSplashScreen>
                             child: LinearProgressIndicator(
                               minHeight: 2.5,
                               backgroundColor: Colors.white.withValues(alpha: 0.08),
-                              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF0D9488)),
+                              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF2F4E79)),
                             ),
                           ),
                         ),

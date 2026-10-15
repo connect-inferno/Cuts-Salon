@@ -104,7 +104,7 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
       Navigator.of(context).pop(created);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Customer "$name" added successfully!'),
+          content: Text('$name added.'),
           backgroundColor: AppTheme.accentGreen,
         ),
       );
@@ -160,49 +160,39 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
     final name = _nameController.text.trim();
     final phone = _phoneController.text.trim();
     final hasName = name.isNotEmpty;
+    final (bg, fg) = AppTheme.avatarColorsFor(hasName ? name : '?');
 
+    // A light card with the client's own avatar colour (the one they'll keep
+    // everywhere in the app). It was a solid navy block, heavier than
+    // anything else on a simple form.
     return Container(
       // Keyed so tests can tell the preview's copy of the name apart from
       // the text field the name was typed into.
       key: const Key('addCustomerPreview'),
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppTheme.primaryBlue,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.primaryBlue.withValues(alpha: 0.06),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.borderSubtle),
+        boxShadow: AppTheme.cardShadow,
       ),
       child: Row(
         children: [
-          Container(
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
             width: 52,
             height: 52,
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.18),
+              color: hasName ? bg : AppTheme.primaryLight,
               shape: BoxShape.circle,
-              border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
             ),
             alignment: Alignment.center,
             child: hasName
                 ? Text(
                     _initials,
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                      letterSpacing: 0.5,
-                    ),
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: fg, letterSpacing: 0.5),
                   )
-                : const Icon(
-                    PhosphorIconsRegular.userPlus,
-                    size: 24,
-                    color: Colors.white,
-                  ),
+                : const Icon(PhosphorIconsRegular.userPlus, size: 22, color: AppTheme.primaryBlue),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -214,25 +204,14 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
                   hasName ? name : 'New client',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    letterSpacing: -0.3,
-                  ),
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: AppTheme.slateDark, letterSpacing: -0.3),
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  phone.isNotEmpty
-                      ? phone
-                      : 'Their visits and spend start tracking from today',
-                  maxLines: 1,
+                  phone.isNotEmpty ? phone : 'Visits and spend are tracked from today',
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.white.withValues(alpha: 0.85),
-                  ),
+                  style: const TextStyle(fontSize: 12.5, color: AppTheme.slateLight),
                 ),
               ],
             ),
@@ -249,13 +228,7 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
         color: AppTheme.cardBg,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppTheme.borderSubtle),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.slateDark.withValues(alpha: 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        boxShadow: AppTheme.cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -488,13 +461,7 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
       decoration: BoxDecoration(
         color: AppTheme.cardBg,
         border: const Border(top: BorderSide(color: AppTheme.borderSubtle)),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.slateDark.withValues(alpha: 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, -3),
-          ),
-        ],
+        boxShadow: AppTheme.cardShadow,
       ),
       child: Row(
         children: [
@@ -526,7 +493,7 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
                 gradient: _submitting
                     ? null
                     : const LinearGradient(
-                        colors: [AppTheme.primaryBlue, Color(0xFF0D9488)],
+                        colors: [AppTheme.primaryBlue, Color(0xFF2F4E79)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
@@ -547,7 +514,7 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
                   backgroundColor: Colors.transparent,
                   shadowColor: Colors.transparent,
                   foregroundColor: Colors.white,
-                  disabledBackgroundColor: const Color(0xFF99F6E4),
+                  disabledBackgroundColor: const Color(0xFFC3D0E2),
                   padding: const EdgeInsets.symmetric(vertical: 15),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
@@ -572,7 +539,7 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
                           SizedBox(width: 8),
                           Flexible(
                             child: Text(
-                              'Add Customer',
+                              'Add client',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(

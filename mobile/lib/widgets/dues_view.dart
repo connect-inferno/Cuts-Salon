@@ -145,8 +145,12 @@ class _DuesViewState extends ConsumerState<DuesView> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildTotalCard(grandTotal, allDues),
-            const SizedBox(height: 14),
+            // The amber total only when something is owed - at ₹0 an amber
+            // warning card next to "No pending payments" contradicted itself.
+            if (grandTotal > 0) ...[
+              _buildTotalCard(grandTotal, allDues),
+              const SizedBox(height: 14),
+            ],
 
             // Search, whenever anyone owes anything. It was behind a
             // "more than three clients" threshold, which meant the control
@@ -187,7 +191,7 @@ class _DuesViewState extends ConsumerState<DuesView> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(16),
-                    borderSide: const BorderSide(color: Color(0xFF0F766E), width: 1.5),
+                    borderSide: const BorderSide(color: Color(0xFF1E3A5F), width: 1.5),
                   ),
                 ),
               ),
@@ -243,8 +247,8 @@ class _DuesViewState extends ConsumerState<DuesView> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'TOTAL OUTSTANDING',
-                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.6, color: Color(0xFF92400E)),
+                  'Owed to you',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF92400E)),
                 ),
                 const SizedBox(height: 3),
                 Text(
@@ -280,12 +284,12 @@ class _DuesViewState extends ConsumerState<DuesView> {
           Icon(PhosphorIconsRegular.checkCircle, size: 34, color: Color(0xFF16A34A)),
           SizedBox(height: 10),
           Text(
-            'No pending payments',
+            'Nobody owes anything',
             style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
           ),
           SizedBox(height: 4),
           Text(
-            'Bills marked "LATER" at checkout will appear here.',
+            'Bills paid with "Pay later" show up here.',
             style: TextStyle(fontSize: 11.5, color: Color(0xFF94A3B8)),
           ),
         ],
@@ -332,13 +336,7 @@ class _DuesViewState extends ConsumerState<DuesView> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: const Color(0xFFF1F5F9), width: 1.2),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        boxShadow: AppTheme.cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -438,7 +436,7 @@ class _DuesViewState extends ConsumerState<DuesView> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: partial ? const Color(0xFFEFF6FF) : const Color(0xFFFFFBEB),
+                        color: partial ? const Color(0xFFF1F4F8) : const Color(0xFFFFFBEB),
                         borderRadius: BorderRadius.circular(5),
                       ),
                       child: Text(
@@ -446,7 +444,7 @@ class _DuesViewState extends ConsumerState<DuesView> {
                         style: TextStyle(
                           fontSize: 8.5,
                           fontWeight: FontWeight.w700,
-                          color: partial ? const Color(0xFF2563EB) : const Color(0xFFB45309),
+                          color: partial ? const Color(0xFF3E5F8A) : const Color(0xFFB45309),
                         ),
                       ),
                     ),
@@ -476,7 +474,7 @@ class _DuesViewState extends ConsumerState<DuesView> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: widget.requestOnly ? const Color(0xFF0F172A) : const Color(0xFF0F766E),
+                color: widget.requestOnly ? const Color(0xFF0F172A) : const Color(0xFF1E3A5F),
                 borderRadius: BorderRadius.circular(9),
               ),
               child: Text(
@@ -561,20 +559,21 @@ class _DuesViewState extends ConsumerState<DuesView> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 9),
                           decoration: BoxDecoration(
-                            color: isSel ? const Color(0xFFF0FDFA) : Colors.white,
+                            color: isSel ? const Color(0xFFEEF2F7) : Colors.white,
                             border: Border.all(
-                              color: isSel ? const Color(0xFF0F766E) : const Color(0xFFE2E8F0),
+                              color: isSel ? const Color(0xFF1E3A5F) : const Color(0xFFE2E8F0),
                               width: isSel ? 1.6 : 1,
                             ),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Center(
                             child: Text(
-                              m,
+                              // "Cash", not the stored code "CASH".
+                              paymentMethodLabel(m),
                               style: TextStyle(
-                                fontSize: 11,
+                                fontSize: 12,
                                 fontWeight: FontWeight.w700,
-                                color: isSel ? const Color(0xFF0F766E) : const Color(0xFF64748B),
+                                color: isSel ? const Color(0xFF1E3A5F) : const Color(0xFF64748B),
                               ),
                             ),
                           ),
@@ -668,7 +667,7 @@ class _DuesViewState extends ConsumerState<DuesView> {
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AppDialog(
           icon: PhosphorIconsRegular.handCoins,
-          title: 'Record Payment',
+          title: 'Record a payment',
           subtitle: '${bill.customerName ?? 'Client'} • ${bill.invoiceNumber}',
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -723,20 +722,21 @@ class _DuesViewState extends ConsumerState<DuesView> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 9),
                           decoration: BoxDecoration(
-                            color: isSel ? const Color(0xFFF0FDFA) : Colors.white,
+                            color: isSel ? const Color(0xFFEEF2F7) : Colors.white,
                             border: Border.all(
-                              color: isSel ? const Color(0xFF0F766E) : const Color(0xFFE2E8F0),
+                              color: isSel ? const Color(0xFF1E3A5F) : const Color(0xFFE2E8F0),
                               width: isSel ? 1.6 : 1,
                             ),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Center(
                             child: Text(
-                              m,
+                              // "Cash", not the stored code "CASH".
+                              paymentMethodLabel(m),
                               style: TextStyle(
-                                fontSize: 11,
+                                fontSize: 12,
                                 fontWeight: FontWeight.w700,
-                                color: isSel ? const Color(0xFF0F766E) : const Color(0xFF64748B),
+                                color: isSel ? const Color(0xFF1E3A5F) : const Color(0xFF64748B),
                               ),
                             ),
                           ),
@@ -749,7 +749,7 @@ class _DuesViewState extends ConsumerState<DuesView> {
             ],
           ),
           actions: AppDialogActions(
-            submitLabel: 'Record Payment',
+            submitLabel: 'Save',
             submitting: submitting,
             onCancel: () => Navigator.pop(ctx),
             onSubmit: () async {

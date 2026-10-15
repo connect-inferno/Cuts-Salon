@@ -4,8 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/app_data_provider.dart';
 import '../../../data/models.dart';
 import '../../../data/salary_provider.dart';
+import '../../../router.dart';
 import '../../../theme.dart';
 import '../../../widgets/async_state_views.dart';
+import '../../auth/auth_provider.dart';
+import 'owner_customers_employees_tab.dart' show OwnerEmployeeDetailPage;
 
 const _kMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -54,7 +57,11 @@ class OwnerPayrollView extends ConsumerWidget {
         onRetry: () => ref.read(appDataProvider.notifier).refresh(),
       ),
       data: (state) {
-        if (state.employees.isEmpty) {
+        // The owner isn't on payroll - they showed up as a ₹0 slip "still
+        // to make" every month.
+        final ownerId = ref.read(authControllerProvider).userId;
+        final staff = state.employees.where((e) => e.id != ownerId).toList();
+        if (staff.isEmpty) {
           return const Center(
             child: Padding(
               padding: EdgeInsets.all(32.0),
@@ -71,7 +78,7 @@ class OwnerPayrollView extends ConsumerWidget {
         }
 
         final now = DateTime.now();
-        final rows = state.employees.map((emp) {
+        final rows = staff.map((emp) {
           final pending = state.pendingCommissionFor(emp.id);
           final paidThisMonth = salaryRecords.any(
             (s) => s.employeeId == emp.id && s.month == now.month && s.year == now.year,
@@ -83,7 +90,7 @@ class OwnerPayrollView extends ConsumerWidget {
           );
         }).toList();
 
-        final totalBase = state.employees.fold<double>(0, (s, e) => s + e.baseSalary);
+        final totalBase = staff.fold<double>(0, (s, e) => s + e.baseSalary);
         final totalCommission = rows.fold<double>(0, (s, r) => r.commission + s);
         final outstandingRows = rows.where((r) => !r.alreadyPaid).length;
 
@@ -93,25 +100,26 @@ class OwnerPayrollView extends ConsumerWidget {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: AppTheme.primaryLight,
-                borderRadius: BorderRadius.circular(18),
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.borderSubtle),
+                boxShadow: AppTheme.cardShadow,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${_kMonths[now.month - 1].toUpperCase()} ${now.year} PAYROLL',
+                    '${_kMonths[now.month - 1]} ${now.year}',
                     style: const TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.primaryBlue,
-                      letterSpacing: 0.9,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.slateLight,
                     ),
                   ),
                   const SizedBox(height: 10),
                   _summaryRow('Base salaries', _rupees(totalBase)),
                   _summaryRow('Commission owed', _rupees(totalCommission)),
-                  const Divider(height: 18, color: Color(0xFF99F6E4)),
+                  const Divider(height: 18, color: AppTheme.borderSubtle),
                   _summaryRow(
                     'Total if paid now',
                     _rupees(totalBase + totalCommission),
@@ -121,11 +129,11 @@ class OwnerPayrollView extends ConsumerWidget {
                   Text(
                     outstandingRows == 0
                         ? 'Every slip for this month has been generated.'
-                        : '$outstandingRows slip${outstandingRows == 1 ? '' : 's'} not yet generated this month.',
+                        : '$outstandingRows slip${outstandingRows == 1 ? '' : 's'} still to make - tap a person below.',
                     style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.primaryBlue,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: AppTheme.slateLight,
                     ),
                   ),
                 ],
@@ -133,7 +141,7 @@ class OwnerPayrollView extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
             for (final row in rows) ...[
-              _buildStaffRow(row),
+              _buildStaffRow(context, row),
               const SizedBox(height: 9),
             ],
           ],
@@ -170,13 +178,24 @@ class OwnerPayrollView extends ConsumerWidget {
     );
   }
 
-  Widget _buildStaffRow(_PayrollRow row) {
+  Widget _buildStaffRow(BuildContext context, _PayrollRow row) {
     final total = row.employee.baseSalary + row.commission;
+    final (avatarBg, avatarFg) = AppTheme.avatarColorsFor(row.employee.name);
 
-    return Container(
+    // Tapping opens the person's page, which is where their slip is made -
+    // these rows used to be dead ends, with nothing saying where to go.
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => pushAppRoute(
+          context,
+          OwnerEmployeeDetailPage(employeeId: row.employee.id),
+        ),
+        child: Container(
       padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
-        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.borderSubtle),
       ),
@@ -187,8 +206,8 @@ class OwnerPayrollView extends ConsumerWidget {
             height: 40,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: AppTheme.primaryLight,
-              borderRadius: BorderRadius.circular(12),
+              color: avatarBg,
+              shape: BoxShape.circle,
             ),
             child: Text(
               row.employee.name
@@ -197,10 +216,10 @@ class OwnerPayrollView extends ConsumerWidget {
                   .map((n) => n[0].toUpperCase())
                   .take(2)
                   .join(),
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
-                color: AppTheme.primaryBlue,
+                color: avatarFg,
               ),
             ),
           ),
@@ -256,7 +275,7 @@ class OwnerPayrollView extends ConsumerWidget {
                 child: Text(
                   row.alreadyPaid ? 'Slip made' : 'Pending',
                   style: TextStyle(
-                    fontSize: 9.5,
+                    fontSize: 10.5,
                     fontWeight: FontWeight.w700,
                     color: row.alreadyPaid ? AppTheme.accentGreen : AppTheme.accentAmber,
                   ),
@@ -264,7 +283,11 @@ class OwnerPayrollView extends ConsumerWidget {
               ),
             ],
           ),
+          const SizedBox(width: 6),
+          const Icon(Icons.chevron_right, size: 18, color: AppTheme.slateLight),
         ],
+      ),
+        ),
       ),
     );
   }

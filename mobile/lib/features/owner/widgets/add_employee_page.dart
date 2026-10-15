@@ -34,7 +34,8 @@ class _AddEmployeePageState extends ConsumerState<AddEmployeePage> {
   final _passwordController = TextEditingController();
   final _phoneController = TextEditingController();
   final _roleController = TextEditingController(text: 'Hair Stylist');
-  final _salaryController = TextEditingController(text: '25000');
+  // Empty, not pre-filled: a default salary was easy to save by accident.
+  final _salaryController = TextEditingController();
   final _serviceCommController = TextEditingController(text: '15');
   final _productCommController = TextEditingController(text: '5');
 
@@ -92,6 +93,10 @@ class _AddEmployeePageState extends ConsumerState<AddEmployeePage> {
     }
     if (password.length < 8) {
       _warn('Password must be at least 8 characters.');
+      return;
+    }
+    if (double.tryParse(_salaryController.text.trim()) == null) {
+      _warn('Enter their monthly base salary (0 if they are paid only commission).');
       return;
     }
 
@@ -171,51 +176,34 @@ class _AddEmployeePageState extends ConsumerState<AddEmployeePage> {
     );
   }
 
+  // Light card with the person's own avatar colour, matching Add Customer -
+  // it was a solid navy block, heavier than anything else on a form.
   Widget _previewCard() {
     final name = _nameController.text.trim();
     final role = _roleController.text.trim();
     final hasName = name.isNotEmpty;
+    final (bg, fg) = AppTheme.avatarColorsFor(hasName ? name : '?');
 
     return Container(
       key: const Key('addEmployeePreview'),
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppTheme.primaryBlue,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.primaryBlue.withValues(alpha: 0.06),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.borderSubtle),
+        boxShadow: AppTheme.cardShadow,
       ),
       child: Row(
         children: [
-          Container(
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
             width: 52,
             height: 52,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.18),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
-            ),
+            decoration: BoxDecoration(color: hasName ? bg : AppTheme.primaryLight, shape: BoxShape.circle),
             alignment: Alignment.center,
             child: hasName
-                ? Text(
-                    _initials,
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                      letterSpacing: 0.5,
-                    ),
-                  )
-                : const Icon(
-                    PhosphorIconsRegular.userPlus,
-                    size: 24,
-                    color: Colors.white,
-                  ),
+                ? Text(_initials, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: fg, letterSpacing: 0.5))
+                : const Icon(PhosphorIconsRegular.userPlus, size: 22, color: AppTheme.primaryBlue),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -227,23 +215,14 @@ class _AddEmployeePageState extends ConsumerState<AddEmployeePage> {
                   hasName ? name : 'New team member',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    letterSpacing: -0.3,
-                  ),
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: AppTheme.slateDark, letterSpacing: -0.3),
                 ),
                 const SizedBox(height: 3),
                 Text(
                   role.isEmpty ? 'They can log in as soon as you save' : role,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.white.withValues(alpha: 0.85),
-                  ),
+                  style: const TextStyle(fontSize: 12.5, color: AppTheme.slateLight),
                 ),
               ],
             ),
@@ -261,7 +240,7 @@ class _AddEmployeePageState extends ConsumerState<AddEmployeePage> {
         _field(
           controller: _nameController,
           label: 'Full Name *',
-          hint: 'e.g. Jamie Davis',
+          hint: 'e.g. Neha Patil',
           icon: PhosphorIconsRegular.user,
           textCapitalization: TextCapitalization.words,
         ),
@@ -295,7 +274,7 @@ class _AddEmployeePageState extends ConsumerState<AddEmployeePage> {
         _field(
           controller: _emailController,
           label: 'Login Email *',
-          hint: 'e.g. jamie@salon.com',
+          hint: 'e.g. neha@salon.com',
           icon: PhosphorIconsRegular.envelopeSimple,
           keyboardType: TextInputType.emailAddress,
         ),
@@ -340,8 +319,8 @@ class _AddEmployeePageState extends ConsumerState<AddEmployeePage> {
         _branchPicker(),
         _field(
           controller: _salaryController,
-          label: 'Base Retainer (₹ per month)',
-          hint: '25000',
+          label: 'Base salary (₹ per month)',
+          hint: 'e.g. 15000 (0 if commission only)',
           icon: PhosphorIconsRegular.wallet,
           keyboardType: TextInputType.number,
         ),
@@ -494,13 +473,7 @@ class _AddEmployeePageState extends ConsumerState<AddEmployeePage> {
         color: AppTheme.cardBg,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppTheme.borderSubtle),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.slateDark.withValues(alpha: 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        boxShadow: AppTheme.cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -662,13 +635,7 @@ class _AddEmployeePageState extends ConsumerState<AddEmployeePage> {
       decoration: BoxDecoration(
         color: AppTheme.cardBg,
         border: const Border(top: BorderSide(color: AppTheme.borderSubtle)),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.slateDark.withValues(alpha: 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, -3),
-          ),
-        ],
+        boxShadow: AppTheme.cardShadow,
       ),
       child: Row(
         children: [
@@ -697,7 +664,7 @@ class _AddEmployeePageState extends ConsumerState<AddEmployeePage> {
                 gradient: _submitting
                     ? null
                     : const LinearGradient(
-                        colors: [AppTheme.primaryBlue, Color(0xFF0D9488)],
+                        colors: [AppTheme.primaryBlue, Color(0xFF2F4E79)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
@@ -718,7 +685,7 @@ class _AddEmployeePageState extends ConsumerState<AddEmployeePage> {
                   backgroundColor: Colors.transparent,
                   shadowColor: Colors.transparent,
                   foregroundColor: Colors.white,
-                  disabledBackgroundColor: const Color(0xFF99F6E4),
+                  disabledBackgroundColor: const Color(0xFFC3D0E2),
                   padding: const EdgeInsets.symmetric(vertical: 15),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),

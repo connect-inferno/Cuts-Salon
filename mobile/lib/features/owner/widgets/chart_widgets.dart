@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../theme.dart';
+import '../../../data/money.dart';
 
 class CustomLineChart extends StatelessWidget {
   final List<double> values;
@@ -242,7 +243,7 @@ class CustomBarChart extends StatelessWidget {
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
                           Text(
-                            '₹${(val / 1000).toStringAsFixed(0)}k',
+                            '${formatInr((val / 1000))}k',
                             style: const TextStyle(
                               fontSize: 9,
                               fontWeight: FontWeight.bold,

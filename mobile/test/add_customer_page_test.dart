@@ -64,7 +64,7 @@ void main() {
       (tester) async {
     await _pump(tester);
 
-    await tester.tap(find.widgetWithText(ElevatedButton, 'Add Customer'));
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Add client'));
     await tester.pump(); // let the SnackBar in
 
     expect(find.text('Name and phone are required.'), findsOneWidget);
@@ -77,7 +77,7 @@ void main() {
     await _pump(tester);
 
     await tester.enterText(find.byType(TextField).first, 'Priya');
-    await tester.tap(find.widgetWithText(ElevatedButton, 'Add Customer'));
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Add client'));
     await tester.pump();
 
     expect(find.text('Name and phone are required.'), findsOneWidget);
@@ -88,7 +88,7 @@ void main() {
 
     await tester.enterText(find.byType(TextField).first, '   ');
     await tester.enterText(find.byType(TextField).at(1), '9876543210');
-    await tester.tap(find.widgetWithText(ElevatedButton, 'Add Customer'));
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Add client'));
     await tester.pump();
 
     expect(find.text('Name and phone are required.'), findsOneWidget);
@@ -166,7 +166,7 @@ void main() {
     await _pump(tester);
 
     expect(
-      find.textContaining('visits and spend start tracking'),
+      find.textContaining('Visits and spend are tracked'),
       findsOneWidget,
     );
 
@@ -192,7 +192,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.widgetWithText(ElevatedButton, 'Add Customer'), findsOneWidget);
+      expect(find.widgetWithText(ElevatedButton, 'Add client'), findsOneWidget);
       expect(find.widgetWithText(OutlinedButton, 'Cancel'), findsOneWidget);
     });
   }

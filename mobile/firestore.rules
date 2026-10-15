@@ -375,6 +375,17 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // whatsappSetup/status { ready: true } marks a salon whose WhatsApp has
+    // actually been set up (Meta number, token, functions deployed). Set by
+    // the operator in the Console - the app can't see the Meta token, so this
+    // is how it knows whether to show the WhatsApp switch or "contact us".
+    // Read by staff too: the bill screen checks it. Never client-writable,
+    // or any owner could mark themselves set up.
+    match /whatsappSetup/{docId} {
+      allow read: if isActiveEmployee();
+      allow write: if false;
+    }
+
     // The owner's "send test message" / "run today's messages now" buttons.
     // The app can't call Meta itself (that would ship the salon's access
     // token in the app), so it files a request here and the function does

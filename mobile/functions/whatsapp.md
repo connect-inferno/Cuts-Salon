@@ -53,7 +53,15 @@ Every send (or failure, with Meta's error) is recorded in the salon's
    the same command again.
    After changing the token in step 5, deploy again so the functions pick
    up the new version.
-7. In the app, as the owner: **Settings → WhatsApp Messages**, then
+7. **Mark the salon as set up.** Until this is done the app shows the owner
+   a "WhatsApp messages - not set up, contact us" card instead of the switch
+   (the app can't see the token, so it relies on this flag). Firebase Console
+   → the salon's project → Firestore Database → **Start collection** →
+   collection ID `whatsappSetup` → document ID `status` → field `ready`,
+   type **boolean**, value **true** → Save. Only the Console can write it
+   (`firestore.rules`), so an owner can't switch it on themselves. Sign out
+   and back in (or reload) for the app to pick it up.
+8. In the app, as the owner: **Settings → WhatsApp Messages**, then
    **Send test** to your own number (sends Meta's `hello_world`) and switch
    **Send automatic WhatsApp messages** on.
 

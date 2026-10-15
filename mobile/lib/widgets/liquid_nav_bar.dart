@@ -74,7 +74,7 @@ class LiquidNavBar extends StatefulWidget {
 }
 
 class _LiquidNavBarState extends State<LiquidNavBar> {
-  static const Color _active = Color(0xFF0F766E);
+  static const Color _active = Color(0xFF1E3A5F);
   static const Color _idle = Color(0xFF667085);
   static const double _barHeight = 62;
 
@@ -124,7 +124,7 @@ class _LiquidNavBarState extends State<LiquidNavBar> {
               duration: const Duration(milliseconds: 180),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
               decoration: BoxDecoration(
-                color: selected ? const Color(0xFFF0FDFA) : Colors.transparent,
+                color: selected ? const Color(0xFFEEF2F7) : Colors.transparent,
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Badge(

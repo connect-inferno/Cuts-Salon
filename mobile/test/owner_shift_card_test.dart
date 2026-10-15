@@ -62,8 +62,8 @@ void main() {
       await _pump(tester, today: null);
 
       expect(find.text('Not clocked in'), findsOneWidget);
-      expect(find.text('Clock In'), findsOneWidget);
-      expect(find.text('Clock Out'), findsNothing);
+      expect(find.text('Clock in'), findsOneWidget);
+      expect(find.text('Clock out'), findsNothing);
     });
 
     testWidgets('a record with no clock-in still offers Clock In',
@@ -73,14 +73,14 @@ void main() {
       await _pump(tester, today: _record());
 
       expect(find.text('Not clocked in'), findsOneWidget);
-      expect(find.text('Clock In'), findsOneWidget);
+      expect(find.text('Clock in'), findsOneWidget);
     });
 
     testWidgets('tapping fires onClockIn', (tester) async {
       var fired = false;
       await _pump(tester, today: null, onClockIn: () => fired = true);
 
-      await tester.tap(find.text('Clock In'));
+      await tester.tap(find.text('Clock in'));
       await tester.pump();
 
       expect(fired, isTrue);
@@ -98,7 +98,7 @@ void main() {
       // 09:42 to 14:30 is 4h 48m.
       expect(find.textContaining('Since 9:42 AM'), findsOneWidget);
       expect(find.textContaining('4h 48m so far'), findsOneWidget);
-      expect(find.text('Clock Out'), findsOneWidget);
+      expect(find.text('Clock out'), findsOneWidget);
     });
 
     testWidgets('tapping fires onClockOut', (tester) async {
@@ -109,7 +109,7 @@ void main() {
         onClockOut: () => fired = true,
       );
 
-      await tester.tap(find.text('Clock Out'));
+      await tester.tap(find.text('Clock out'));
       await tester.pump();
 
       expect(fired, isTrue);
@@ -133,8 +133,8 @@ void main() {
 
       // No re-punch: a second clock-in would overwrite the day's clockIn and
       // lose the shift that was worked.
-      expect(find.text('Clock In'), findsNothing);
-      expect(find.text('Clock Out'), findsNothing);
+      expect(find.text('Clock in'), findsNothing);
+      expect(find.text('Clock out'), findsNothing);
       expect(find.text('Logged for today.'), findsOneWidget);
     });
   });

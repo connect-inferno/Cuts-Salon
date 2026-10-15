@@ -318,6 +318,8 @@ class Bill {
   final String status;
   final DateTime? createdAt;
   final List<BillItem> items;
+  /// The approved discount request this bill used (see FSBill).
+  final String? discountRequestId;
 
   Bill({
     required this.id,
@@ -335,6 +337,7 @@ class Bill {
     required this.status,
     this.createdAt,
     required this.items,
+    this.discountRequestId,
   });
 
   /// Everything received on this bill, keyed by how it was received: the
@@ -708,6 +711,11 @@ class SalonSettings {
   final double dailyRevenueTarget;
   /// Automatic WhatsApp messages on/off - see FSSettings.whatsappEnabled.
   final bool whatsappEnabled;
+  /// Whether WhatsApp has actually been set up for this salon (Meta number,
+  /// token, functions deployed). Read from whatsappSetup/status, which only
+  /// the operator can write - see SalonFirestore.isWhatsAppReady. Until it's
+  /// true the app offers "contact us" instead of the on/off switch.
+  final bool whatsappReady;
 
   SalonSettings({
     required this.salonName,
@@ -718,6 +726,7 @@ class SalonSettings {
     required this.lateAttendancePenalty,
     this.dailyRevenueTarget = 0,
     this.whatsappEnabled = false,
+    this.whatsappReady = false,
   });
 
   /// The rate that actually applies to a bill. Every caller should use this

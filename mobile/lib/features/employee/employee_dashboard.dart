@@ -8,7 +8,6 @@ import '../../data/bill_math.dart';
 import '../../data/salary_provider.dart';
 import '../../data/models.dart';
 import '../auth/auth_provider.dart';
-import '../../firebase/salon_auth.dart';
 import '../../widgets/bill_whatsapp_note.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/app_page_header.dart';
@@ -16,12 +15,15 @@ import '../../widgets/app_page_switcher.dart';
 import '../../widgets/app_settings_page.dart';
 import '../../widgets/app_sub_page.dart';
 import '../../widgets/app_dialog.dart';
+import '../../widgets/account_security.dart';
 import '../../widgets/async_state_views.dart';
 import '../../widgets/add_customer_page.dart';
 import '../../widgets/dues_view.dart';
 import 'employee_payment_requests_view.dart';
 import '../../widgets/searchable_picker.dart';
 import '../../widgets/liquid_nav_bar.dart';
+import '../../data/money.dart';
+import '../../widgets/bill_history_view.dart';
 
 const double _kMobileBreakpoint = 800;
 
@@ -41,6 +43,23 @@ String _formatTime(DateTime? d) {
   final minute = d.minute.toString().padLeft(2, '0');
   final period = d.hour >= 12 ? 'PM' : 'AM';
   return '$hour:$minute $period';
+}
+
+String _inr(double amount) => formatInr(amount);
+
+/// First name with a capital letter - accounts are often created as
+/// "amit", which read oddly in "Good evening, amit".
+String _displayFirstName(String fullName) {
+  final first = fullName.trim().split(' ').first;
+  if (first.isEmpty) return first;
+  return first[0].toUpperCase() + first.substring(1);
+}
+
+/// "3h 05m" between two times - hours worked so far, or for the day.
+String _workedLabel(DateTime from, DateTime to) {
+  final d = to.difference(from);
+  if (d.isNegative) return '0h 00m';
+  return '${d.inHours}h ${(d.inMinutes % 60).toString().padLeft(2, '0')}m';
 }
 
 String _greeting(int hour) {
@@ -79,8 +98,16 @@ String _targetTypeLabel(String type) {
 Widget _statusBadge(String label, Color bg, Color fg) => Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
       decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
-      child: Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: fg)),
+      child: Text(_readableCode(label), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: fg)),
     );
+
+/// Stored codes ("PRESENT", "PENDING", "NOT_STARTED") as words ("Present",
+/// "Pending", "Not started"); anything else (a role title) is left alone.
+String _readableCode(String label) {
+  if (label.isEmpty || label != label.toUpperCase() || !RegExp(r'[A-Z]').hasMatch(label)) return label;
+  final words = label.replaceAll('_', ' ').toLowerCase();
+  return words[0].toUpperCase() + words.substring(1);
+}
 
 // ─── Shell ──────────────────────────────────────────────────────────────────
 
@@ -182,56 +209,35 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
   /// so a stylist settling a balance when the client is standing in front
   /// of them is a supported flow, not an owner-only one - it just had
   /// nowhere to happen from.
-  void _openClientSettings(BuildContext context, AppData state) {
-    final owing = state.bills.where((b) => !b.isFullyPaid).map((b) => b.customerId).toSet().length;
-    final outstanding = state.bills.fold<double>(0, (s, b) => s + b.amountDue);
-
+  /// The bell, wired the same way from every page: your discount requests
+  /// and the settlement requests you've sent, in one place - the same shape
+  /// as the owner's Requests inbox.
+  void _openNotifications(BuildContext context, EmployeeProfile profile, AppData state) {
+    final discounts = _myPendingDiscounts(profile, state);
     openAppSettings(
       context,
-      title: 'Client Settings',
-      subtitle: 'Client records and their money',
+      title: 'Requests',
+      subtitle: discounts > 0
+          ? '$discounts waiting for your owner'
+          : 'Nothing waiting for your owner',
       sections: [
         AppSettingsSection(
-          icon: PhosphorIconsRegular.handCoins,
-          label: 'Outstanding',
-          description: owing > 0
-              ? '₹${outstanding.round()} still to collect, across $owing client${owing == 1 ? '' : 's'}. '
-                  'Collecting one sends a request to your owner to approve.'
-              : 'No client owes anything right now.',
-          // requestOnly: staff raise a settlement request instead of
-          // recording the payment. firestore.rules enforces the same split,
-          // so this is the button telling the truth about what it can do.
-          builder: (_) => const DuesView(requestOnly: true),
+          icon: PhosphorIconsRegular.sealPercent,
+          label: 'Discounts',
+          description: discounts > 0
+              ? '$discounts discount request${discounts == 1 ? '' : 's'} waiting for your owner.'
+              : 'Discounts you asked for, and what your owner decided.',
+          badgeCount: discounts,
+          builder: (_) => _EmployeeDiscountRequestsTab(profile: profile, state: state),
         ),
         AppSettingsSection(
-          icon: PhosphorIconsRegular.paperPlaneTilt,
-          label: 'My requests',
-          description:
-              'Settlement requests you have sent, and what your owner decided.',
+          icon: PhosphorIconsRegular.handCoins,
+          label: 'Payments',
+          description: 'Balances you collected from clients, and whether your owner confirmed them.',
           builder: (_) => const EmployeePaymentRequestsView(),
         ),
       ],
     );
-  }
-
-  /// The bell, wired the same way from every page.
-  void _openNotifications(BuildContext context, EmployeeProfile profile, AppData state) {
-    if (_myPendingDiscounts(profile, state) > 0) {
-      openAppSubPage(
-        context,
-        title: 'Discount Requests',
-        subtitle: 'Your requests awaiting approval',
-        child: _EmployeeDiscountRequestsTab(profile: profile, state: state),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No new notifications'),
-          duration: Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
   }
 
   // ─── Drawer ───────────────────────────────────────────────────────────
@@ -268,7 +274,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
     return AppDrawer(
       isModal: isModal,
       title: salonName,
-      subtitle: '${profile.roleTitle} · ${profile.name}',
+      subtitle: '${profile.roleTitle} · ${_displayFirstName(profile.name)}',
       avatarInitials: profile.name
           .split(' ')
           .where((n) => n.isNotEmpty)
@@ -314,7 +320,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
           ],
         ),
         AppDrawerSection(
-          title: 'Mine',
+          title: 'You',
           items: [
             AppDrawerItem(
               icon: PhosphorIconsRegular.calendarBlank,
@@ -325,7 +331,7 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
             AppDrawerItem(
               icon: PhosphorIconsRegular.chartLineUp,
               label: 'Sales Targets',
-              onTap: () => go('Sales Targets', 'Quotas set by your manager',
+              onTap: () => go('Sales Targets', 'Targets set by your owner',
                   (live) => _EmployeeTargetTab(profile: profile, state: live)),
             ),
             AppDrawerItem(
@@ -497,12 +503,17 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
         .length;
 
     final pendingCommission = state.pendingCommissionFor(profile.id).total;
+    // Home is titled with the salon's name - "Home" said nothing the tab
+    // bar didn't, and staff may work at more than one salon.
+    final salonName = state.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Home';
 
     return [
       _page(
         key: const ValueKey('home'),
-        title: 'Home',
-        subtitle: 'Good ${_greeting(now.hour)}, ${profile.name.split(' ').first}',
+        title: salonName,
+        // The date - the greeting is the first line of the page itself,
+        // and it used to appear twice.
+        subtitle: '${_kWeekdays[now.weekday - 1]}, ${now.day} ${kMonthFullNames[now.month - 1]}',
         actions: [
           AppPageAction(
             icon: PhosphorIconsRegular.bell,
@@ -527,8 +538,15 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
         subtitle: myBillsToday > 0
             ? '$myBillsToday bill${myBillsToday == 1 ? '' : 's'} by you today'
             : 'No bills by you yet today',
-        // No gear: its one section, Discount Requests, is reached from the
-        // drawer and from the bell on Clients, so nothing is stranded.
+        // The bell, like every tab (discount and payment requests).
+        actions: [
+          AppPageAction(
+            icon: PhosphorIconsRegular.bell,
+            tooltip: 'Requests',
+            badgeCount: pending,
+            onTap: () => _openNotifications(context, profile, state),
+          ),
+        ],
         child: _EmployeeBillingTab(profile: profile),
       ),
       _page(
@@ -536,15 +554,25 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
         title: 'Clients',
         subtitle: 'The clients you have handled',
         actions: [
+          // Add, then the bell. (The gear opened "Client settings", which
+          // held Dues - now a card on this page - and My requests - now in
+          // the bell.)
+          AppPageAction(
+            icon: PhosphorIconsBold.plus,
+            label: 'Add',
+            tooltip: 'Add client',
+            onTap: () => openAppSubPage(
+              context,
+              title: 'Add client',
+              subtitle: 'Save their details to start tracking visits',
+              child: AddCustomerPage(branches: state.branches),
+            ),
+          ),
           AppPageAction(
             icon: PhosphorIconsRegular.bell,
-            tooltip: 'Notifications',
+            tooltip: 'Requests',
             badgeCount: pending,
             onTap: () => _openNotifications(context, profile, state),
-          ),
-          appSettingsAction(
-            tooltip: 'Client settings',
-            onTap: () => _openClientSettings(context, state),
           ),
         ],
         child: _EmployeeCustomersTab(profile: profile),
@@ -553,9 +581,17 @@ class _EmployeeDashboardState extends ConsumerState<EmployeeDashboard> {
         key: const ValueKey('earnings'),
         title: 'Earnings',
         subtitle: pendingCommission > 0
-            ? '₹${pendingCommission.round()} commission pending'
+            ? '${formatInr(pendingCommission)} commission pending'
             : 'No commission pending',
         // No gear: its one section, Targets, is reached from the drawer.
+        actions: [
+          AppPageAction(
+            icon: PhosphorIconsRegular.bell,
+            tooltip: 'Requests',
+            badgeCount: pending,
+            onTap: () => _openNotifications(context, profile, state),
+          ),
+        ],
         child: _EmployeeSalaryTab(profile: profile, state: state),
       ),
     ];
@@ -700,7 +736,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
     final todayRecord = _todayAttendance(state, profile.id);
     final isClockedIn = todayRecord != null && todayRecord.clockIn != null && todayRecord.clockOut == null;
     final shiftDone = todayRecord != null && todayRecord.clockIn != null && todayRecord.clockOut != null;
-    final firstName = profile.name.split(' ').first;
+    final firstName = _displayFirstName(profile.name);
 
     final myBills = state.bills.where((b) => b.items.any((i) => i.employeeId == profile.id)).toList()
       ..sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
@@ -718,19 +754,6 @@ class _EmployeeDashboardTab extends ConsumerWidget {
       (s, b) => s + b.items.where((i) => i.employeeId == profile.id).fold<double>(0, (t, i) => t + i.calculatedCommission),
     );
 
-    String shiftDuration = '--';
-    if (isClockedIn && todayRecord.clockIn != null) {
-      final diff = now.difference(todayRecord.clockIn!);
-      final h = diff.inHours.toString().padLeft(2, '0');
-      final m = (diff.inMinutes % 60).toString().padLeft(2, '0');
-      shiftDuration = '${h}h ${m}m';
-    }
-
-    const monthFullNames = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
-    ];
-    final dateFormatted = '${_kWeekdays[now.weekday - 1]}, ${now.day} ${monthFullNames[now.month - 1]} ${now.year}';
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, LiquidNavBar.barInset),
@@ -739,39 +762,8 @@ class _EmployeeDashboardTab extends ConsumerWidget {
         children: [
           const SizedBox(height: 16),
 
-          // 1. Designation Pill
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF0FDFA),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 5,
-                  height: 5,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF0F766E),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  profile.roleTitle,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF0F766E),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          // 2. Greeting & Date
+          // Greeting, with the role under it. (A role pill sat above and
+          // the full date below - the date is in the page header now.)
           Text(
             'Good ${_greeting(now.hour)}, $firstName',
             style: const TextStyle(
@@ -781,16 +773,189 @@ class _EmployeeDashboardTab extends ConsumerWidget {
               letterSpacing: -0.5,
             ),
           ),
-          const SizedBox(height: 3),
-          Text(
-            dateFormatted,
-            style: const TextStyle(
-              fontSize: 12.5,
-              color: Color(0xFF64748B),
-              fontWeight: FontWeight.w500,
+          if (profile.roleTitle.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              profile.roleTitle,
+              style: const TextStyle(fontSize: 13, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+            ),
+          ],
+          const SizedBox(height: 16),
+
+          // Clock in and New bill first - the two things a stylist does
+          // on arrival; they used to sit below the stats and target.
+          // 4. Shift Card (Clocked In / Clocked Out)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFFF1F5F9)),
+              boxShadow: AppTheme.cardShadow,
+            ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: isClockedIn ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Plain words - this read "Clocked Out /
+                            // INACTIVE SHIFT" before anyone had arrived.
+                            Text(
+                              shiftDone
+                                  ? 'Shift done'
+                                  : isClockedIn
+                                      ? 'On shift'
+                                      : 'Not clocked in',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF0F172A),
+                              ),
+                            ),
+                            Text(
+                              shiftDone
+                                  ? '${_formatTime(todayRecord.clockIn)} – ${_formatTime(todayRecord.clockOut)}'
+                                  : isClockedIn
+                                      ? 'Since ${_formatTime(todayRecord.clockIn)}'
+                                      : 'Clock in when you start',
+                              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  height: 46,
+                  // Clock in is the main action (filled); once on shift,
+                  // Clock out is outlined - it was the biggest thing on the
+                  // screen all day and easy to tap by accident.
+                  child: isClockedIn
+                      ? OutlinedButton.icon(
+                          onPressed: () => _toggleClock(context, ref, true),
+                          style: OutlinedButton.styleFrom(
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          icon: const Icon(PhosphorIconsRegular.signOut, size: 16),
+                          label: const Text('Clock out', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        )
+                      : ElevatedButton.icon(
+                          // One shift a day - the attendance rules refuse a
+                          // second clock-in, so offering it only produced an error.
+                          onPressed: shiftDone ? null : () => _toggleClock(context, ref, false),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primaryBlue,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          icon: const Icon(PhosphorIconsRegular.fingerprint, size: 16, color: Colors.white),
+                          label: Text(
+                            shiftDone ? 'Shift finished for today' : 'Clock in',
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
+
+          // 5. Fast POS New Billing / Checkout Hero Card
+          InkWell(
+            onTap: onOpenBilling,
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryBlue,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: AppTheme.cardShadow,
+              ),
+              // The staff app's main action, so it keeps the solid brand
+              // colour. (A "FAST POS" badge and "New Billing / Checkout"
+              // copy used to sit here - jargon a stylist doesn't need.)
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Center(
+                          child: Icon(PhosphorIconsRegular.receipt, color: Colors.white, size: 22),
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'New bill',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                                height: 1.15,
+                              ),
+                            ),
+                            SizedBox(height: 3),
+                            Text(
+                              'Bill a client and take payment',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFFC3D0E2),
+                                fontWeight: FontWeight.w400,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Center(
+                          child: Icon(
+                            PhosphorIconsBold.arrowRight,
+                            color: Color(0xFF1E3A5F),
+                            size: 16,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
 
           // 3. Three Stat Cards (Shift Hours, Clients, Earned Today)
           Row(
@@ -798,13 +963,13 @@ class _EmployeeDashboardTab extends ConsumerWidget {
               Expanded(
                 child: _buildMetricCard(
                   icon: PhosphorIconsRegular.clock,
-                  iconBg: const Color(0xFFF1F5F9),
-                  iconColor: const Color(0xFF475467),
-                  label: 'Shift Hours',
+                  iconBg: AppTheme.accentBlueBg,
+                  iconColor: AppTheme.accentBlue,
+                  label: 'Worked today',
                   valueWidget: Text(
                     todayRecord?.clockIn == null
-                        ? '--'
-                        : '${_formatTime(todayRecord!.clockIn)} – ${todayRecord.clockOut == null ? 'now' : _formatTime(todayRecord.clockOut)}',
+                        ? 'Not started'
+                        : _workedLabel(todayRecord!.clockIn!, todayRecord.clockOut ?? now),
                     style: const TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w700,
@@ -819,9 +984,9 @@ class _EmployeeDashboardTab extends ConsumerWidget {
               Expanded(
                 child: _buildMetricCard(
                   icon: PhosphorIconsRegular.users,
-                  iconBg: const Color(0xFFF0FDFA),
-                  iconColor: const Color(0xFF0F766E),
-                  label: 'Clients',
+                  iconBg: AppTheme.accentVioletBg,
+                  iconColor: AppTheme.accentViolet,
+                  label: 'Clients today',
                   valueWidget: RichText(
                     text: TextSpan(
                       text: '$todayCustomers ',
@@ -848,11 +1013,11 @@ class _EmployeeDashboardTab extends ConsumerWidget {
               Expanded(
                 child: _buildMetricCard(
                   icon: PhosphorIconsRegular.money,
-                  iconBg: const Color(0xFFECFDF5),
-                  iconColor: const Color(0xFF10B981),
-                  label: 'Earned Today',
+                  iconBg: AppTheme.accentGreenBg,
+                  iconColor: AppTheme.accentGreen,
+                  label: 'Earned today',
                   valueWidget: Text(
-                    '₹${todayEarned.toStringAsFixed(0)}',
+                    _inr(todayEarned),
                     style: const TextStyle(
                       fontSize: 13.5,
                       fontWeight: FontWeight.w700,
@@ -873,216 +1038,6 @@ class _EmployeeDashboardTab extends ConsumerWidget {
           _buildMonthlyTargetCard(),
           const SizedBox(height: 14),
 
-          // 4. Shift Card (Clocked In / Clocked Out)
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFF1F5F9)),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF0F172A).withValues(alpha: 0.04),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: isClockedIn ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              isClockedIn ? 'Clocked In' : 'Clocked Out',
-                              style: const TextStyle(
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF0F172A),
-                              ),
-                            ),
-                            Text(
-                              isClockedIn ? 'ACTIVE SHIFT' : 'INACTIVE SHIFT',
-                              style: TextStyle(
-                                fontSize: 9.5,
-                                fontWeight: FontWeight.w700,
-                                color: isClockedIn ? const Color(0xFF0D9488) : const Color(0xFF94A3B8),
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF0FDFA),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(PhosphorIconsRegular.clock, size: 13, color: Color(0xFF0F766E)),
-                          const SizedBox(width: 5),
-                          Text(
-                            shiftDuration,
-                            style: const TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF0F766E),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  height: 46,
-                  child: ElevatedButton.icon(
-                    // One shift a day - the attendance rules refuse a second
-                    // clock-in, so offering the button only produced an error.
-                    onPressed: shiftDone ? null : () => _toggleClock(context, ref, isClockedIn),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF18181B),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                    icon: Icon(
-                      isClockedIn ? PhosphorIconsRegular.signOut : PhosphorIconsRegular.fingerprint,
-                      size: 16,
-                      color: Colors.white,
-                    ),
-                    label: Text(
-                      shiftDone ? 'Shift finished for today' : (isClockedIn ? 'Clock Out' : 'Clock In'),
-                      style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-
-          // 5. Fast POS New Billing / Checkout Hero Card
-          InkWell(
-            onTap: onOpenBilling,
-            borderRadius: BorderRadius.circular(20),
-            child: Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: Color(0xFF0F766E),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF0F766E).withValues(alpha: 0.06),
-                    blurRadius: 18,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Text(
-                      'FAST POS',
-                      style: TextStyle(
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.16),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Center(
-                          child: Icon(PhosphorIconsRegular.receipt, color: Colors.white, size: 22),
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'New Billing /\nCheckout',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
-                                height: 1.15,
-                              ),
-                            ),
-                            SizedBox(height: 3),
-                            Text(
-                              'Quick-create invoice & collect client payment',
-                              style: TextStyle(
-                                fontSize: 10.5,
-                                color: Colors.white70,
-                                fontWeight: FontWeight.w400,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        width: 36,
-                        height: 36,
-                        decoration: const BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Center(
-                          child: Icon(
-                            PhosphorIconsBold.arrowRight,
-                            color: Color(0xFF0F766E),
-                            size: 16,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-
           // 6. Recent Bills Handled
           Container(
             padding: const EdgeInsets.all(16),
@@ -1090,13 +1045,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
               color: Colors.white,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: const Color(0xFFF1F5F9)),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
+              boxShadow: AppTheme.cardShadow,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1104,38 +1053,29 @@ class _EmployeeDashboardTab extends ConsumerWidget {
                 Row(
                   children: [
                     const Text(
-                      'Recent Bills Handled',
+                      'Your recent bills',
                       style: TextStyle(
                         fontSize: 14.5,
                         fontWeight: FontWeight.w700,
                         color: Color(0xFF0F172A),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Text(
-                        'Today',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF64748B),
-                        ),
-                      ),
-                    ),
+                    // (A "Today" tag sat here even when the bills were
+                    // from earlier days.)
                     const Spacer(),
                     GestureDetector(
-                      onTap: onOpenBilling,
+                      onTap: () => openAppSubPage(
+                        context,
+                        title: 'Your bills',
+                        subtitle: 'Bills you worked on',
+                        child: BillHistoryView(state: state, onlyEmployeeId: profile.id),
+                      ),
                       child: Text(
                         'See all (${myBills.length})',
                         style: const TextStyle(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFF0F766E),
+                          color: Color(0xFF1E3A5F),
                         ),
                       ),
                     ),
@@ -1178,30 +1118,25 @@ class _EmployeeDashboardTab extends ConsumerWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFF1F5F9)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        boxShadow: AppTheme.cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            padding: const EdgeInsets.all(6),
+            width: 28,
+            height: 28,
             decoration: BoxDecoration(
               color: iconBg,
-              shape: BoxShape.circle,
+              borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(icon, size: 14, color: iconColor),
+            child: Icon(icon, size: 15, color: iconColor),
           ),
           const SizedBox(height: 8),
           Text(
             label,
             style: const TextStyle(
-              fontSize: 10.5,
+              fontSize: 11.5,
               fontWeight: FontWeight.w500,
               color: Color(0xFF64748B),
             ),
@@ -1228,10 +1163,10 @@ class _EmployeeDashboardTab extends ConsumerWidget {
       children: [
         CircleAvatar(
           radius: 17,
-          backgroundColor: const Color(0xFFF0FDFA),
+          backgroundColor: const Color(0xFFEEF2F7),
           child: Text(
             initials,
-            style: const TextStyle(color: Color(0xFF0F766E), fontSize: 11, fontWeight: FontWeight.bold),
+            style: const TextStyle(color: Color(0xFF1E3A5F), fontSize: 11, fontWeight: FontWeight.bold),
           ),
         ),
         const SizedBox(width: 10),
@@ -1252,7 +1187,7 @@ class _EmployeeDashboardTab extends ConsumerWidget {
         Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Text('₹${myTotal.toStringAsFixed(0)}', style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
+            Text('${formatInr(myTotal)}', style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
             const SizedBox(height: 2),
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -1297,7 +1232,7 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(isClockedIn ? 'Successfully clocked out of shift.' : 'Clock in registered successfully!'),
+            content: Text(isClockedIn ? 'Clocked out.' : 'Clocked in.'),
             behavior: SnackBarBehavior.floating,
             backgroundColor: isClockedIn ? AppTheme.accentAmber : AppTheme.accentGreen,
           ),
@@ -1317,9 +1252,6 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
     final todayRecord = _todayAttendance(state, profile.id);
     final isClockedIn = todayRecord != null && todayRecord.clockIn != null && todayRecord.clockOut == null;
     final shiftDone = todayRecord != null && todayRecord.clockIn != null && todayRecord.clockOut != null;
-    final statusLine = todayRecord == null
-        ? 'Tap below to log attendance'
-        : (isClockedIn ? 'Clocked in at ${_formatTime(todayRecord.clockIn)}' : 'Clocked out at ${_formatTime(todayRecord.clockOut)}');
 
     final history = [...state.attendance]..sort((a, b) => (b.date ?? DateTime(0)).compareTo(a.date ?? DateTime(0)));
 
@@ -1344,67 +1276,83 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
             children: [
               // Title removed: the page this sits in already names it.
 
-              // Clock in/out card
+              // Clock in/out: the same white card and buttons as Home. It was
+              // a solid green/indigo gradient panel with a 120px round
+              // "Clock Out" target - off-palette and easy to hit by accident.
               Container(
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: isClockedIn
-                        ? [const Color(0xFF065F46), const Color(0xFF047857)]
-                        : [const Color(0xFF134E4A), const Color(0xFF312E81)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: (isClockedIn ? const Color(0xFF065F46) : AppTheme.primaryBlue).withValues(alpha: 0.06),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.borderSubtle),
+                  boxShadow: AppTheme.cardShadow,
                 ),
-                padding: const EdgeInsets.all(28.0),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(
-                      isClockedIn ? '● SHIFT ACTIVE' : '○ NOT CLOCKED IN',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: isClockedIn ? const Color(0xFF6EE7B7) : Colors.white54,
-                        fontSize: 11,
-                        letterSpacing: 1,
-                      ),
+                    Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: isClockedIn
+                                ? AppTheme.accentGreen
+                                : shiftDone
+                                    ? AppTheme.slateLight
+                                    : AppTheme.accentAmber,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                shiftDone ? 'Shift done' : (isClockedIn ? 'On shift' : 'Not clocked in'),
+                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.slateDark),
+                              ),
+                              Text(
+                                shiftDone
+                                    ? '${_formatTime(todayRecord.clockIn)} – ${_formatTime(todayRecord.clockOut)}'
+                                    : isClockedIn
+                                        ? 'Since ${_formatTime(todayRecord.clockIn)}'
+                                        : 'Clock in when you start',
+                                style: const TextStyle(fontSize: 12, color: AppTheme.slateLight),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 6),
-                    Text(statusLine, style: const TextStyle(color: Colors.white70, fontSize: 13), textAlign: TextAlign.center),
-                    const SizedBox(height: 28),
-                    GestureDetector(
-                      // See the Home shift card: one shift a day.
-                      onTap: shiftDone ? null : () => _toggleClock(context, ref, isClockedIn),
-                      child: Container(
-                        width: 120,
-                        height: 120,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.white.withValues(alpha: 0.12),
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 2.5),
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              PhosphorIconsRegular.fingerprint,
-                              color: Colors.white,
-                              size: 40,
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      height: 46,
+                      child: isClockedIn
+                          ? OutlinedButton.icon(
+                              onPressed: () => _toggleClock(context, ref, true),
+                              style: OutlinedButton.styleFrom(
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              ),
+                              icon: const Icon(PhosphorIconsRegular.signOut, size: 16),
+                              label: const Text('Clock out', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                            )
+                          : ElevatedButton.icon(
+                              // See the Home shift card: one shift a day.
+                              onPressed: shiftDone ? null : () => _toggleClock(context, ref, false),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppTheme.primaryBlue,
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              ),
+                              icon: const Icon(PhosphorIconsRegular.fingerprint, size: 16, color: Colors.white),
+                              label: Text(
+                                shiftDone ? 'Shift finished for today' : 'Clock in',
+                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                              ),
                             ),
-                            const SizedBox(height: 6),
-                            Text(
-                              shiftDone ? 'Done today' : (isClockedIn ? 'Clock Out' : 'Clock In'),
-                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white),
-                            ),
-                          ],
-                        ),
-                      ),
                     ),
                   ],
                 ),
@@ -1413,6 +1361,11 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
               const SizedBox(height: 16),
 
               // Month summary chips
+              const Text(
+                'This month',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.slateLight),
+              ),
+              const SizedBox(height: 8),
               Row(
                 children: [
                   _buildAttendChip('Present', _days(presentDays), AppTheme.accentGreen, AppTheme.accentGreenBg),
@@ -1435,7 +1388,7 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Attendance History', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.slateDark)),
+                    const Text('History', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.slateDark)),
                     const SizedBox(height: 14),
                     if (history.isEmpty)
                       const Text('No attendance records yet.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
@@ -1489,12 +1442,18 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
-        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
+        // White, with the status colour only on the number - three tinted
+        // blocks in a row read as decoration.
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.borderSubtle),
+        ),
         child: Column(
           children: [
             Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: fg)),
             const SizedBox(height: 2),
-            Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: fg.withValues(alpha: 0.7))),
+            Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppTheme.slateLight)),
           ],
         ),
       ),
@@ -1585,18 +1544,34 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
             children: [
               _summaryTile(
                 icon: PhosphorIconsRegular.usersThree,
-                iconBg: const Color(0xFFF0FDFA),
-                iconColor: const Color(0xFF0F766E),
-                label: 'Handled',
+                iconBg: AppTheme.accentBlueBg,
+                iconColor: AppTheme.accentBlue,
+                label: 'Yours',
                 value: '${mine.length}',
               ),
               const SizedBox(width: 8),
               _summaryTile(
                 icon: PhosphorIconsRegular.arrowsClockwise,
-                iconBg: const Color(0xFFECFDF5),
-                iconColor: const Color(0xFF10B981),
+                iconBg: AppTheme.accentVioletBg,
+                iconColor: AppTheme.accentViolet,
                 label: 'Returning',
                 value: '$returningCount',
+              ),
+              const SizedBox(width: 8),
+              // What clients owe the salon. Tapping opens the list, where a
+              // collected balance becomes a request for the owner to confirm.
+              _summaryTile(
+                icon: PhosphorIconsRegular.handCoins,
+                iconBg: AppTheme.accentOrangeBg,
+                iconColor: AppTheme.accentOrange,
+                label: 'Dues',
+                value: _inr(state.bills.fold<double>(0, (t, b) => t + b.amountDue)),
+                onTap: () => openAppSubPage(
+                  context,
+                  title: 'Dues',
+                  subtitle: 'What clients still owe',
+                  child: const DuesView(requestOnly: true),
+                ),
               ),
             ],
           ),
@@ -1605,14 +1580,14 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(24),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: const Color(0xFFE2E8F0)),
             ),
             child: TextField(
               onChanged: (val) => setState(() => _searchQuery = val),
               style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
               decoration: const InputDecoration(
-                hintText: 'Search by name or phone...',
+                hintText: 'Search name or phone',
                 hintStyle: TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
                 prefixIcon: Icon(PhosphorIconsRegular.magnifyingGlass, size: 18, color: Color(0xFF94A3B8)),
                 border: InputBorder.none,
@@ -1637,6 +1612,8 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
 
           if (filtered.isEmpty)
             Container(
+              // Full width - it shrank to its text and left a gap on the right.
+              width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 34, horizontal: 20),
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -1666,9 +1643,7 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: const Color(0xFFE2E8F0)),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 6, offset: const Offset(0, 2)),
-                ],
+                boxShadow: AppTheme.cardShadow,
               ),
               clipBehavior: Clip.antiAlias,
               child: Column(
@@ -1685,42 +1660,60 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
     );
   }
 
+  // Same compact card as the owner's Clients page: icon beside the number.
   Widget _summaryTile({
     required IconData icon,
     required Color iconBg,
     required Color iconColor,
     required String label,
     required String value,
+    VoidCallback? onTap,
   }) {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFF1F5F9)),
-          boxShadow: [
-            BoxShadow(color: const Color(0xFF0F172A).withValues(alpha: 0.03), blurRadius: 8, offset: const Offset(0, 2)),
-          ],
+          border: Border.all(color: AppTheme.borderSubtle),
+          boxShadow: AppTheme.cardShadow,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(8)),
-              child: Icon(icon, size: 14, color: iconColor),
+            Row(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(8)),
+                  child: Icon(icon, size: 15, color: iconColor),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      value,
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
-            ),
+            const SizedBox(height: 6),
             Text(
               label,
-              style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
             ),
           ],
+        ),
         ),
       ),
     );
@@ -1734,16 +1727,16 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFF0FDFA) : Colors.white,
+          color: isSelected ? const Color(0xFFEEF2F7) : Colors.white,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: isSelected ? const Color(0xFF0F766E) : const Color(0xFFE2E8F0)),
+          border: Border.all(color: isSelected ? const Color(0xFF1E3A5F) : const Color(0xFFE2E8F0)),
         ),
         child: Text(
           '$label ($count)',
           style: TextStyle(
             fontSize: 11.5,
             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-            color: isSelected ? const Color(0xFF0F766E) : const Color(0xFF64748B),
+            color: isSelected ? const Color(0xFF1E3A5F) : const Color(0xFF64748B),
           ),
         ),
       ),
@@ -1751,8 +1744,8 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
   }
 
   Widget _clientRow(BuildContext context, Customer c, int idx, List<Bill> myBills) {
-    const avatarBgs = [Color(0xFFF0FDFA), Color(0xFFFEF3C7), Color(0xFFEFF6FF), Color(0xFFCCFBF1), Color(0xFFFFF1F2)];
-    const avatarFgs = [Color(0xFF0F766E), Color(0xFFD97706), Color(0xFF2563EB), Color(0xFF0D9488), Color(0xFFBE123C)];
+    const avatarBgs = [Color(0xFFEEF2F7), Color(0xFFFEF3C7), Color(0xFFF1F4F8), Color(0xFFDCE4EF), Color(0xFFF1F4F8)];
+    const avatarFgs = [Color(0xFF1E3A5F), Color(0xFFD97706), Color(0xFF3E5F8A), Color(0xFF2F4E79), Color(0xFF3E5F8A)];
     final bg = avatarBgs[idx % avatarBgs.length];
     final fg = avatarFgs[idx % avatarFgs.length];
 
@@ -1833,7 +1826,7 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
               // page scoped to "clients I handled" the salon figure would be
               // claiming credit for someone else's work.
               Text(
-                '₹${_myRevenueFor(myBills).toStringAsFixed(0)}',
+                '${formatInr(_myRevenueFor(myBills))}',
                 style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: Color(0xFF0F172A)),
               ),
               const SizedBox(height: 2),
@@ -1899,9 +1892,9 @@ class _MyClientHistoryView extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFFF0FDFA),
+              color: const Color(0xFFEEF2F7),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFCCFBF1)),
+              border: Border.all(color: const Color(0xFFDCE4EF)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1912,7 +1905,7 @@ class _MyClientHistoryView extends StatelessWidget {
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.6,
-                    color: Color(0xFF0F766E),
+                    color: Color(0xFF1E3A5F),
                   ),
                 ),
                 const SizedBox(height: 3),
@@ -1922,7 +1915,7 @@ class _MyClientHistoryView extends StatelessWidget {
                     fontSize: 24,
                     fontWeight: FontWeight.w700,
                     letterSpacing: -0.6,
-                    color: Color(0xFF134E4A),
+                    color: Color(0xFF0F2440),
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -2063,11 +2056,33 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
   // snapshot already loaded, so opening it costs no Firestore read.
   bool _productsExpanded = false;
   bool _submitting = false;
+  // An approved discount request applied to this bill (see
+  // _approvedDiscounts), or null.
+  String? _discountRequestId;
 
   @override
   void dispose() {
     _partPaymentController.dispose();
     super.dispose();
+  }
+
+  /// This person's approved discount requests that no bill has used yet.
+  /// A request is used up by the bill that carries its id.
+  List<DiscountRequest> _approvedDiscounts(AppData state) {
+    final used = {for (final b in state.bills) if (b.discountRequestId != null) b.discountRequestId};
+    return state.discountRequests
+        .where((r) => r.status == 'APPROVED' && r.requestedBy == widget.profile.id && !used.contains(r.id))
+        .toList()
+      ..sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
+  }
+
+  /// What a request takes off this bill: its amount, or - when the owner
+  /// approved a price instead - the difference down to that price.
+  double _discountFor(DiscountRequest r, double subtotal) {
+    final amount = r.requestedDiscount > 0
+        ? r.requestedDiscount
+        : (r.overridePrice != null ? subtotal - r.overridePrice! : 0.0);
+    return amount.clamp(0, subtotal).toDouble();
   }
 
   @override
@@ -2138,7 +2153,11 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
 
     final subtotal = serviceTotal + productTotal;
     final gstRate = state.settings?.effectiveGstRate ?? 0;
-    final totals = computeBillTotals(subTotal: subtotal, gstRate: gstRate);
+    final approvedDiscounts = _approvedDiscounts(state);
+    final appliedMatch = approvedDiscounts.where((r) => r.id == _discountRequestId);
+    final appliedDiscount = appliedMatch.isEmpty ? null : appliedMatch.first;
+    final discount = appliedDiscount == null ? 0.0 : _discountFor(appliedDiscount, subtotal);
+    final totals = computeBillTotals(subTotal: subtotal, discount: discount, gstRate: gstRate);
     final gstAmount = totals.tax;
     final total = totals.total;
     final itemCount = serviceCount + productItemCount;
@@ -2157,38 +2176,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
         children: [
               const SizedBox(height: 16),
 
-              // 1. Header (NO BACK BUTTON - per requirement)
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Generate Client Bill',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF0F172A),
-                          letterSpacing: -0.3,
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'Select a customer, then add services or products.',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: Color(0xFF64748B),
-                        ),
-                      ),
-                    ],
-                  ),
-                  // The invoice number is generated by the createBill
-                  // transaction (INV-xxxxxxxx), so there is nothing real to
-                  // show here until the bill exists.
-                ],
-              ),
+              // (A "Generate Client Bill" heading sat here, repeating the page header.)
               const SizedBox(height: 16),
 
               // 2. Customer Card
@@ -2200,14 +2188,14 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                   // no clients meant the sheet that creates one never opened.
                   final c = await showSearchablePicker<Customer>(
                     context: context,
-                    title: 'Select Customer',
+                    title: 'Choose a client',
                     items: state.customers,
                     labelOf: (item) => item.name,
                     subtitleOf: (item) => item.phone,
-                    createLabel: 'Add new customer',
+                    createLabel: 'Add a new client',
                     onCreate: (ctx) => openAppSubPage<Customer>(
                       ctx,
-                      title: 'Add Customer',
+                      title: 'Add client',
                       subtitle: 'Save their details to start tracking visits',
                       child: AddCustomerPage(branches: state.branches),
                     ),
@@ -2221,13 +2209,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: const Color(0xFFE2E8F0)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
+                    boxShadow: AppTheme.cardShadow,
                   ),
                   child: Row(
                     children: [
@@ -2235,12 +2217,12 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                         width: 38,
                         height: 38,
                         decoration: BoxDecoration(
-                          color: const Color(0xFFF0FDFA),
+                          color: const Color(0xFFEEF2F7),
                           shape: BoxShape.circle,
-                          border: Border.all(color: const Color(0xFF99F6E4)),
+                          border: Border.all(color: const Color(0xFFC3D0E2)),
                         ),
                         child: const Center(
-                          child: Icon(PhosphorIconsRegular.user, color: Color(0xFF0F766E), size: 18),
+                          child: Icon(PhosphorIconsRegular.user, color: Color(0xFF1E3A5F), size: 18),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -2251,7 +2233,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                             Row(
                               children: [
                                 const Text(
-                                  'CUSTOMER',
+                                  'CLIENT',
                                   style: TextStyle(
                                     fontSize: 9.5,
                                     fontWeight: FontWeight.w700,
@@ -2281,7 +2263,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                             ),
                             const SizedBox(height: 3),
                             Text(
-                              selectedCustomer?.name ?? 'Tap to select a customer',
+                              selectedCustomer?.name ?? 'Choose a client',
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w700,
@@ -2357,13 +2339,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: const Color(0xFFF1F5F9)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
+                  boxShadow: AppTheme.cardShadow,
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 child: allServices.isEmpty
@@ -2396,7 +2372,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                   child: Row(
                     children: [
                       const Text(
-                        'Products & Retail',
+                        'Products',
                         style: TextStyle(
                           fontSize: 14.5,
                           fontWeight: FontWeight.w700,
@@ -2408,7 +2384,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(
                           color: productItemCount > 0
-                              ? const Color(0xFFF0FDFA)
+                              ? const Color(0xFFEEF2F7)
                               : const Color(0xFFF1F5F9),
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -2418,7 +2394,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                             fontSize: 10.5,
                             fontWeight: FontWeight.w600,
                             color: productItemCount > 0
-                                ? const Color(0xFF0F766E)
+                                ? const Color(0xFF1E3A5F)
                                 : const Color(0xFF64748B),
                           ),
                         ),
@@ -2461,13 +2437,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: const Color(0xFFF1F5F9)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
+                  boxShadow: AppTheme.cardShadow,
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 child: allProducts.isEmpty
@@ -2485,6 +2455,13 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                       ),
               ),
               ],
+              const SizedBox(height: 18),
+
+              // Approved discounts. Staff ask from the bell; once the owner
+              // approves, the discount waits here and one tap puts it on
+              // this bill. (Approval used to give a code with nowhere to
+              // enter it.)
+              _buildApprovedDiscounts(approvedDiscounts, subtotal),
               const SizedBox(height: 18),
 
               // 5. Payment Method Section
@@ -2534,19 +2511,13 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(color: const Color(0xFFE2E8F0)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
+                  boxShadow: AppTheme.cardShadow,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Bill Breakdown',
+                      'Summary',
                       style: TextStyle(
                         fontSize: 14.5,
                         fontWeight: FontWeight.w700,
@@ -2554,16 +2525,21 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    _buildBreakdownRow('Services ($serviceCount ${serviceCount == 1 ? 'item' : 'items'})', '₹${serviceTotal.toStringAsFixed(0)}'),
+                    _buildBreakdownRow('Services ($serviceCount ${serviceCount == 1 ? 'item' : 'items'})', '${formatInr(serviceTotal)}'),
                     const SizedBox(height: 6),
-                    _buildBreakdownRow('Retail Products ($productItemCount ${productItemCount == 1 ? 'item' : 'items'})', '₹${productTotal.toStringAsFixed(0)}'),
+                    if (productItemCount > 0)
+                      _buildBreakdownRow('Products ($productItemCount ${productItemCount == 1 ? 'item' : 'items'})', '${formatInr(productTotal)}'),
                     const SizedBox(height: 6),
-                    _buildBreakdownRow('Subtotal', '₹${subtotal.toStringAsFixed(0)}', isBold: true),
+                    if (totals.discount > 0) ...[
+                      _buildBreakdownRow('Approved discount', '-${formatInr(totals.discount)}'),
+                      const SizedBox(height: 6),
+                    ],
+                    _buildBreakdownRow('Subtotal', '${formatInr(subtotal - totals.discount)}', isBold: true),
                     // GST is off until the owner sets a rate in Settings, so
                     // the row only appears when there is tax to charge.
                     if (gstRate > 0) ...[
                       const SizedBox(height: 6),
-                      _buildBreakdownRow('CGST + SGST (${gstRate.toStringAsFixed(0)}%)', '₹${gstAmount.toStringAsFixed(0)}'),
+                      _buildBreakdownRow('CGST + SGST (${gstRate.toStringAsFixed(0)}%)', '${formatInr(gstAmount)}'),
                     ],
                   ],
                 ),
@@ -2577,13 +2553,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF0F172A).withValues(alpha: 0.06),
-                  blurRadius: 16,
-                  offset: const Offset(0, -4),
-                ),
-              ],
+              boxShadow: AppTheme.cardShadow,
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -2595,7 +2565,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'TOTAL AMOUNT',
+                          'TOTAL',
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.w700,
@@ -2614,7 +2584,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                       ],
                     ),
                     Text(
-                      '₹${total.toStringAsFixed(0)}',
+                      '${formatInr(total)}',
                       style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.w700,
@@ -2630,7 +2600,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                   child: ElevatedButton.icon(
                     onPressed: (_submitting || !canSubmit) ? null : () => _submit(context, state),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF0F766E),
+                      backgroundColor: const Color(0xFF1E3A5F),
                       foregroundColor: Colors.white,
                       elevation: 0,
                       shape: RoundedRectangleBorder(
@@ -2642,8 +2612,8 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                         : const Icon(PhosphorIconsRegular.receipt, size: 18, color: Colors.white),
                     label: Text(
                       selectedCustomer == null
-                          ? 'Select a customer to continue'
-                          : (itemCount == 0 ? 'Add a service or product' : 'Complete & Generate Bill'),
+                          ? 'Choose a client to continue'
+                          : (itemCount == 0 ? 'Add a service or product' : 'Create bill'),
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
@@ -2682,10 +2652,10 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
             width: 22,
             height: 22,
             decoration: BoxDecoration(
-              color: isSelected ? const Color(0xFF0F766E) : Colors.transparent,
+              color: isSelected ? const Color(0xFF1E3A5F) : Colors.transparent,
               shape: BoxShape.circle,
               border: Border.all(
-                color: isSelected ? const Color(0xFF0F766E) : const Color(0xFFCBD5E1),
+                color: isSelected ? const Color(0xFF1E3A5F) : const Color(0xFFCBD5E1),
                 width: 1.5,
               ),
             ),
@@ -2716,7 +2686,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
             ),
           ),
           Text(
-            '₹${(s['price'] as double).toStringAsFixed(0)}',
+            '${formatInr((s['price'] as double))}',
             style: const TextStyle(
               fontSize: 13.5,
               fontWeight: FontWeight.w700,
@@ -2751,11 +2721,11 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
               Row(
                 children: [
                   Text(
-                    '₹${(p['price'] as double).toStringAsFixed(0)}',
+                    '${formatInr((p['price'] as double))}',
                     style: const TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF0F766E),
+                      color: Color(0xFF1E3A5F),
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -2783,7 +2753,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
             decoration: BoxDecoration(
-              color: const Color(0xFFF0FDFA),
+              color: const Color(0xFFEEF2F7),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Row(
@@ -2806,14 +2776,14 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                       color: Colors.white,
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(PhosphorIconsRegular.minus, size: 10, color: Color(0xFF0F766E)),
+                    child: const Icon(PhosphorIconsRegular.minus, size: 10, color: Color(0xFF1E3A5F)),
                   ),
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8.0),
                   child: Text(
                     '$qty',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF0F766E)),
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1E3A5F)),
                   ),
                 ),
                 GestureDetector(
@@ -2826,7 +2796,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                     width: 20,
                     height: 20,
                     decoration: const BoxDecoration(
-                      color: Color(0xFF0F766E),
+                      color: Color(0xFF1E3A5F),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(PhosphorIconsBold.plus, size: 10, color: Colors.white),
@@ -2899,7 +2869,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
               ),
               const Spacer(),
               Text(
-                '₹${due.toStringAsFixed(0)} will be owed',
+                '${formatInr(due)} will be owed',
                 style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFFB45309)),
               ),
             ],
@@ -2983,10 +2953,10 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFFF0FDFA) : Colors.white,
+            color: isSelected ? const Color(0xFFEEF2F7) : Colors.white,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isSelected ? const Color(0xFF0F766E) : const Color(0xFFE2E8F0),
+              color: isSelected ? const Color(0xFF1E3A5F) : const Color(0xFFE2E8F0),
               width: isSelected ? 1.5 : 1.0,
             ),
           ),
@@ -2996,7 +2966,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
               Icon(
                 icon,
                 size: 18,
-                color: isSelected ? const Color(0xFF0F766E) : const Color(0xFF64748B),
+                color: isSelected ? const Color(0xFF1E3A5F) : const Color(0xFF64748B),
               ),
               const SizedBox(height: 4),
               Text(
@@ -3004,7 +2974,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-                  color: isSelected ? const Color(0xFF0F766E) : const Color(0xFF64748B),
+                  color: isSelected ? const Color(0xFF1E3A5F) : const Color(0xFF64748B),
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -3040,6 +3010,75 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
     );
   }
 
+  Widget _buildApprovedDiscounts(List<DiscountRequest> approved, double subtotal) {
+    if (approved.isEmpty) {
+      return const Text(
+        'Client asking for a discount? Ask your owner from the bell - once approved it shows up here.',
+        style: TextStyle(fontSize: 12.5, height: 1.4, color: AppTheme.slateLight),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Approved discount',
+          style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+        ),
+        const SizedBox(height: 8),
+        for (final r in approved) ...[
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => setState(() => _discountRequestId = _discountRequestId == r.id ? null : r.id),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: _discountRequestId == r.id ? AppTheme.primaryLight : Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: _discountRequestId == r.id ? AppTheme.primaryBlue : AppTheme.borderSubtle,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _discountRequestId == r.id ? PhosphorIconsFill.checkCircle : PhosphorIconsRegular.circle,
+                    size: 20,
+                    color: _discountRequestId == r.id ? AppTheme.primaryBlue : AppTheme.slateLight,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          r.requestedDiscount > 0
+                              ? '${formatInr(r.requestedDiscount)} off'
+                              : 'Price ${formatInr(r.overridePrice ?? 0)}',
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slateDark),
+                        ),
+                        if (r.reason.isNotEmpty)
+                          Text(r.reason, style: const TextStyle(fontSize: 12, color: AppTheme.slateLight)),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    _discountRequestId == r.id ? 'Applied' : 'Tap to apply',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: _discountRequestId == r.id ? AppTheme.primaryBlue : AppTheme.slateLight,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ],
+    );
+  }
+
   Future<void> _submit(BuildContext context, AppData state) async {
     final customerId = _selectedCustomerId;
     if (customerId == null) return;
@@ -3059,6 +3098,18 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
     ];
     if (items.isEmpty) return;
 
+    // The applied discount, re-read from live data and priced against the
+    // catalog prices createBill will charge.
+    final appliedMatch = _approvedDiscounts(state).where((r) => r.id == _discountRequestId);
+    final appliedDiscount = appliedMatch.isEmpty ? null : appliedMatch.first;
+    double subtotalNow = 0;
+    for (final s in state.services) {
+      if (_selectedServiceIds.contains(s.id)) subtotalNow += s.price;
+    }
+    for (final i in state.inventory) {
+      subtotalNow += i.price * (_selectedProductQuantities[i.id] ?? 0);
+    }
+
     setState(() => _submitting = true);
     try {
       // createBill re-resolves every price, commission and GST rate against
@@ -3074,6 +3125,8 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
             paymentMethod: isPending && typedNow > 0 ? _partPaymentMethod : _paymentMethod,
             items: items,
             amountPaidNow: isPending ? typedNow : null,
+            discountAmount: appliedDiscount == null ? null : _discountFor(appliedDiscount, subtotalNow),
+            discountRequestId: appliedDiscount?.id,
           );
 
       if (!mounted) return;
@@ -3082,6 +3135,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
         _selectedProductQuantities.clear();
         _selectedCustomerId = null;
         _partPaymentController.clear();
+        _discountRequestId = null;
       });
 
       if (!context.mounted) return;
@@ -3091,18 +3145,18 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
           icon: PhosphorIconsRegular.checkCircle,
           iconColor: AppTheme.accentGreen,
           iconBackground: AppTheme.accentGreenBg,
-          title: 'Bill Completed',
-          subtitle: 'Invoice ${bill.invoiceNumber} generated',
+          title: 'Bill created',
+          subtitle: bill.invoiceNumber,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
           Text(
             bill.amountDue > 0
-                ? 'Total ₹${bill.finalAmount.toStringAsFixed(0)}. '
-                    '${bill.amountPaid > 0 ? 'Collected ₹${bill.amountPaid.toStringAsFixed(0)}. ' : ''}'
-                    '₹${bill.amountDue.toStringAsFixed(0)} left to collect from this client.'
-                : 'Total amount ₹${bill.finalAmount.toStringAsFixed(0)} collected via ${paymentMethodLabel(bill.paymentMethod)}.',
+                ? 'Total ${formatInr(bill.finalAmount)}. '
+                    '${bill.amountPaid > 0 ? 'Collected ${formatInr(bill.amountPaid)}. ' : ''}'
+                    '${formatInr(bill.amountDue)} left to collect from this client.'
+                : 'Total amount ${formatInr(bill.finalAmount)} collected via ${paymentMethodLabel(bill.paymentMethod)}.',
             style: const TextStyle(fontSize: 13, color: AppTheme.slateMedium),
           ),
               BillWhatsAppNote(customerId: bill.customerId),
@@ -3112,7 +3166,7 @@ class _EmployeeBillingTabState extends ConsumerState<_EmployeeBillingTab> {
             width: double.infinity,
             child: ElevatedButton(
               onPressed: () => Navigator.pop(ctx),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F766E), foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1E3A5F), foregroundColor: Colors.white),
               child: const Text('Done'),
             ),
           ),
@@ -3206,7 +3260,6 @@ class _EmployeeSalaryTab extends ConsumerWidget {
       'July', 'August', 'September', 'October', 'November', 'December'
     ];
     final currentMonthName = monthFullNames[now.month - 1];
-    final currentMonthShort = _kMonthAbbrevs[now.month - 1];
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, LiquidNavBar.barInset),
@@ -3215,117 +3268,35 @@ class _EmployeeSalaryTab extends ConsumerWidget {
         children: [
           const SizedBox(height: 16),
 
-          // 1. Header (Earnings & Salary + Month selector)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Title removed: the page this sits in already names it.
-                  Row(
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF10B981),
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        '$currentMonthName ${now.year} • Pay Period Active',
-                        style: const TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w500,
-                          color: Color(0xFF64748B),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '$currentMonthShort ${now.year}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF0F172A),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    const Icon(PhosphorIconsRegular.caretDown, size: 12, color: Color(0xFF64748B)),
-                  ],
-                ),
-              ),
-            ],
+          // This month, in words. (A month "dropdown" sat on the right with
+          // no way to open it, beside "Pay Period Active".)
+          Text(
+            '$currentMonthName ${now.year} so far',
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
 
           // 2. Hero Net Payout (Estimated) Card
           Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppTheme.borderSubtle),
+              boxShadow: AppTheme.cardShadow,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: const [
-                        Text(
-                          'Net Payout (Estimated)',
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF475467),
-                          ),
-                        ),
-                        SizedBox(width: 4),
-                        Icon(PhosphorIconsRegular.info, size: 13, color: Color(0xFF94A3B8)),
-                      ],
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                      ),
-                      child: const Text(
-                        'Calculating live',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF0F766E),
-                        ),
-                      ),
-                    ),
-                  ],
+                // (An info icon that opened nothing and a "Calculating
+                // live" badge used to sit on this line.)
+                const Text(
+                  'Expected pay this month',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF475467),
+                  ),
                 ),
                 const SizedBox(height: 12),
                 Row(
@@ -3333,11 +3304,11 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                   textBaseline: TextBaseline.alphabetic,
                   children: [
                     Text(
-                      '₹${displayNet.toStringAsFixed(0)}',
+                      _inr(displayNet),
                       style: const TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.w700,
-                        color: Color(0xFF0F766E),
+                        color: Color(0xFF1E3A5F),
                         letterSpacing: -0.5,
                       ),
                     ),
@@ -3350,7 +3321,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
-                          'Paced for ₹${activeTarget.targetValue.toStringAsFixed(0)} target',
+                          'Target ${_inr(activeTarget.targetValue)}',
                           style: const TextStyle(
                             fontSize: 9.5,
                             fontWeight: FontWeight.w700,
@@ -3376,12 +3347,12 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: const Color(0xFFE2E8F0)),
                       ),
-                      child: const Icon(PhosphorIconsRegular.wallet, size: 16, color: Color(0xFF0F766E)),
+                      child: const Icon(PhosphorIconsRegular.wallet, size: 16, color: Color(0xFF1E3A5F)),
                     ),
                     const SizedBox(width: 10),
                     const Expanded(
                       child: Text(
-                        'Base Monthly Retainer',
+                        'Base salary',
                         style: TextStyle(
                           fontSize: 12.5,
                           fontWeight: FontWeight.w600,
@@ -3390,7 +3361,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                       ),
                     ),
                     Text(
-                      '₹${displayBase.toStringAsFixed(0)}',
+                      _inr(displayBase),
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
@@ -3412,7 +3383,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: const Color(0xFFE2E8F0)),
                       ),
-                      child: const Icon(PhosphorIconsRegular.trendUp, size: 16, color: Color(0xFF0F766E)),
+                      child: const Icon(PhosphorIconsRegular.trendUp, size: 16, color: Color(0xFF1E3A5F)),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -3420,7 +3391,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            'Pending Commission',
+                            'Commission so far',
                             style: TextStyle(
                               fontSize: 12.5,
                               fontWeight: FontWeight.w600,
@@ -3428,9 +3399,9 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                             ),
                           ),
                           Text(
-                            '${profile.serviceCommissionPct.toStringAsFixed(0)}% Service + ${profile.productCommissionPct.toStringAsFixed(0)}% Retail',
+                            '${profile.serviceCommissionPct.toStringAsFixed(0)}% on services, ${profile.productCommissionPct.toStringAsFixed(0)}% on products',
                             style: const TextStyle(
-                              fontSize: 10,
+                              fontSize: 11.5,
                               color: Color(0xFF94A3B8),
                               fontWeight: FontWeight.w500,
                             ),
@@ -3439,11 +3410,11 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                       ),
                     ),
                     Text(
-                      '₹${displayPendingComm.toStringAsFixed(0)}',
+                      _inr(displayPendingComm),
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
-                        color: Color(0xFF0F766E),
+                        color: Color(0xFF1E3A5F),
                       ),
                     ),
                   ],
@@ -3463,13 +3434,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: const Color(0xFFF1F5F9)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
+                    boxShadow: AppTheme.cardShadow,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -3480,10 +3445,10 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                           Container(
                             padding: const EdgeInsets.all(6),
                             decoration: const BoxDecoration(
-                              color: Color(0xFFF0FDFA),
+                              color: Color(0xFFEEF2F7),
                               shape: BoxShape.circle,
                             ),
-                            child: const Icon(PhosphorIconsRegular.scissors, size: 14, color: Color(0xFF0F766E)),
+                            child: const Icon(PhosphorIconsRegular.scissors, size: 14, color: Color(0xFF1E3A5F)),
                           ),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -3492,7 +3457,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              '${profile.serviceCommissionPct.toStringAsFixed(0)}% Svc',
+                              '${profile.serviceCommissionPct.toStringAsFixed(0)}%',
                               style: TextStyle(
                                 fontSize: 9.5,
                                 fontWeight: FontWeight.w700,
@@ -3504,16 +3469,16 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'Service Commission',
+                        'On services',
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 12,
                           fontWeight: FontWeight.w500,
                           color: Color(0xFF64748B),
                         ),
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '₹${serviceCommission.toStringAsFixed(0)}',
+                        _inr(serviceCommission),
                         style: const TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w700,
@@ -3522,9 +3487,9 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'From ₹${serviceBillings.toStringAsFixed(0)} billings',
+                        'From ${_inr(serviceBillings)} of services',
                         style: const TextStyle(
-                          fontSize: 10,
+                          fontSize: 11,
                           color: Color(0xFF94A3B8),
                         ),
                       ),
@@ -3540,13 +3505,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: const Color(0xFFF1F5F9)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
+                    boxShadow: AppTheme.cardShadow,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -3565,15 +3524,15 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFF0FDFA),
+                              color: const Color(0xFFEEF2F7),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              '${profile.productCommissionPct.toStringAsFixed(0)}% Ret',
+                              '${profile.productCommissionPct.toStringAsFixed(0)}%',
                               style: TextStyle(
                                 fontSize: 9.5,
                                 fontWeight: FontWeight.w700,
-                                color: Color(0xFF0F766E),
+                                color: Color(0xFF1E3A5F),
                               ),
                             ),
                           ),
@@ -3581,16 +3540,16 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'Retail Commission',
+                        'On products',
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 12,
                           fontWeight: FontWeight.w500,
                           color: Color(0xFF64748B),
                         ),
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '₹${productCommission.toStringAsFixed(0)}',
+                        _inr(productCommission),
                         style: const TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w700,
@@ -3599,9 +3558,9 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'From ₹${productBillings.toStringAsFixed(0)} sales',
+                        'From ${_inr(productBillings)} of products',
                         style: const TextStyle(
-                          fontSize: 10,
+                          fontSize: 11,
                           color: Color(0xFF94A3B8),
                         ),
                       ),
@@ -3621,7 +3580,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Payout History',
+                    'Past months',
                     style: TextStyle(
                       fontSize: 14.5,
                       fontWeight: FontWeight.w700,
@@ -3630,7 +3589,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                   ),
                   SizedBox(height: 2),
                   Text(
-                    'Past finalized statements',
+                    'Salary slips your owner has made',
                     style: TextStyle(
                       fontSize: 11,
                       color: Color(0xFF64748B),
@@ -3657,7 +3616,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: Color(0xFF0F766E),
+                        color: Color(0xFF1E3A5F),
                       ),
                     ),
                   ),
@@ -3668,18 +3627,13 @@ class _EmployeeSalaryTab extends ConsumerWidget {
 
           // Payout History Card
           Container(
+            width: double.infinity,
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(18),
               border: Border.all(color: const Color(0xFFF1F5F9)),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+              boxShadow: AppTheme.cardShadow,
             ),
             child: payouts.isEmpty
                 // A one-line grey sentence in a full-width card read as a
@@ -3691,7 +3645,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                         Icon(PhosphorIconsRegular.receipt, size: 28, color: Color(0xFFCBD5E1)),
                         SizedBox(height: 10),
                         Text(
-                          'No payouts recorded yet',
+                          'No salary slips yet',
                           style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
                         ),
                         SizedBox(height: 3),
@@ -3710,7 +3664,7 @@ class _EmployeeSalaryTab extends ConsumerWidget {
                         _buildPayoutRow(
                           '${monthFullNames[payouts[i].month - 1]} ${payouts[i].year}',
                           payouts[i].status,
-                          '₹${payouts[i].totalPaid.toStringAsFixed(0)}',
+                          _inr(payouts[i].totalPaid),
                         ),
                       ],
                     ],
@@ -3836,9 +3790,9 @@ class _AllPayoutsView extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFFF0FDFA),
+              color: const Color(0xFFEEF2F7),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFCCFBF1)),
+              border: Border.all(color: const Color(0xFFDCE4EF)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -3849,7 +3803,7 @@ class _AllPayoutsView extends StatelessWidget {
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.6,
-                    color: Color(0xFF0F766E),
+                    color: Color(0xFF1E3A5F),
                   ),
                 ),
                 const SizedBox(height: 3),
@@ -3859,7 +3813,7 @@ class _AllPayoutsView extends StatelessWidget {
                     fontSize: 24,
                     fontWeight: FontWeight.w700,
                     letterSpacing: -0.6,
-                    color: Color(0xFF134E4A),
+                    color: Color(0xFF0F2440),
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -3972,18 +3926,15 @@ class TargetHeroCard extends StatelessWidget {
     final remaining = (target.targetValue - target.progressValue).clamp(0.0, double.infinity);
     final daysLeft = target.endDate == null ? null : target.endDate!.difference(DateTime.now()).inDays;
 
+    // White card like the owner's target card on Home - it was a solid
+    // dark-navy block, the heaviest thing on the staff screen.
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Color(0xFF134E4A),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF134E4A).withValues(alpha: 0.06),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.borderSubtle),
+        boxShadow: AppTheme.cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3993,16 +3944,16 @@ class TargetHeroCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.12),
+                  color: AppTheme.accentGreenBg,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(PhosphorIconsRegular.target, color: Colors.white, size: 17),
+                child: const Icon(PhosphorIconsRegular.target, color: AppTheme.accentGreen, size: 17),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  _targetTypeLabel(target.type).toUpperCase(),
-                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF99F6E4), letterSpacing: 1.1),
+                  _targetTypeLabel(target.type),
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.slateDark),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -4010,12 +3961,12 @@ class TargetHeroCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.14),
+                  color: AppTheme.primaryLight,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Text(
-                  'ACTIVE',
-                  style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: Colors.white),
+                  'Active',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.primaryBlue),
                 ),
               ),
             ],
@@ -4027,12 +3978,12 @@ class TargetHeroCard extends StatelessWidget {
             children: [
               Text(
                 _fmt(target.type, target.progressValue),
-                style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -1),
+                style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w700, color: AppTheme.slateDark, letterSpacing: -1),
               ),
               const SizedBox(width: 6),
               Text(
                 'of ${_fmt(target.type, target.targetValue)}',
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF99F6E4)),
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.slateLight),
               ),
             ],
           ),
@@ -4042,8 +3993,8 @@ class TargetHeroCard extends StatelessWidget {
             child: LinearProgressIndicator(
               value: target.progressFraction.clamp(0.0, 1.0),
               minHeight: 8,
-              backgroundColor: Colors.white.withValues(alpha: 0.18),
-              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF34D399)),
+              backgroundColor: AppTheme.bgSurface,
+              valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primaryBlue),
             ),
           ),
           const SizedBox(height: 12),
@@ -4069,17 +4020,17 @@ class TargetHeroCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.1),
+          color: AppTheme.bgSurface,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600, color: Color(0xFF99F6E4))),
+            Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppTheme.slateLight)),
             const SizedBox(height: 2),
             Text(
               value,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white),
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.slateDark),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -4143,7 +4094,7 @@ class _EmployeeTargetTab extends StatelessWidget {
                         ),
                         SizedBox(height: 4),
                         Text(
-                          'Your manager can set one from the Employees tab.',
+                          'Your owner can set one from your staff page.',
                           style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11.5),
                         ),
                       ],
@@ -4199,9 +4150,7 @@ class _EmployeeTargetTab extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 6, offset: const Offset(0, 2)),
-        ],
+        boxShadow: AppTheme.cardShadow,
       ),
       padding: const EdgeInsets.all(16.0),
       child: Column(
@@ -4317,76 +4266,6 @@ class _EmployeeProfileTab extends ConsumerStatefulWidget {
 }
 
 class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
-  void _showChangePasswordDialog(BuildContext context, WidgetRef ref) {
-    final currentPassController = TextEditingController();
-    final newPassController = TextEditingController();
-    final confirmPassController = TextEditingController();
-    bool submitting = false;
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AppDialog(
-          icon: PhosphorIconsRegular.lockKey,
-          title: 'Change Password',
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: currentPassController,
-                obscureText: true,
-                decoration: appDialogFieldDecoration(label: 'Current Password', hint: 'Enter current password', icon: PhosphorIconsRegular.lockKey),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: newPassController,
-                obscureText: true,
-                decoration: appDialogFieldDecoration(label: 'New Password', hint: 'min 8 characters', icon: PhosphorIconsRegular.lockSimple),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: confirmPassController,
-                obscureText: true,
-                decoration: appDialogFieldDecoration(label: 'Confirm New Password', hint: 'Re-enter new password', icon: PhosphorIconsRegular.lockSimple),
-              ),
-            ],
-          ),
-          actions: AppDialogActions(
-            submitLabel: 'Save Password',
-            submitting: submitting,
-            onCancel: () => Navigator.pop(ctx),
-            onSubmit: () async {
-              if (newPassController.text.length < 8) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('New password must be at least 8 characters long.'), backgroundColor: AppTheme.accentRed));
-                return;
-              }
-              if (newPassController.text != confirmPassController.text) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('New passwords do not match.'), backgroundColor: AppTheme.accentRed));
-                return;
-              }
-              setDialogState(() => submitting = true);
-              try {
-                final auth = ref.read(authControllerProvider);
-                final app = SalonAuth.currentApp(auth.salonId!);
-                if (app == null) throw Exception('No initialized Firebase app for salon "${auth.salonId}"');
-                await SalonAuth.changeOwnPassword(app, currentPassword: currentPassController.text, newPassword: newPassController.text);
-                if (ctx.mounted) Navigator.pop(ctx);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password updated successfully!'), backgroundColor: AppTheme.accentGreen));
-                }
-              } catch (e) {
-                setDialogState(() => submitting = false);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed));
-                }
-              }
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final profile = widget.profile;
@@ -4412,8 +4291,8 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Account & Preferences', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 22, color: AppTheme.slateDark, letterSpacing: -0.5)),
-              const SizedBox(height: 18),
+              // (An "Account & Preferences" heading sat here, under the page's
+              // own "Profile" title.)
 
               // Profile card
               Container(
@@ -4431,15 +4310,13 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
                         Container(
                           width: 80,
                           height: 80,
+                          // The person's own avatar colour, as everywhere else.
                           decoration: BoxDecoration(
-                            color: Color(0xFF0F766E),
+                            color: AppTheme.avatarColorsFor(profile.name).$1,
                             shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(color: AppTheme.primaryBlue.withValues(alpha: 0.06), blurRadius: 12, offset: const Offset(0, 4)),
-                            ],
                           ),
                           child: Center(
-                            child: Text(initials, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w700)),
+                            child: Text(initials.toUpperCase(), style: TextStyle(color: AppTheme.avatarColorsFor(profile.name).$2, fontSize: 26, fontWeight: FontWeight.w700)),
                           ),
                         ),
                         Container(
@@ -4489,25 +4366,9 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
 
               const SizedBox(height: 16),
 
-              // Just the one row this screen owns. The five navigation
-              // tiles that used to sit here pointed at Attendance,
-              // Earnings, Targets and Discount Requests - all reachable
-              // from the nav, the drawer and their own section gears.
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppTheme.borderSubtle),
-                ),
-                child: _buildMenuTile(
-                  icon: PhosphorIconsRegular.lockKey,
-                  iconColor: AppTheme.slateMedium,
-                  iconBg: const Color(0xFFF1F5F9),
-                  title: 'Change Password',
-                  subtitle: '${profile.email} · ${profile.phone}',
-                  onTap: () => _showChangePasswordDialog(context, ref),
-                ),
-              ),
+              // Password and legal: the same card the owner's profile uses
+              // (change password, reset link, privacy policy, disclaimer).
+              const AccountAndLegalCard(),
 
               const SizedBox(height: 16),
 
@@ -4566,45 +4427,6 @@ class _EmployeeProfileTabState extends ConsumerState<_EmployeeProfileTab> {
     );
   }
 
-  Widget _buildMenuTile({
-    required IconData icon,
-    required Color iconColor,
-    required Color iconBg,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(12)),
-              child: Icon(icon, size: 20, color: iconColor),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.slateDark)),
-                  const SizedBox(height: 2),
-                  Text(subtitle, style: const TextStyle(fontSize: 12, color: AppTheme.slateLight), overflow: TextOverflow.ellipsis),
-                ],
-              ),
-            ),
-            const Icon(PhosphorIconsRegular.caretRight, size: 16, color: AppTheme.slateLight),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildStatCol(String label, String val, Color color) {
     return Column(
       children: [
@@ -4640,7 +4462,7 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
         builder: (ctx, setDialogState) => AppDialog(
           icon: PhosphorIconsRegular.tag,
           title: 'Request Discount',
-          subtitle: 'Sent to your manager for approval.',
+          subtitle: 'Sent to your owner for approval.',
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -4658,7 +4480,7 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
                     DropdownMenuItem<String?>(
                       value: b.id,
                       child: Text(
-                        '${b.invoiceNumber} - ${b.customerName ?? "Customer"} (₹${b.finalAmount.toStringAsFixed(0)})',
+                        '${b.invoiceNumber} - ${b.customerName ?? "Customer"} (${formatInr(b.finalAmount)})',
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -4669,13 +4491,13 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
               TextField(
                 controller: discountController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: appDialogFieldDecoration(label: 'Requested Discount (Rs.) *', hint: 'e.g. 200', icon: PhosphorIconsRegular.currencyInr),
+                decoration: appDialogFieldDecoration(label: 'Requested Discount (₹) *', hint: 'e.g. 200', icon: PhosphorIconsRegular.currencyInr),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: overrideController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: appDialogFieldDecoration(label: 'Override Price (Rs., optional)', hint: 'Leave blank unless setting a fixed final price', icon: PhosphorIconsRegular.currencyInr),
+                decoration: appDialogFieldDecoration(label: 'Override price (₹, optional)', hint: 'Leave blank unless setting a fixed final price', icon: PhosphorIconsRegular.currencyInr),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -4709,7 +4531,7 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
                     );
                 if (ctx.mounted) Navigator.pop(ctx);
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Request sent to your manager.'), backgroundColor: AppTheme.accentGreen));
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Request sent to your owner.'), backgroundColor: AppTheme.accentGreen));
                 }
               } catch (e) {
                 setDialogState(() => submitting = false);
@@ -4762,9 +4584,7 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 6, offset: const Offset(0, 2)),
-        ],
+        boxShadow: AppTheme.cardShadow,
       ),
       padding: const EdgeInsets.all(16.0),
       margin: const EdgeInsets.only(bottom: 12),
@@ -4814,10 +4634,10 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
             ),
             child: Row(
               children: [
-                const Icon(PhosphorIconsRegular.tag, size: 15, color: Color(0xFF0F766E)),
+                const Icon(PhosphorIconsRegular.tag, size: 15, color: Color(0xFF1E3A5F)),
                 const SizedBox(width: 8),
                 Text(
-                  '₹${req.requestedDiscount.toStringAsFixed(0)} off',
+                  '${formatInr(req.requestedDiscount)} off',
                   style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
                 ),
                 if (req.overridePrice != null) ...[
@@ -4825,12 +4645,12 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF0FDFA),
+                      color: const Color(0xFFEEF2F7),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
-                      'Override ₹${req.overridePrice!.toStringAsFixed(0)}',
-                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF0F766E)),
+                      'Override ${formatInr(req.overridePrice!)}',
+                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF1E3A5F)),
                     ),
                   ),
                 ],
@@ -4842,46 +4662,36 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
             req.reason,
             style: const TextStyle(fontSize: 12.5, color: Color(0xFF64748B), height: 1.35),
           ),
-          if (req.status == 'APPROVED' && req.authorizedCode != null) ...[
+          if (req.status == 'APPROVED') ...[
             const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF0FDF4),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.accentGreen.withValues(alpha: 0.3)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(PhosphorIconsRegular.sealCheck, size: 16, color: AppTheme.accentGreen),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Authorization Code',
-                          style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8), fontWeight: FontWeight.w600),
-                        ),
-                        Text(
-                          req.authorizedCode!,
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF0F172A), letterSpacing: 1),
-                        ),
-                      ],
+            // How to use it - approval used to show a code with nowhere in
+            // the app to enter it.
+            Builder(builder: (context) {
+              final live = ProviderScope.containerOf(context).read(appDataProvider).valueOrNull;
+              final usedOn = live?.bills.where((b) => b.discountRequestId == req.id).map((b) => b.invoiceNumber).firstOrNull;
+              return Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppTheme.accentGreenBg,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(PhosphorIconsRegular.sealCheck, size: 16, color: AppTheme.accentGreen),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        usedOn != null
+                            ? 'Used on $usedOn'
+                            : 'Approved - pick it under "Approved discount" when you make the bill.',
+                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppTheme.accentGreen),
+                      ),
                     ),
-                  ),
-                  IconButton(
-                    icon: const Icon(PhosphorIconsRegular.copy, size: 18, color: AppTheme.slateMedium),
-                    tooltip: 'Copy code',
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: req.authorizedCode!));
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Code copied.')));
-                    },
-                  ),
-                ],
-              ),
-            ),
+                  ],
+                ),
+              );
+            }),
           ],
         ],
       ),
@@ -4902,9 +4712,7 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: const Color(0xFFF1F5F9)),
-          boxShadow: [
-            BoxShadow(color: const Color(0xFF0F172A).withValues(alpha: 0.03), blurRadius: 8, offset: const Offset(0, 2)),
-          ],
+          boxShadow: AppTheme.cardShadow,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -4925,6 +4733,9 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Live data, not the snapshot handed in when the page opened - a
+    // request just sent didn't appear until the page was reopened.
+    final state = ref.watch(appDataProvider).valueOrNull ?? this.state;
     final requests = [...state.discountRequests]
       ..sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
     final pending = requests.where((r) => r.status == 'PENDING').length;
@@ -4950,19 +4761,13 @@ class _EmployeeDiscountRequestsTab extends ConsumerWidget {
                   children: [
                     InkWell(
                       onTap: () => _showNewRequestDialog(context, ref),
-                      borderRadius: BorderRadius.circular(22),
+                      borderRadius: BorderRadius.circular(16),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8.5),
                         decoration: BoxDecoration(
-                          color: Color(0xFF0F766E),
-                          borderRadius: BorderRadius.circular(22),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF0F766E).withValues(alpha: 0.06),
-                              blurRadius: 10,
-                              offset: const Offset(0, 3),
-                            ),
-                          ],
+                          color: Color(0xFF1E3A5F),
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: AppTheme.cardShadow,
                         ),
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,

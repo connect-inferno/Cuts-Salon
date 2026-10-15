@@ -50,7 +50,86 @@ template wording and troubleshooting: `mobile/functions/whatsapp.md`.
 - Customer `birthday` is `"MM-DD"` (no year; helpers in
   `mobile/lib/data/birthday.dart`). The daily function matches on that
   exact string.
+- What gets sent: the bill right after it is created (`whatsappBillReceipt`,
+  Firestore trigger on `bills/{id}`), birthday wishes and a come-back
+  reminder 21 days after the last visit (`whatsappDaily`, 10:00 IST,
+  Cloud Scheduler). Templates `bill_receipt` (Utility), `birthday_wish` and
+  `visit_reminder` (Marketing) must be approved in that salon's WhatsApp
+  Manager; their names/language/reminder days are in `functions/.env`
+  (defaults, deliberately committed - no secrets) and can be overridden per
+  salon in `functions/.env.<salonId>`.
+- **Set-up flag:** `whatsappSetup/status { ready: true }`, written by hand in
+  the Console when a salon's WhatsApp is configured (step 7 in
+  `whatsapp.md`); rules make it readable by staff, writable by nobody. Until
+  it's set, Settings shows a "not set up - WhatsApp us / Email us" card
+  (contact details in `lib/data/support_contact.dart`) instead of the switch,
+  and the bill screen never claims a WhatsApp send.
+- In the app: customers have a birthday picker and an "OK to send WhatsApp
+  messages" checkbox (Add Customer, and "Birthday & WhatsApp" on a client);
+  the owner's switch and test buttons are the WhatsApp card in Settings >
+  Business; "Bill Generated" says whether the bill is going out on WhatsApp
+  (`widgets/bill_whatsapp_note.dart`).
+- Unit tests for the pure helpers: `cd mobile/functions && npm test`.
+- First functions deploy to a new project often fails for two functions
+  with an Eventarc permission error - wait 3-5 minutes and deploy again.
 - Currently deployed to: `test-salon-ee06a` only (test salon, Meta test number; deployed 2026-10-14).
+
+## Billing and catalog data rules
+
+- **Invoice numbers** are sequential per salon (`INV-0001`...), taken from
+  `counters/invoices` (`{ last: N }`) inside `createBill`'s transaction.
+  `firestore.rules` only lets it be created at 1 and bumped by exactly 1.
+  Bills from before this kept their random `INV-XXXXXXXX` numbers.
+- **Services and products are never deleted.** "Remove" sets
+  `archived: true`; `firestore_app_data.dart` leaves archived entries out of
+  `AppData`, so billing, the menu and stock alerts never offer them, while
+  every bill line keeps its own copy of name and price. Name/SKU uniqueness
+  checks ignore archived entries so a removed name can be reused.
+- **A salon fresh from Add Salon has no branch.** Billing and hiring both
+  need one, so `AppDataNotifier.build()` creates a "Main Branch" the first
+  time an owner opens such a salon (owner-only; rules forbid anyone else).
+- Product SKU is optional in the UI; a blank one gets a generated code.
+- Stored codes (`CASH`, `UPI`, `PENDING`, `RENT`, `MISC`...) are never shown
+  raw - use `paymentMethodLabel()` / `expenseCategoryLabel()` in
+  `data/models.dart` ("Cash", "Pay later", "Rent", "Other").
+
+## UI conventions (owner and employee apps)
+
+- **Look:** deep navy brand on cool slate neutrals; colour is flat and
+  sparing (buttons, links, current tab, progress, small icon tiles). No
+  gradients, no coloured glows, no rainbow icon tiles - those read as
+  AI-generated and were removed on purpose. Amber / red (and muted green
+  for "Paid") are for status only. All tokens live in `lib/theme.dart`
+  (`AppTheme`; `primaryBlue` is the navy - names kept from the old indigo
+  design). Cards use `AppTheme.cardShadow` + a `borderSubtle` hairline,
+  16 radius.
+- **Building blocks** in `lib/widgets/ds.dart`: `DsCard`, `DsSectionLabel`,
+  `DsSectionTitle`, `DsStatTile`/`DsStat`, `DsListRow`, `DsAvatar`,
+  `DsPill`, `DsValueRow`, `DsProgressBar`. New screens should be built
+  from these rather than hand-rolled containers.
+- **One home per job:** the bell on every tab is the Requests inbox
+  (discount + payment requests); the gear appears only on Home and opens
+  Salon Settings (Business incl. GST/penalty/WhatsApp, Branches); Team has
+  visible Attendance and Payroll buttons; Clients has Dues. Don't hide daily
+  work behind a gear.
+- **Navigation:** the Menu tab (last slot, right edge) opens the Scaffold's
+  `endDrawer` so it slides from the right; on phones the drawer omits the
+  four bottom-bar tabs. Tabs change only from the bar (the PageView does
+  not swipe). Billing opens on New Bill.
+- **No fake buttons:** Call / WhatsApp use real links via
+  `widgets/open_link.dart` (web implementation; stub elsewhere). Never ship
+  a button that only shows a "Calling..." snackbar.
+- **Attendance roster** only saves rows the owner actually marked; an
+  unmarked person is "Not in yet", never auto-saved as Absent.
+- Don't run `dart format` over the big screen files - they aren't formatted
+  with it, and it rewrites thousands of unrelated lines.
+
+## Rules deploy status
+
+`feature/whatsapp-messages` added rules for `counters/invoices`,
+`whatsappLog`, `whatsappRequests` and `whatsappSetup` (additive only). They
+were deployed to all three salons (`cuts-salon`, `instyle-salon`,
+`test-salon-ee06a`) on 2026-10-14, so the app can be pushed.
 
 ## Onboarding a new salon
 

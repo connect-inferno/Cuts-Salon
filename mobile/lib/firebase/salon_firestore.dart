@@ -120,6 +120,20 @@ class SalonFirestore {
     }
   }
 
+  /// whatsappSetup/status.ready - set by hand in the Firebase Console once a
+  /// salon's WhatsApp is configured (functions/whatsapp.md). The app can't
+  /// see the Meta token itself (it's a Secret Manager secret), so this flag
+  /// is how it knows. Any failure - missing doc, rules not deployed yet,
+  /// offline - reads as "not set up", which only ever shows the contact card.
+  Future<bool> isWhatsAppReady() async {
+    try {
+      final doc = await db.collection('whatsappSetup').doc('status').get();
+      return doc.data()?['ready'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> updateSettings(Map<String, dynamic> changes) =>
       db.collection('settings').doc('main').set(changes, SetOptions(merge: true));
 
@@ -417,6 +431,8 @@ class SalonFirestore {
     required double gstRate,
     required List<BillItemDraft> items,
     double billDiscountAmount = 0,
+    /// The approved discount request [billDiscountAmount] came from, if any.
+    String? discountRequestId,
     /// What the client actually handed over now. null means "the whole
     /// bill", which is the ordinary paid-in-full case; 0 means they're
     /// paying entirely later. Clamped to the computed total below, since the
@@ -525,6 +541,7 @@ class SalonFirestore {
         paymentMethod: paymentMethod,
         amountPaid: amountPaid,
         createdBy: createdBy,
+        discountRequestId: discountRequestId,
       );
       tx.set(billRef, bill.toFirestore(isCreate: true));
 

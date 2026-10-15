@@ -15,6 +15,20 @@
       "port": 5173
     },
     {
+      "name": "flutter-web-login",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": [
+        "run",
+        "-d",
+        "web-server",
+        "--web-port=5173",
+        "--web-hostname=127.0.0.1",
+        "--dart-define-from-file=dev_login.json"
+      ],
+      "cwd": "mobile",
+      "port": 5173
+    },
+    {
       "name": "flutter-web-verify",
       "runtimeExecutable": "flutter",
       "runtimeArgs": [

@@ -158,7 +158,7 @@ class AppDrawer extends StatelessWidget {
             height: 44,
             alignment: Alignment.center,
             decoration: const BoxDecoration(
-              color: Color(0xFF134E4A),
+              color: Color(0xFF0F2440),
               shape: BoxShape.circle,
             ),
             child: Text(

@@ -15,6 +15,7 @@ import '../../../widgets/bill_history_view.dart';
 import '../../../widgets/add_customer_page.dart';
 import '../../../widgets/app_sub_page.dart';
 import '../owner_dashboard.dart';
+import '../../../data/money.dart';
 
 T? _firstOrNull<T>(Iterable<T> items) => items.isEmpty ? null : items.first;
 
@@ -445,7 +446,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                               style: const TextStyle(
                                                 fontSize: 13,
                                                 fontWeight: FontWeight.w700,
-                                                color: Color(0xFF0F766E),
+                                                color: Color(0xFF1E3A5F),
                                               ),
                                             ),
                                           ),
@@ -466,7 +467,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                         onTap: () async {
                           final customer = await showSearchablePicker<Customer>(
                             context: context,
-                            title: 'Select Customer',
+                            title: 'Choose a client',
                             items: state.customers,
                             labelOf: (c) => c.name,
                             subtitleOf:
@@ -474,11 +475,11 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                     '${c.phone}${c.isVip ? ' • VIP Gold' : ''}',
                             // A walk-in who isn't on file yet shouldn't mean
                             // abandoning a half-built bill to go and add them.
-                            createLabel: 'Add new customer',
+                            createLabel: 'Add a new client',
                             onCreate:
                                 (ctx) => openAppSubPage<Customer>(
                                   ctx,
-                                  title: 'Add Customer',
+                                  title: 'Add client',
                                   subtitle:
                                       'Save their details to start tracking visits',
                                   child: AddCustomerPage(
@@ -496,15 +497,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: const Color(0xFFE2E8F0)),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(
-                                  0xFF0F172A,
-                                ).withValues(alpha: 0.03),
-                                blurRadius: 8,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
+                            boxShadow: AppTheme.cardShadow,
                           ),
                           child: Row(
                             children: [
@@ -512,12 +505,12 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                 width: 44,
                                 height: 44,
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFF0FDFA),
+                                  color: const Color(0xFFEEF2F7),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: const Icon(
                                   PhosphorIconsFill.user,
-                                  color: Color(0xFF0F766E),
+                                  color: Color(0xFF1E3A5F),
                                   size: 22,
                                 ),
                               ),
@@ -527,7 +520,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     const Text(
-                                      'CUSTOMER',
+                                      'CLIENT',
                                       style: TextStyle(
                                         fontSize: 10,
                                         fontWeight: FontWeight.w700,
@@ -539,7 +532,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                     Text(
                                       selectedCustomer != null
                                           ? selectedCustomer.name
-                                          : 'Select Customer',
+                                          : 'Choose a client',
                                       style: TextStyle(
                                         fontSize: 15,
                                         fontWeight: FontWeight.w700,
@@ -555,7 +548,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                     Text(
                                       selectedCustomer != null
                                           ? '${selectedCustomer.phone}${selectedCustomer.isVip ? ' • VIP Gold' : ''}'
-                                          : 'Tap to choose client profile',
+                                          : 'Search, or add someone new',
                                       style: TextStyle(
                                         fontSize: 12,
                                         color:
@@ -586,7 +579,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                           final employee =
                               await showSearchablePicker<EmployeeProfile>(
                                 context: context,
-                                title: 'Select Stylist',
+                                title: 'Who did the service?',
                                 items: state.employees,
                                 labelOf: (e) => e.name,
                                 subtitleOf:
@@ -605,15 +598,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: const Color(0xFFE2E8F0)),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(
-                                  0xFF0F172A,
-                                ).withValues(alpha: 0.03),
-                                blurRadius: 8,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
+                            boxShadow: AppTheme.cardShadow,
                           ),
                           child: Row(
                             children: [
@@ -636,7 +621,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     const Text(
-                                      'ATTENDING STYLIST',
+                                      'DONE BY',
                                       style: TextStyle(
                                         fontSize: 10,
                                         fontWeight: FontWeight.w700,
@@ -648,7 +633,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                     Text(
                                       selectedEmployee != null
                                           ? selectedEmployee.name
-                                          : 'Select Stylist',
+                                          : 'Choose who did it',
                                       style: TextStyle(
                                         fontSize: 15,
                                         fontWeight: FontWeight.w700,
@@ -724,7 +709,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w700,
-                                  color: Color(0xFF0F766E),
+                                  color: Color(0xFF1E3A5F),
                                 ),
                               ),
                             ),
@@ -779,7 +764,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                   border: Border.all(
                                     color:
                                         isChecked
-                                            ? const Color(0xFF0F766E)
+                                            ? const Color(0xFF1E3A5F)
                                             : const Color(0xFFE2E8F0),
                                     width: isChecked ? 1.5 : 1,
                                   ),
@@ -814,8 +799,8 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                           const SizedBox(height: 3),
                                           Text(
                                             svc.categoryName != null
-                                                ? '${svc.categoryName} • ₹${svc.price.toStringAsFixed(0)}'
-                                                : '₹${svc.price.toStringAsFixed(0)}',
+                                                ? '${svc.categoryName} • ${formatInr(svc.price)}'
+                                                : '${formatInr(svc.price)}',
                                             style: const TextStyle(
                                               fontSize: 12,
                                               fontWeight: FontWeight.w600,
@@ -831,13 +816,13 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                       decoration: BoxDecoration(
                                         color:
                                             isChecked
-                                                ? const Color(0xFF0F766E)
+                                                ? const Color(0xFF1E3A5F)
                                                 : Colors.transparent,
                                         shape: BoxShape.circle,
                                         border: Border.all(
                                           color:
                                               isChecked
-                                                  ? const Color(0xFF0F766E)
+                                                  ? const Color(0xFF1E3A5F)
                                                   : const Color(0xFFCBD5E1),
                                           width: 1.6,
                                         ),
@@ -874,7 +859,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                           child: Row(
                             children: [
                               const Text(
-                                'Products & Retail',
+                                'Products',
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w700,
@@ -890,10 +875,10 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                     vertical: 3,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFFF0FDFA),
+                                    color: const Color(0xFFEEF2F7),
                                     borderRadius: BorderRadius.circular(12),
                                     border: Border.all(
-                                      color: const Color(0xFF99F6E4),
+                                      color: const Color(0xFFC3D0E2),
                                     ),
                                   ),
                                   child: Text(
@@ -901,7 +886,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                     style: const TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.w700,
-                                      color: Color(0xFF0F766E),
+                                      color: Color(0xFF1E3A5F),
                                     ),
                                   ),
                                 ),
@@ -975,7 +960,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                 border: Border.all(
                                   color:
                                       qty > 0
-                                          ? const Color(0xFF0F766E)
+                                          ? const Color(0xFF1E3A5F)
                                           : const Color(0xFFE2E8F0),
                                   width: qty > 0 ? 1.5 : 1,
                                 ),
@@ -986,12 +971,12 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                     width: 38,
                                     height: 38,
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFFF0FDFA),
+                                      color: const Color(0xFFEEF2F7),
                                       borderRadius: BorderRadius.circular(10),
                                     ),
                                     child: const Icon(
                                       PhosphorIconsFill.drop,
-                                      color: Color(0xFF0F766E),
+                                      color: Color(0xFF1E3A5F),
                                       size: 20,
                                     ),
                                   ),
@@ -1014,7 +999,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                         Row(
                                           children: [
                                             Text(
-                                              '₹${prod.price.toStringAsFixed(0)}',
+                                              '${formatInr(prod.price)}',
                                               style: const TextStyle(
                                                 fontSize: 12,
                                                 fontWeight: FontWeight.w700,
@@ -1114,10 +1099,10 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                   else
                                     Container(
                                       decoration: BoxDecoration(
-                                        color: const Color(0xFFF0FDFA),
+                                        color: const Color(0xFFEEF2F7),
                                         borderRadius: BorderRadius.circular(20),
                                         border: Border.all(
-                                          color: const Color(0xFF99F6E4),
+                                          color: const Color(0xFFC3D0E2),
                                         ),
                                       ),
                                       child: Row(
@@ -1127,7 +1112,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                             icon: const Icon(
                                               PhosphorIconsBold.minus,
                                               size: 14,
-                                              color: Color(0xFF0F766E),
+                                              color: Color(0xFF1E3A5F),
                                             ),
                                             visualDensity:
                                                 VisualDensity.compact,
@@ -1158,7 +1143,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                               style: const TextStyle(
                                                 fontSize: 13,
                                                 fontWeight: FontWeight.w700,
-                                                color: Color(0xFF0F766E),
+                                                color: Color(0xFF1E3A5F),
                                               ),
                                             ),
                                           ),
@@ -1166,7 +1151,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                             icon: const Icon(
                                               PhosphorIconsBold.plus,
                                               size: 14,
-                                              color: Color(0xFF0F766E),
+                                              color: Color(0xFF1E3A5F),
                                             ),
                                             visualDensity:
                                                 VisualDensity.compact,
@@ -1215,11 +1200,11 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                     Icon(
                                       PhosphorIconsBold.tag,
                                       size: 16,
-                                      color: Color(0xFF0F766E),
+                                      color: Color(0xFF1E3A5F),
                                     ),
                                     SizedBox(width: 8),
                                     Text(
-                                      'Discount Applied',
+                                      'Discount',
                                       style: TextStyle(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w700,
@@ -1243,7 +1228,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                   child: Text(
                                     _discountPercent > 0
                                         ? '${_discountPercent.toStringAsFixed(0)}% VIP Salon Promo'
-                                        : 'No Discount',
+                                        : 'None',
                                     style: TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.w700,
@@ -1270,11 +1255,11 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                 Expanded(
                                   child: SliderTheme(
                                     data: SliderTheme.of(context).copyWith(
-                                      activeTrackColor: const Color(0xFF0F766E),
+                                      activeTrackColor: const Color(0xFF1E3A5F),
                                       inactiveTrackColor: const Color(
                                         0xFFE2E8F0,
                                       ),
-                                      thumbColor: const Color(0xFF0F766E),
+                                      thumbColor: const Color(0xFF1E3A5F),
                                       overlayColor: const Color(
                                         0xFF4F46E5,
                                       ).withValues(alpha: 0.12),
@@ -1313,15 +1298,15 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                   vertical: 3,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFF0FDFA),
+                                  color: const Color(0xFFEEF2F7),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Text(
-                                  '${_discountPercent.toStringAsFixed(0)}% (₹${discountAmount.toStringAsFixed(0)} off)',
+                                  '${_discountPercent.toStringAsFixed(0)}% (${formatInr(discountAmount)} off)',
                                   style: const TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w700,
-                                    color: Color(0xFF0F766E),
+                                    color: Color(0xFF1E3A5F),
                                   ),
                                 ),
                               ),
@@ -1368,14 +1353,14 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                             isSel
                                                 ? (method == 'PENDING'
                                                     ? const Color(0xFFFFFBEB)
-                                                    : const Color(0xFFF0FDFA))
+                                                    : const Color(0xFFEEF2F7))
                                                 : Colors.white,
                                         border: Border.all(
                                           color:
                                               isSel
                                                   ? (method == 'PENDING'
                                                       ? const Color(0xFFD97706)
-                                                      : const Color(0xFF0F766E))
+                                                      : const Color(0xFF1E3A5F))
                                                   : const Color(0xFFE2E8F0),
                                           width: isSel ? 1.6 : 1,
                                         ),
@@ -1430,7 +1415,8 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                               children: [
                                 Expanded(
                                   child: Text(
-                                    'Subtotal (${_selectedServiceIds.length} services + ${_selectedProductQuantities.length} retail)',
+                                    'Subtotal (${_selectedServiceIds.length} service${_selectedServiceIds.length == 1 ? '' : 's'}'
+                                    '${_selectedProductQuantities.isEmpty ? '' : ' + ${_selectedProductQuantities.length} product${_selectedProductQuantities.length == 1 ? '' : 's'}'})',
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
                                       fontSize: 12,
@@ -1441,7 +1427,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  '₹${subtotal.toStringAsFixed(0)}',
+                                  '${formatInr(subtotal)}',
                                   style: const TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w700,
@@ -1471,7 +1457,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                           vertical: 1,
                                         ),
                                         decoration: BoxDecoration(
-                                          color: const Color(0xFFF0FDFA),
+                                          color: const Color(0xFFEEF2F7),
                                           borderRadius: BorderRadius.circular(
                                             4,
                                           ),
@@ -1481,14 +1467,14 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                           style: TextStyle(
                                             fontSize: 9,
                                             fontWeight: FontWeight.w700,
-                                            color: Color(0xFF0F766E),
+                                            color: Color(0xFF1E3A5F),
                                           ),
                                         ),
                                       ),
                                     ],
                                   ),
                                   Text(
-                                    '-₹${discountAmount.toStringAsFixed(0)}',
+                                    '-${formatInr(discountAmount)}',
                                     style: const TextStyle(
                                       fontSize: 13,
                                       fontWeight: FontWeight.w700,
@@ -1514,7 +1500,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                     ),
                                   ),
                                   Text(
-                                    '₹${taxAmount.toStringAsFixed(0)}',
+                                    '${formatInr(taxAmount)}',
                                     style: const TextStyle(
                                       fontSize: 13,
                                       fontWeight: FontWeight.w700,
@@ -1566,11 +1552,11 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  '₹${totalAmount.toStringAsFixed(0)}',
+                                  '${formatInr(totalAmount)}',
                                   style: const TextStyle(
                                     fontSize: 24,
                                     fontWeight: FontWeight.w700,
-                                    color: Color(0xFF0F766E),
+                                    color: Color(0xFF1E3A5F),
                                     letterSpacing: -0.5,
                                   ),
                                 ),
@@ -1591,37 +1577,29 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                               _selectedEmployeeId != null &&
                               !_submitting;
 
-                          return SizedBox(
+                          // A greyed-out button alone doesn't say why - name
+                          // the first thing still missing underneath it.
+                          final missing = _selectedCustomerId == null
+                              ? 'Choose a client to create the bill'
+                              : (_selectedServiceIds.isEmpty &&
+                                      _selectedProductQuantities.isEmpty)
+                                  ? 'Add a service or product'
+                                  : _selectedEmployeeId == null
+                                      ? 'Choose who did the service'
+                                      : null;
+
+                          return Column(
+                            children: [
+                          SizedBox(
                             width: double.infinity,
                             height: 52,
                             child: DecoratedBox(
                               decoration: BoxDecoration(
-                                gradient:
-                                    canSubmit
-                                        ? const LinearGradient(
-                                          colors: [
-                                            Color(0xFF0F766E),
-                                            Color(0xFF0D9488),
-                                          ],
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                        )
-                                        : null,
                                 color:
-                                    canSubmit ? null : const Color(0xFFE2E8F0),
-                                borderRadius: BorderRadius.circular(16),
-                                boxShadow:
                                     canSubmit
-                                        ? [
-                                          BoxShadow(
-                                            color: const Color(
-                                              0xFF4F46E5,
-                                            ).withValues(alpha: 0.06),
-                                            blurRadius: 12,
-                                            offset: const Offset(0, 4),
-                                          ),
-                                        ]
-                                        : null,
+                                        ? AppTheme.primaryBlue
+                                        : const Color(0xFFE2E8F0),
+                                borderRadius: BorderRadius.circular(16),
                               ),
                               child: ElevatedButton(
                                 onPressed:
@@ -1673,6 +1651,18 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                                         ),
                               ),
                             ),
+                          ),
+                              if (!_submitting && missing != null) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  missing,
+                                  style: const TextStyle(
+                                    fontSize: 12.5,
+                                    color: AppTheme.slateLight,
+                                  ),
+                                ),
+                              ],
+                            ],
                           );
                         },
                       ),
@@ -1766,10 +1756,10 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                 children: [
               Text(
                 bill.amountDue > 0
-                    ? 'Total: ₹${bill.finalAmount.toStringAsFixed(0)}. '
-                        '${bill.amountPaid > 0 ? 'Collected ₹${bill.amountPaid.toStringAsFixed(0)} via ${paymentMethodLabel(_partPaymentMethod)}. ' : ''}'
-                        '₹${bill.amountDue.toStringAsFixed(0)} outstanding - track it under Pending Payments.'
-                    : 'Total: ₹${bill.finalAmount.toStringAsFixed(0)} via ${paymentMethodLabel(bill.paymentMethod)}.',
+                    ? 'Total: ${formatInr(bill.finalAmount)}. '
+                        '${bill.amountPaid > 0 ? 'Collected ${formatInr(bill.amountPaid)} via ${paymentMethodLabel(_partPaymentMethod)}. ' : ''}'
+                        '${formatInr(bill.amountDue)} still owed - it is listed in Clients › Dues.'
+                    : 'Total: ${formatInr(bill.finalAmount)} via ${paymentMethodLabel(bill.paymentMethod)}.',
                 style: const TextStyle(
                   fontSize: 14,
                   color: AppTheme.slateMedium,
@@ -1851,7 +1841,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
               ),
               const Spacer(),
               Text(
-                '₹${due.toStringAsFixed(0)} will be owed',
+                '${formatInr(due)} will be owed',
                 style: const TextStyle(
                   fontSize: 11.5,
                   fontWeight: FontWeight.w700,
@@ -1887,7 +1877,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
               ),
               errorText:
                   overTyped
-                      ? 'More than the bill total (₹${totalAmount.toStringAsFixed(0)})'
+                      ? 'More than the bill total (${formatInr(totalAmount)})'
                       : null,
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 12,
@@ -1967,6 +1957,361 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
 
 // --- INVENTORY TAB ---
 
+/// Add a service or a product - the Services page header's "Add" opens
+/// this choice (see owner_dashboard.dart). The two used to be a pair of
+/// big buttons at the top of the page.
+void showAddCatalogItemSheet(BuildContext context, WidgetRef ref) {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    builder: (sheetCtx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 12, 8, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: Text(
+                'What do you want to add?',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppTheme.slateDark),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(PhosphorIconsRegular.scissors, color: AppTheme.primaryBlue),
+              title: const Text('Service', style: TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: const Text('Something clients book - a haircut, a facial'),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                final categories = ref.read(appDataProvider).valueOrNull?.categories ?? const <ServiceCategory>[];
+                showAddServiceDialog(context, ref, categories);
+              },
+            ),
+            ListTile(
+              leading: const Icon(PhosphorIconsRegular.package, color: AppTheme.primaryBlue),
+              title: const Text('Product', style: TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: const Text('Something you sell and keep stock of'),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                showAddProductDialog(context, ref);
+              },
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+void showAddProductDialog(BuildContext context, WidgetRef ref) {
+  final skuController = TextEditingController();
+  final nameController = TextEditingController();
+  final categoryController = TextEditingController();
+  final priceController = TextEditingController();
+  final costController = TextEditingController();
+  final stockController = TextEditingController(text: '0');
+  final thresholdController = TextEditingController(text: '5');
+
+  bool submitting = false;
+  showDialog(
+    context: context,
+    builder:
+        (ctx) => StatefulBuilder(
+          builder:
+              (ctx, setDialogState) => AppDialog(
+                icon: PhosphorIconsRegular.package,
+                title: 'Add Product',
+                subtitle: 'Adds it to the retail catalog and stock ledger.',
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Name first; the SKU is optional and comes after
+                    // the essentials - it used to be the first, required
+                    // field, and most salons have no SKU codes.
+                    TextField(
+                      controller: nameController,
+                      decoration: appDialogFieldDecoration(
+                        label: 'Product Name *',
+                        icon: PhosphorIconsRegular.tag,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: categoryController,
+                      decoration: appDialogFieldDecoration(
+                        label: 'Category *',
+                        hint: 'e.g. Hair Care',
+                        icon: PhosphorIconsRegular.squaresFour,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: priceController,
+                      keyboardType: TextInputType.number,
+                      decoration: appDialogFieldDecoration(
+                        label: 'Selling Price (₹) *',
+                        icon: PhosphorIconsRegular.currencyInr,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: costController,
+                      keyboardType: TextInputType.number,
+                      decoration: appDialogFieldDecoration(
+                        label: 'Cost Price (₹) *',
+                        icon: PhosphorIconsRegular.receipt,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: skuController,
+                      decoration: appDialogFieldDecoration(
+                        label: 'SKU / barcode',
+                        hint: 'Optional - one is made up if left blank',
+                        icon: PhosphorIconsRegular.barcode,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: stockController,
+                            keyboardType: TextInputType.number,
+                            decoration: appDialogFieldDecoration(
+                              label: 'Initial Stock',
+                              icon: PhosphorIconsRegular.stack,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextField(
+                            controller: thresholdController,
+                            keyboardType: TextInputType.number,
+                            decoration: appDialogFieldDecoration(
+                              label: 'Low Stock Alert',
+                              icon: PhosphorIconsRegular.warning,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                actions: AppDialogActions(
+                  submitLabel: 'Add Product',
+                  submitting: submitting,
+                  onCancel: () => Navigator.pop(ctx),
+                  onSubmit: () async {
+                    final sku = skuController.text.trim();
+                    final name = nameController.text.trim();
+                    final category = categoryController.text.trim();
+                    final price = double.tryParse(priceController.text);
+                    final cost = double.tryParse(costController.text);
+                    if (name.isEmpty ||
+                        category.isEmpty ||
+                        price == null ||
+                        cost == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Fill in the name, category and both prices.',
+                          ),
+                          backgroundColor: AppTheme.accentRed,
+                        ),
+                      );
+                      return;
+                    }
+                    setDialogState(() => submitting = true);
+                    try {
+                      await ref
+                          .read(appDataProvider.notifier)
+                          .addInventoryItem(
+                            sku: sku,
+                            name: name,
+                            category: category,
+                            price: price,
+                            costPrice: cost,
+                            stockCount:
+                                int.tryParse(stockController.text) ?? 0,
+                            minAlertThreshold:
+                                int.tryParse(thresholdController.text) ?? 5,
+                          );
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('$name added to inventory.'),
+                            backgroundColor: AppTheme.accentGreen,
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      setDialogState(() => submitting = false);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(e.toString()),
+                            backgroundColor: AppTheme.accentRed,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                ),
+              ),
+        ),
+  );
+}
+
+void showAddServiceDialog(
+  BuildContext context,
+  WidgetRef ref,
+  List<ServiceCategory> categories,
+) {
+  final nameController = TextEditingController();
+  final priceController = TextEditingController();
+  final categoryController = TextEditingController();
+  bool submitting = false;
+
+  showDialog(
+    context: context,
+    builder:
+        (ctx) => StatefulBuilder(
+          builder:
+              (ctx, setDialogState) => AppDialog(
+                icon: PhosphorIconsRegular.scissors,
+                title: 'Add Service',
+                subtitle:
+                    'Adds it to the service menu everyone can bill against.',
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: nameController,
+                      decoration: appDialogFieldDecoration(
+                        label: 'Service Name *',
+                        hint: 'e.g. Haircut',
+                        icon: PhosphorIconsRegular.tag,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: priceController,
+                      keyboardType: TextInputType.number,
+                      decoration: appDialogFieldDecoration(
+                        label: 'Price (₹) *',
+                        icon: PhosphorIconsRegular.currencyInr,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: categoryController,
+                      decoration: appDialogFieldDecoration(
+                        label: 'Category *',
+                        hint: 'e.g. Hair Care',
+                        icon: PhosphorIconsRegular.squaresFour,
+                      ),
+                    ),
+                    if (categories.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children:
+                              categories
+                                  .map(
+                                    (c) => ActionChip(
+                                      visualDensity: VisualDensity.compact,
+                                      label: Text(
+                                        c.name,
+                                        style: const TextStyle(fontSize: 11),
+                                      ),
+                                      onPressed:
+                                          () =>
+                                              categoryController.text =
+                                                  c.name,
+                                    ),
+                                  )
+                                  .toList(),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                actions: AppDialogActions(
+                  submitLabel: 'Add Service',
+                  submitting: submitting,
+                  onCancel: () => Navigator.pop(ctx),
+                  onSubmit: () async {
+                    final name = nameController.text.trim();
+                    final price = double.tryParse(priceController.text);
+                    final categoryName = categoryController.text.trim();
+                    if (name.isEmpty ||
+                        price == null ||
+                        categoryName.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'All fields are required with a valid price.',
+                          ),
+                          backgroundColor: AppTheme.accentRed,
+                        ),
+                      );
+                      return;
+                    }
+                    setDialogState(() => submitting = true);
+                    try {
+                      final existing = categories.where(
+                        (c) =>
+                            c.name.toLowerCase() ==
+                            categoryName.toLowerCase(),
+                      );
+                      final categoryId =
+                          existing.isNotEmpty
+                              ? existing.first.id
+                              : (await ref
+                                  .read(appDataProvider.notifier)
+                                  .addServiceCategory(categoryName)).id;
+                      await ref
+                          .read(appDataProvider.notifier)
+                          .addService(
+                            name: name,
+                            price: price,
+                            categoryId: categoryId,
+                          );
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('$name added to the service menu.'),
+                            backgroundColor: AppTheme.accentGreen,
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      setDialogState(() => submitting = false);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(e.toString()),
+                            backgroundColor: AppTheme.accentRed,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                ),
+              ),
+        ),
+  );
+}
+
 class OwnerInventoryTab extends StatefulWidget {
   final VoidCallback? onOpenNotifications;
 
@@ -1986,168 +2331,6 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
     _stockController.dispose();
     _searchController.dispose();
     super.dispose();
-  }
-
-  void _showAddProductDialog(BuildContext context, WidgetRef ref) {
-    final skuController = TextEditingController();
-    final nameController = TextEditingController();
-    final categoryController = TextEditingController();
-    final priceController = TextEditingController();
-    final costController = TextEditingController();
-    final stockController = TextEditingController(text: '0');
-    final thresholdController = TextEditingController(text: '5');
-
-    bool submitting = false;
-    showDialog(
-      context: context,
-      builder:
-          (ctx) => StatefulBuilder(
-            builder:
-                (ctx, setDialogState) => AppDialog(
-                  icon: PhosphorIconsRegular.package,
-                  title: 'Add Product',
-                  subtitle: 'Adds it to the retail catalog and stock ledger.',
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Name first; the SKU is optional and comes after
-                      // the essentials - it used to be the first, required
-                      // field, and most salons have no SKU codes.
-                      TextField(
-                        controller: nameController,
-                        decoration: appDialogFieldDecoration(
-                          label: 'Product Name *',
-                          icon: PhosphorIconsRegular.tag,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: categoryController,
-                        decoration: appDialogFieldDecoration(
-                          label: 'Category *',
-                          hint: 'e.g. Hair Care',
-                          icon: PhosphorIconsRegular.squaresFour,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: priceController,
-                        keyboardType: TextInputType.number,
-                        decoration: appDialogFieldDecoration(
-                          label: 'Selling Price (Rs.) *',
-                          icon: PhosphorIconsRegular.currencyInr,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: costController,
-                        keyboardType: TextInputType.number,
-                        decoration: appDialogFieldDecoration(
-                          label: 'Cost Price (Rs.) *',
-                          icon: PhosphorIconsRegular.receipt,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: skuController,
-                        decoration: appDialogFieldDecoration(
-                          label: 'SKU / barcode',
-                          hint: 'Optional - one is made up if left blank',
-                          icon: PhosphorIconsRegular.barcode,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: stockController,
-                              keyboardType: TextInputType.number,
-                              decoration: appDialogFieldDecoration(
-                                label: 'Initial Stock',
-                                icon: PhosphorIconsRegular.stack,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: TextField(
-                              controller: thresholdController,
-                              keyboardType: TextInputType.number,
-                              decoration: appDialogFieldDecoration(
-                                label: 'Low Stock Alert',
-                                icon: PhosphorIconsRegular.warning,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  actions: AppDialogActions(
-                    submitLabel: 'Add Product',
-                    submitting: submitting,
-                    onCancel: () => Navigator.pop(ctx),
-                    onSubmit: () async {
-                      final sku = skuController.text.trim();
-                      final name = nameController.text.trim();
-                      final category = categoryController.text.trim();
-                      final price = double.tryParse(priceController.text);
-                      final cost = double.tryParse(costController.text);
-                      if (name.isEmpty ||
-                          category.isEmpty ||
-                          price == null ||
-                          cost == null) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Fill in the name, category and both prices.',
-                            ),
-                            backgroundColor: AppTheme.accentRed,
-                          ),
-                        );
-                        return;
-                      }
-                      setDialogState(() => submitting = true);
-                      try {
-                        await ref
-                            .read(appDataProvider.notifier)
-                            .addInventoryItem(
-                              sku: sku,
-                              name: name,
-                              category: category,
-                              price: price,
-                              costPrice: cost,
-                              stockCount:
-                                  int.tryParse(stockController.text) ?? 0,
-                              minAlertThreshold:
-                                  int.tryParse(thresholdController.text) ?? 5,
-                            );
-                        if (ctx.mounted) Navigator.pop(ctx);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('$name added to inventory.'),
-                              backgroundColor: AppTheme.accentGreen,
-                            ),
-                          );
-                        }
-                      } catch (e) {
-                        setDialogState(() => submitting = false);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(e.toString()),
-                              backgroundColor: AppTheme.accentRed,
-                            ),
-                          );
-                        }
-                      }
-                    },
-                  ),
-                ),
-          ),
-    );
   }
 
   Widget _removeButton({required String label, required VoidCallback? onPressed}) {
@@ -2247,7 +2430,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                             child: TextField(
                               controller: priceController,
                               keyboardType: TextInputType.number,
-                              decoration: appDialogFieldDecoration(label: 'Selling (Rs.) *', icon: PhosphorIconsRegular.currencyInr),
+                              decoration: appDialogFieldDecoration(label: 'Selling (₹) *', icon: PhosphorIconsRegular.currencyInr),
                             ),
                           ),
                           const SizedBox(width: 10),
@@ -2255,7 +2438,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                             child: TextField(
                               controller: costController,
                               keyboardType: TextInputType.number,
-                              decoration: appDialogFieldDecoration(label: 'Cost (Rs.) *', icon: PhosphorIconsRegular.receipt),
+                              decoration: appDialogFieldDecoration(label: 'Cost (₹) *', icon: PhosphorIconsRegular.receipt),
                             ),
                           ),
                         ],
@@ -2363,7 +2546,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                         controller: priceController,
                         keyboardType: TextInputType.number,
                         decoration: appDialogFieldDecoration(
-                          label: 'Price (Rs.) *',
+                          label: 'Price (₹) *',
                           icon: PhosphorIconsRegular.currencyInr,
                         ),
                       ),
@@ -2416,151 +2599,6 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: AppTheme.accentRed),
-                          );
-                        }
-                      }
-                    },
-                  ),
-                ),
-          ),
-    );
-  }
-
-  void _showAddServiceDialog(
-    BuildContext context,
-    WidgetRef ref,
-    List<ServiceCategory> categories,
-  ) {
-    final nameController = TextEditingController();
-    final priceController = TextEditingController();
-    final categoryController = TextEditingController();
-    bool submitting = false;
-
-    showDialog(
-      context: context,
-      builder:
-          (ctx) => StatefulBuilder(
-            builder:
-                (ctx, setDialogState) => AppDialog(
-                  icon: PhosphorIconsRegular.scissors,
-                  title: 'Add Service',
-                  subtitle:
-                      'Adds it to the service menu everyone can bill against.',
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextField(
-                        controller: nameController,
-                        decoration: appDialogFieldDecoration(
-                          label: 'Service Name *',
-                          hint: 'e.g. Haircut',
-                          icon: PhosphorIconsRegular.tag,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: priceController,
-                        keyboardType: TextInputType.number,
-                        decoration: appDialogFieldDecoration(
-                          label: 'Price (Rs.) *',
-                          icon: PhosphorIconsRegular.currencyInr,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: categoryController,
-                        decoration: appDialogFieldDecoration(
-                          label: 'Category *',
-                          hint: 'e.g. Hair Care',
-                          icon: PhosphorIconsRegular.squaresFour,
-                        ),
-                      ),
-                      if (categories.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children:
-                                categories
-                                    .map(
-                                      (c) => ActionChip(
-                                        visualDensity: VisualDensity.compact,
-                                        label: Text(
-                                          c.name,
-                                          style: const TextStyle(fontSize: 11),
-                                        ),
-                                        onPressed:
-                                            () =>
-                                                categoryController.text =
-                                                    c.name,
-                                      ),
-                                    )
-                                    .toList(),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  actions: AppDialogActions(
-                    submitLabel: 'Add Service',
-                    submitting: submitting,
-                    onCancel: () => Navigator.pop(ctx),
-                    onSubmit: () async {
-                      final name = nameController.text.trim();
-                      final price = double.tryParse(priceController.text);
-                      final categoryName = categoryController.text.trim();
-                      if (name.isEmpty ||
-                          price == null ||
-                          categoryName.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'All fields are required with a valid price.',
-                            ),
-                            backgroundColor: AppTheme.accentRed,
-                          ),
-                        );
-                        return;
-                      }
-                      setDialogState(() => submitting = true);
-                      try {
-                        final existing = categories.where(
-                          (c) =>
-                              c.name.toLowerCase() ==
-                              categoryName.toLowerCase(),
-                        );
-                        final categoryId =
-                            existing.isNotEmpty
-                                ? existing.first.id
-                                : (await ref
-                                    .read(appDataProvider.notifier)
-                                    .addServiceCategory(categoryName)).id;
-                        await ref
-                            .read(appDataProvider.notifier)
-                            .addService(
-                              name: name,
-                              price: price,
-                              categoryId: categoryId,
-                            );
-                        if (ctx.mounted) Navigator.pop(ctx);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('$name added to the service menu.'),
-                              backgroundColor: AppTheme.accentGreen,
-                            ),
-                          );
-                        }
-                      } catch (e) {
-                        setDialogState(() => submitting = false);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(e.toString()),
-                              backgroundColor: AppTheme.accentRed,
-                            ),
                           );
                         }
                       }
@@ -2646,14 +2684,22 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
     );
   }
 
+  /// Icon by kind of service, colour by category - so a category reads as
+  /// one colour down the menu instead of every row being the same tile.
   (Color bg, Color fg, IconData icon) _iconForService(SalonService svc) {
+    final (_, _, icon) = _iconForServiceKind(svc);
+    final (bg, fg) = AppTheme.avatarColorsFor(svc.categoryName ?? svc.name);
+    return (bg, fg, icon);
+  }
+
+  (Color bg, Color fg, IconData icon) _iconForServiceKind(SalonService svc) {
     final lower = '${svc.name} ${svc.categoryName ?? ''}'.toLowerCase();
     if (lower.contains('cut') ||
         lower.contains('hair') ||
         lower.contains('trim')) {
       return (
-        const Color(0xFFF0FDFA),
-        const Color(0xFF0F766E),
+        const Color(0xFFEEF2F7),
+        const Color(0xFF1E3A5F),
         PhosphorIconsBold.scissors,
       );
     } else if (lower.contains('beard') ||
@@ -2669,16 +2715,16 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
         lower.contains('oil') ||
         lower.contains('massage')) {
       return (
-        const Color(0xFFEFF6FF),
-        const Color(0xFF1D4ED8),
+        const Color(0xFFF1F4F8),
+        const Color(0xFF2F4E79),
         PhosphorIconsBold.drop,
       );
     } else if (lower.contains('mani') ||
         lower.contains('pedi') ||
         lower.contains('nail')) {
       return (
-        const Color(0xFFFFF1F2),
-        const Color(0xFFBE123C),
+        const Color(0xFFF1F4F8),
+        const Color(0xFF3E5F8A),
         PhosphorIconsBold.sparkle,
       );
     }
@@ -2697,30 +2743,22 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        // Light tint when selected - the same chip as Clients, Team and
+        // bill history.
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF0F766E) : Colors.white,
+          color: isSelected ? AppTheme.primaryLight : Colors.white,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color:
-                isSelected ? const Color(0xFF0F766E) : const Color(0xFFE2E8F0),
+                isSelected ? const Color(0xFFC3D0E2) : const Color(0xFFE2E8F0),
           ),
-          boxShadow:
-              isSelected
-                  ? [
-                    BoxShadow(
-                      color: const Color(0xFF0F766E).withValues(alpha: 0.06),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                  : null,
         ),
         child: Text(
           label,
           style: TextStyle(
             fontSize: 12,
             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-            color: isSelected ? Colors.white : const Color(0xFF475467),
+            color: isSelected ? AppTheme.primaryBlue : const Color(0xFF475467),
           ),
         ),
       ),
@@ -2794,127 +2832,23 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 3. Two Primary Action Buttons (+ Add Service & + Add Product)
-                Row(
-                  children: [
-                    // + Add Service (Outlined Purple)
-                    Expanded(
-                      child: InkWell(
-                        onTap:
-                            () => _showAddServiceDialog(
-                              context,
-                              ref,
-                              state.categories,
-                            ),
-                        borderRadius: BorderRadius.circular(16),
-                        child: Container(
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: const Color(0xFF99F6E4),
-                              width: 1.4,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(
-                                  0xFF0F172A,
-                                ).withValues(alpha: 0.02),
-                                blurRadius: 6,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: const [
-                              Icon(
-                                PhosphorIconsBold.scissors,
-                                color: Color(0xFF0F766E),
-                                size: 17,
-                              ),
-                              SizedBox(width: 7),
-                              Text(
-                                '+ Add Service',
-                                style: TextStyle(
-                                  color: Color(0xFF0F766E),
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    // + Add Product (Solid Purple Gradient)
-                    Expanded(
-                      child: InkWell(
-                        onTap: () => _showAddProductDialog(context, ref),
-                        borderRadius: BorderRadius.circular(16),
-                        child: Container(
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: Color(0xFF0F766E),
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(
-                                  0xFF4F46E5,
-                                ).withValues(alpha: 0.06),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: const [
-                              Icon(
-                                PhosphorIconsBold.package,
-                                color: Colors.white,
-                                size: 17,
-                              ),
-                              SizedBox(width: 7),
-                              Text(
-                                '+ Add Product',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
+                // (Add service / Add product moved into the page header's
+                // "Add" button.)
 
                 // 4. Search Bar
                 Container(
                   height: 46,
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(24),
+                    borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: const Color(0xFFE2E8F0)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF0F172A).withValues(alpha: 0.02),
-                        blurRadius: 6,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
+                    boxShadow: AppTheme.cardShadow,
                   ),
                   child: TextField(
                     controller: _searchController,
                     onChanged: (val) => setState(() {}),
                     decoration: InputDecoration(
-                      hintText: 'Search services or products...',
+                      hintText: 'Search services or products',
                       hintStyle: const TextStyle(
                         fontSize: 13,
                         color: Color(0xFF94A3B8),
@@ -2977,17 +2911,9 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                     padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(22),
+                      borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: const Color(0xFFE2E8F0)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(
-                            0xFF0F172A,
-                          ).withValues(alpha: 0.04),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
+                      boxShadow: AppTheme.cardShadow,
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3000,7 +2926,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: const [
                                 Text(
-                                  'Service Menu',
+                                  'Services',
                                   style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.w700,
@@ -3010,7 +2936,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                 ),
                                 SizedBox(height: 2),
                                 Text(
-                                  'Active salon offerings',
+                                  'What clients can book',
                                   style: TextStyle(
                                     fontSize: 11.5,
                                     color: Color(0xFF64748B),
@@ -3024,13 +2950,13 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                 Icon(
                                   PhosphorIconsBold.arrowsDownUp,
                                   size: 13,
-                                  color: Color(0xFF0F766E),
+                                  color: Color(0xFF1E3A5F),
                                 ),
                                 SizedBox(width: 4),
                                 Text(
                                   'Reorder',
                                   style: TextStyle(
-                                    color: Color(0xFF0F766E),
+                                    color: Color(0xFF1E3A5F),
                                     fontSize: 12,
                                     fontWeight: FontWeight.w700,
                                   ),
@@ -3103,7 +3029,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                         ),
                                         const SizedBox(height: 2),
                                         Text(
-                                          '${svc.categoryName ?? 'Styling'} • Service',
+                                          svc.categoryName ?? 'Styling',
                                           style: const TextStyle(
                                             fontSize: 11.5,
                                             color: Color(0xFF64748B),
@@ -3115,11 +3041,11 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                   ),
                                   // Price
                                   Text(
-                                    '₹${svc.price.toStringAsFixed(0)}',
+                                    '${formatInr(svc.price)}',
                                     style: const TextStyle(
                                       fontSize: 15,
                                       fontWeight: FontWeight.w700,
-                                      color: Color(0xFF0F766E),
+                                      color: Color(0xFF1E3A5F),
                                       letterSpacing: -0.2,
                                     ),
                                   ),
@@ -3146,17 +3072,9 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                     padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(22),
+                      borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: const Color(0xFFE2E8F0)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(
-                            0xFF0F172A,
-                          ).withValues(alpha: 0.04),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
+                      boxShadow: AppTheme.cardShadow,
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3169,7 +3087,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: const [
                                 Text(
-                                  'Product Catalog',
+                                  'Products',
                                   style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.w700,
@@ -3179,7 +3097,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                 ),
                                 SizedBox(height: 2),
                                 Text(
-                                  'Retail stock & inventory',
+                                  'Sold over the counter',
                                   style: TextStyle(
                                     fontSize: 11.5,
                                     color: Color(0xFF64748B),
@@ -3188,44 +3106,9 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                 ),
                               ],
                             ),
-                            InkWell(
-                              onTap: () {
-                                setState(() {
-                                  _activeFilter =
-                                      _activeFilter == 'Low Stock'
-                                          ? 'All'
-                                          : 'Low Stock';
-                                });
-                              },
-                              borderRadius: BorderRadius.circular(8),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 5,
-                                ),
-                                decoration: BoxDecoration(
-                                  color:
-                                      _activeFilter == 'Low Stock'
-                                          ? const Color(0xFFF0FDFA)
-                                          : const Color(0xFFF8FAFC),
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(
-                                    color: const Color(0xFFE2E8F0),
-                                  ),
-                                ),
-                                child: Text(
-                                  'Filter Low Stock',
-                                  style: TextStyle(
-                                    color:
-                                        _activeFilter == 'Low Stock'
-                                            ? const Color(0xFF0F766E)
-                                            : const Color(0xFF475467),
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ),
+                            // (The "Filter Low Stock" button that sat here duplicated the
+                            // Low Stock chip above, so it's gone.)
+                            const SizedBox.shrink(),
                           ],
                         ),
                         const SizedBox(height: 16),
@@ -3254,6 +3137,20 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                               padding: const EdgeInsets.only(bottom: 16.0),
                               child: Row(
                                 children: [
+                                  Container(
+                                    width: 42,
+                                    height: 42,
+                                    margin: const EdgeInsets.only(right: 12),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.avatarColorsFor(prod.category).$1,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Icon(
+                                      PhosphorIconsBold.package,
+                                      size: 19,
+                                      color: AppTheme.avatarColorsFor(prod.category).$2,
+                                    ),
+                                  ),
                                   // Product Info - tap to edit or remove
                                   Expanded(
                                     child: InkWell(
@@ -3277,7 +3174,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                           // Price first - it's what staff
                                           // look for; services already show
                                           // theirs, products didn't.
-                                          '₹${prod.price.toStringAsFixed(0)} • ${prod.category} • SKU ${prod.sku}',
+                                          '${formatInr(prod.price)} • ${prod.category}',
                                           style: const TextStyle(
                                             fontSize: 11.5,
                                             color: Color(0xFF64748B),
@@ -3333,16 +3230,16 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                                         vertical: 8,
                                       ),
                                       side: const BorderSide(
-                                        color: Color(0xFF99F6E4),
+                                        color: Color(0xFFC3D0E2),
                                       ),
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(12),
                                       ),
                                     ),
                                     child: const Text(
-                                      'Update Stock',
+                                      'Update stock',
                                       style: TextStyle(
-                                        color: Color(0xFF0F766E),
+                                        color: Color(0xFF1E3A5F),
                                         fontSize: 11.5,
                                         fontWeight: FontWeight.w700,
                                       ),
@@ -3386,25 +3283,28 @@ class _ExpenseStyle {
 }
 
 const Map<String, _ExpenseStyle> _expenseCategoryStyles = {
+  // One soft colour per category (the theme's accent pairs), so the
+  // breakdown and history read at a glance - most of these were the same
+  // grey-navy before.
   'RENT': _ExpenseStyle(
     PhosphorIconsRegular.buildings,
-    Color(0xFF0F766E),
-    Color(0xFFF0FDFA),
+    AppTheme.accentBlue,
+    AppTheme.accentBlueBg,
   ),
   'UTILITIES': _ExpenseStyle(
     PhosphorIconsRegular.lightning,
-    Color(0xFFD97706),
-    Color(0xFFFFFBEB),
+    AppTheme.accentOrange,
+    AppTheme.accentOrangeBg,
   ),
   'SUPPLIES': _ExpenseStyle(
     PhosphorIconsRegular.package,
-    Color(0xFF0D9488),
-    Color(0xFFF0FDFA),
+    AppTheme.accentViolet,
+    AppTheme.accentVioletBg,
   ),
   'WAGES': _ExpenseStyle(
     PhosphorIconsRegular.usersThree,
-    Color(0xFF2563EB),
-    Color(0xFFEFF6FF),
+    AppTheme.accentRose,
+    AppTheme.accentRoseBg,
   ),
   'MISC': _ExpenseStyle(
     PhosphorIconsRegular.dotsThreeCircle,
@@ -3416,152 +3316,154 @@ const Map<String, _ExpenseStyle> _expenseCategoryStyles = {
 _ExpenseStyle _styleFor(String category) =>
     _expenseCategoryStyles[category] ?? _expenseCategoryStyles['MISC']!;
 
+/// The Add expense dialog. Top-level so the Expenses page header's "Add"
+/// button can open it (see the Expenses entry in owner_dashboard.dart).
+void showAddExpenseDialog(BuildContext context, WidgetRef ref) {
+  final titleController = TextEditingController();
+  final amountController = TextEditingController();
+  String category = 'MISC';
+  bool submitting = false;
+
+  showDialog(
+    context: context,
+    builder:
+        (ctx) => StatefulBuilder(
+          builder:
+              (ctx, setDialogState) => AppDialog(
+                icon: PhosphorIconsRegular.receipt,
+                iconColor: AppTheme.accentAmber,
+                iconBackground: AppTheme.accentAmberBg,
+                title: 'Record Expense',
+                subtitle: 'Logged against today.',
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    DropdownButtonFormField<String>(
+                      value: category,
+                      decoration: appDialogFieldDecoration(
+                        label: 'Category',
+                        icon: PhosphorIconsRegular.tag,
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      dropdownColor: Colors.white,
+                      elevation: 3,
+                      items: [
+                        for (final cat in _expenseCategories)
+                          DropdownMenuItem(
+                            value: cat,
+                            child: Row(
+                              children: [
+                                Icon(
+                                  _styleFor(cat).icon,
+                                  size: 15,
+                                  color: _styleFor(cat).fg,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(expenseCategoryLabel(cat)),
+                              ],
+                            ),
+                          ),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) setDialogState(() => category = val);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: titleController,
+                      decoration: appDialogFieldDecoration(
+                        label: 'Title *',
+                        hint: 'e.g. Tea and snacks',
+                        icon: PhosphorIconsRegular.textT,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: amountController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: appDialogFieldDecoration(
+                        label: 'Amount (₹) *',
+                        hint: 'e.g. 150',
+                        icon: PhosphorIconsRegular.currencyInr,
+                      ),
+                    ),
+                  ],
+                ),
+                actions: AppDialogActions(
+                  submitLabel: 'Log Expense',
+                  submitting: submitting,
+                  onCancel: () => Navigator.pop(ctx),
+                  onSubmit: () async {
+                    final title = titleController.text.trim();
+                    final amount = double.tryParse(
+                      amountController.text.trim(),
+                    );
+                    if (title.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Please add a title.'),
+                          backgroundColor: AppTheme.accentRed,
+                        ),
+                      );
+                      return;
+                    }
+                    if (amount == null || amount <= 0) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Enter a valid amount.'),
+                          backgroundColor: AppTheme.accentRed,
+                        ),
+                      );
+                      return;
+                    }
+                    setDialogState(() => submitting = true);
+                    try {
+                      await ref
+                          .read(expensesProvider.notifier)
+                          .add(
+                            title: title,
+                            amount: amount,
+                            category: category,
+                            date:
+                                DateTime.now()
+                                    .toIso8601String()
+                                    .split('T')
+                                    .first,
+                          );
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Logged $title (${formatInr(amount)}).',
+                            ),
+                            backgroundColor: AppTheme.accentGreen,
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      setDialogState(() => submitting = false);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(e.toString()),
+                            backgroundColor: AppTheme.accentRed,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                ),
+              ),
+        ),
+  );
+}
+
 class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
   String _filter = 'All';
-
-  void _showAddExpenseDialog(BuildContext context, WidgetRef ref) {
-    final titleController = TextEditingController();
-    final amountController = TextEditingController();
-    String category = 'MISC';
-    bool submitting = false;
-
-    showDialog(
-      context: context,
-      builder:
-          (ctx) => StatefulBuilder(
-            builder:
-                (ctx, setDialogState) => AppDialog(
-                  icon: PhosphorIconsRegular.receipt,
-                  iconColor: AppTheme.accentAmber,
-                  iconBackground: AppTheme.accentAmberBg,
-                  title: 'Record Expense',
-                  subtitle: 'Logged against today.',
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      DropdownButtonFormField<String>(
-                        value: category,
-                        decoration: appDialogFieldDecoration(
-                          label: 'Category',
-                          icon: PhosphorIconsRegular.tag,
-                        ),
-                        borderRadius: BorderRadius.circular(14),
-                        dropdownColor: Colors.white,
-                        elevation: 3,
-                        items: [
-                          for (final cat in _expenseCategories)
-                            DropdownMenuItem(
-                              value: cat,
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    _styleFor(cat).icon,
-                                    size: 15,
-                                    color: _styleFor(cat).fg,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(expenseCategoryLabel(cat)),
-                                ],
-                              ),
-                            ),
-                        ],
-                        onChanged: (val) {
-                          if (val != null) setDialogState(() => category = val);
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: titleController,
-                        decoration: appDialogFieldDecoration(
-                          label: 'Title *',
-                          hint: 'e.g. Tea and snacks',
-                          icon: PhosphorIconsRegular.textT,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: amountController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: appDialogFieldDecoration(
-                          label: 'Amount (Rs.) *',
-                          hint: 'e.g. 150',
-                          icon: PhosphorIconsRegular.currencyInr,
-                        ),
-                      ),
-                    ],
-                  ),
-                  actions: AppDialogActions(
-                    submitLabel: 'Log Expense',
-                    submitting: submitting,
-                    onCancel: () => Navigator.pop(ctx),
-                    onSubmit: () async {
-                      final title = titleController.text.trim();
-                      final amount = double.tryParse(
-                        amountController.text.trim(),
-                      );
-                      if (title.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Please add a title.'),
-                            backgroundColor: AppTheme.accentRed,
-                          ),
-                        );
-                        return;
-                      }
-                      if (amount == null || amount <= 0) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Enter a valid amount.'),
-                            backgroundColor: AppTheme.accentRed,
-                          ),
-                        );
-                        return;
-                      }
-                      setDialogState(() => submitting = true);
-                      try {
-                        await ref
-                            .read(expensesProvider.notifier)
-                            .add(
-                              title: title,
-                              amount: amount,
-                              category: category,
-                              date:
-                                  DateTime.now()
-                                      .toIso8601String()
-                                      .split('T')
-                                      .first,
-                            );
-                        if (ctx.mounted) Navigator.pop(ctx);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'Logged $title (₹${amount.toStringAsFixed(0)}).',
-                              ),
-                              backgroundColor: AppTheme.accentGreen,
-                            ),
-                          );
-                        }
-                      } catch (e) {
-                        setDialogState(() => submitting = false);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(e.toString()),
-                              backgroundColor: AppTheme.accentRed,
-                            ),
-                          );
-                        }
-                      }
-                    },
-                  ),
-                ),
-          ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -3625,73 +3527,20 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SafeArea(
-                  bottom: false,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Title removed: the shared page header names this page.
-                      const Spacer(),
-                      InkWell(
-                        onTap: () => _showAddExpenseDialog(context, ref),
-                        borderRadius: BorderRadius.circular(22),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 8.5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Color(0xFF0F766E),
-                            borderRadius: BorderRadius.circular(22),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(
-                                  0xFF4F46E5,
-                                ).withValues(alpha: 0.06),
-                                blurRadius: 10,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                PhosphorIconsBold.plus,
-                                color: Colors.white,
-                                size: 13,
-                              ),
-                              SizedBox(width: 5),
-                              Text(
-                                'Add Expense',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
+                // (Add expense is in the page header now - it sat on a row of
+                // its own here, pushing the summary down.)
 
-                // Hero spend card
+                // Spend summary - a white card with the accent line, the same
+                // shape as Home's revenue card. It was a solid dark-navy
+                // block, the heaviest thing in the app, for a page you visit
+                // a few times a month.
                 Container(
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
-                    color: Color(0xFF134E4A),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF134E4A).withValues(alpha: 0.06),
-                        blurRadius: 16,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppTheme.borderSubtle),
+                    boxShadow: AppTheme.cardShadow,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -3701,23 +3550,22 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                           Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.12),
+                              color: AppTheme.accentOrangeBg,
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: const Icon(
                               PhosphorIconsRegular.wallet,
-                              color: Colors.white,
+                              color: AppTheme.accentOrange,
                               size: 17,
                             ),
                           ),
                           const SizedBox(width: 10),
                           const Text(
-                            'TOTAL SPEND',
+                            'Total spend',
                             style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF99F6E4),
-                              letterSpacing: 1.1,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              color: AppTheme.slateLight,
                             ),
                           ),
                           const Spacer(),
@@ -3727,15 +3575,15 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.14),
+                              color: AppTheme.primaryLight,
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Text(
                               '${expenses.length} ${expenses.length == 1 ? 'entry' : 'entries'}',
                               style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.primaryBlue,
                               ),
                             ),
                           ),
@@ -3743,11 +3591,11 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                       ),
                       const SizedBox(height: 14),
                       Text(
-                        '₹${totalExpense.toStringAsFixed(0)}',
+                        '${formatInr(totalExpense)}',
                         style: const TextStyle(
                           fontSize: 30,
                           fontWeight: FontWeight.w700,
-                          color: Colors.white,
+                          color: AppTheme.slateDark,
                           letterSpacing: -1,
                         ),
                       ),
@@ -3756,12 +3604,12 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                         children: [
                           _heroStat(
                             'This month',
-                            '₹${monthExpense.toStringAsFixed(0)}',
+                            '${formatInr(monthExpense)}',
                           ),
                           const SizedBox(width: 10),
                           _heroStat(
                             'Top category',
-                            topCategory == null ? '-' : topCategory.key,
+                            topCategory == null ? '-' : expenseCategoryLabel(topCategory.key),
                           ),
                         ],
                       ),
@@ -3770,8 +3618,12 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                 ),
                 const SizedBox(height: 18),
 
+                // Breakdown and filters only once something is logged - before
+                // that they were five rows of "₹0 0%" and chips that filtered
+                // nothing.
+                if (expenses.isNotEmpty) ...[
                 const Text(
-                  'Category Breakdown',
+                  'By category',
                   style: TextStyle(
                     fontSize: 14.5,
                     fontWeight: FontWeight.w700,
@@ -3788,23 +3640,17 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: const Color(0xFFE2E8F0)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.03),
-                        blurRadius: 6,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
+                    boxShadow: AppTheme.cardShadow,
                   ),
                   child: Column(
                     children: [
-                      for (int i = 0; i < _expenseCategories.length; i++) ...[
+                      // Only categories with spend - four "₹0 0%" rows said
+                      // nothing.
+                      for (final (i, cat) in _expenseCategories
+                          .where((c) => (catSums[c] ?? 0) > 0)
+                          .indexed) ...[
                         if (i > 0) const SizedBox(height: 12),
-                        _categoryRow(
-                          _expenseCategories[i],
-                          catSums[_expenseCategories[i]] ?? 0,
-                          totalExpense,
-                        ),
+                        _categoryRow(cat, catSums[cat] ?? 0, totalExpense),
                       ],
                     ],
                   ),
@@ -3816,7 +3662,11 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                   child: Row(
                     children: [
                       _filterChip('All', expenses.length),
-                      for (final cat in _expenseCategories) ...[
+                      // Only categories that have entries - "Rent (0)" chips
+                      // filtered to nothing.
+                      for (final cat in _expenseCategories.where(
+                        (c) => expenses.any((e) => e.category == c),
+                      )) ...[
                         const SizedBox(width: 8),
                         _filterChip(
                           cat,
@@ -3827,6 +3677,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                   ),
                 ),
                 const SizedBox(height: 14),
+                ],
 
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -3853,6 +3704,9 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                 const SizedBox(height: 10),
                 if (visible.isEmpty)
                   Container(
+                    // Full width - it used to shrink to its text and sit
+                    // off to one side.
+                    width: double.infinity,
                     padding: const EdgeInsets.symmetric(
                       vertical: 32,
                       horizontal: 20,
@@ -3882,7 +3736,8 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                         ),
                         const SizedBox(height: 3),
                         const Text(
-                          'Use Add Expense to record salon spending.',
+                          'Tap Add at the top to record rent, bills or supplies.',
+                          textAlign: TextAlign.center,
                           style: TextStyle(
                             color: Color(0xFF94A3B8),
                             fontSize: 11.5,
@@ -3914,7 +3769,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                             ),
                           ),
                           Text(
-                            '-₹${group.total.toStringAsFixed(0)}',
+                            '-${formatInr(group.total)}',
                             style: const TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
@@ -3929,13 +3784,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: const Color(0xFFE2E8F0)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.03),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
+                        boxShadow: AppTheme.cardShadow,
                       ),
                       clipBehavior: Clip.antiAlias,
                       child: Column(
@@ -3967,7 +3816,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.1),
+          color: AppTheme.bgSurface,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Column(
@@ -3976,18 +3825,18 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
             Text(
               label,
               style: const TextStyle(
-                fontSize: 9.5,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF99F6E4),
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: AppTheme.slateLight,
               ),
             ),
             const SizedBox(height: 2),
             Text(
               value,
               style: const TextStyle(
-                fontSize: 13,
+                fontSize: 14,
                 fontWeight: FontWeight.w700,
-                color: Colors.white,
+                color: AppTheme.slateDark,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -4032,7 +3881,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                     ),
                   ),
                   Text(
-                    '₹${sum.toStringAsFixed(0)}',
+                    '${formatInr(sum)}',
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -4079,11 +3928,11 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFF0FDFA) : Colors.white,
+          color: isSelected ? const Color(0xFFEEF2F7) : Colors.white,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color:
-                isSelected ? const Color(0xFF0F766E) : const Color(0xFFE2E8F0),
+                isSelected ? const Color(0xFF1E3A5F) : const Color(0xFFE2E8F0),
           ),
         ),
         child: Text(
@@ -4092,7 +3941,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
             fontSize: 11.5,
             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
             color:
-                isSelected ? const Color(0xFF0F766E) : const Color(0xFF64748B),
+                isSelected ? const Color(0xFF1E3A5F) : const Color(0xFF64748B),
           ),
         ),
       ),
@@ -4164,11 +4013,11 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
           ),
           const SizedBox(width: 8),
           Text(
-            '-₹${exp.amount.toStringAsFixed(0)}',
+            '-${formatInr(exp.amount)}',
             style: const TextStyle(
               fontSize: 13.5,
               fontWeight: FontWeight.w700,
-              color: AppTheme.accentRed,
+              color: AppTheme.slateDark,
             ),
           ),
           const SizedBox(width: 4),
@@ -4235,11 +4084,11 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
                     ),
                   ),
                   Text(
-                    '-₹${exp.amount.toStringAsFixed(0)}',
+                    '-${formatInr(exp.amount)}',
                     style: const TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
-                      color: AppTheme.accentRed,
+                      color: AppTheme.slateDark,
                     ),
                   ),
                 ],
@@ -4300,7 +4149,7 @@ class _OwnerExpensesTabState extends State<OwnerExpensesTab> {
           style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
         ),
         content: Text(
-          '"${exp.title}" (₹${exp.amount.toStringAsFixed(0)}) will be removed from '
+          '"${exp.title}" (${formatInr(exp.amount)}) will be removed from '
           'the ledger. This cannot be undone.',
           style: const TextStyle(fontSize: 13, height: 1.4, color: Color(0xFF64748B)),
         ),

@@ -199,10 +199,10 @@ class _SearchablePickerSheetState<T> extends State<_SearchablePickerSheet<T>> {
                             contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
                             leading: CircleAvatar(
                               radius: 18,
-                              backgroundColor: AppTheme.primaryLight,
+                              backgroundColor: AppTheme.avatarColorsFor(label).$1,
                               child: Text(
                                 _initials(label),
-                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.primaryBlue),
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.avatarColorsFor(label).$2),
                               ),
                             ),
                             title: Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),

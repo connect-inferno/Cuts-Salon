@@ -13,6 +13,8 @@ import 'widgets/owner_management_tabs.dart';
 import 'widgets/owner_payment_requests_view.dart';
 import 'widgets/owner_profile_view.dart';
 import '../../widgets/app_drawer.dart';
+import '../../widgets/app_page_header.dart' show AppPageAction;
+import '../../widgets/dues_view.dart';
 import '../../widgets/app_page_switcher.dart';
 import '../../widgets/app_settings_page.dart';
 import '../../widgets/app_sub_page.dart';
@@ -20,6 +22,7 @@ import '../../widgets/async_state_views.dart';
 import '../../widgets/csv_export.dart';
 import '../../data/models.dart';
 import '../../widgets/liquid_nav_bar.dart';
+import '../../data/money.dart';
 
 const double kOwnerMobileBreakpoint = 900;
 
@@ -96,15 +99,34 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
   /// section's own settings screen instead - which is why Inventory is
   /// here as a place to manage stock, while the same catalog appears as a
   /// pricing section under Billing.
+  /// Services, with "Add" (service or product) in its header. Opened from
+  /// the drawer and from Home's setup checklist.
+  void _openServices(BuildContext context) {
+    openAppSubPage(
+      context,
+      title: 'Services',
+      subtitle: 'Service menu, stock and prices',
+      actions: [
+        AppPageAction(
+          icon: PhosphorIconsBold.plus,
+          label: 'Add',
+          tooltip: 'Add a service or product',
+          onTap: () => showAddCatalogItemSheet(context, ref),
+        ),
+      ],
+      child: const OwnerInventoryTab(),
+    );
+  }
+
   Widget _buildDrawer(BuildContext context, {required bool isModal}) {
     final appData = ref.watch(appDataProvider).valueOrNull;
     final salonName = appData?.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Salon';
     final ownerName = ref.watch(authControllerProvider).name;
     final lowStockCount = appData?.inventory.where((p) => p.isLowStock).length ?? 0;
 
-    void go(String title, String subtitle, Widget page) {
+    void go(String title, String subtitle, Widget page, {List<AppPageAction> actions = const []}) {
       if (isModal) Navigator.pop(context);
-      openAppSubPage(context, title: title, subtitle: subtitle, child: page);
+      openAppSubPage(context, title: title, subtitle: subtitle, actions: actions, child: page);
     }
 
     return AppDrawer(
@@ -184,12 +206,27 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
               icon: PhosphorIconsRegular.package,
               label: 'Services',
               badgeCount: lowStockCount,
-              onTap: () => go('Services', 'Service menu, stock and prices', const OwnerInventoryTab()),
+              onTap: () {
+                if (isModal) Navigator.pop(context);
+                _openServices(context);
+              },
             ),
             AppDrawerItem(
               icon: PhosphorIconsRegular.wallet,
               label: 'Expenses',
-              onTap: () => go('Expenses', 'Petty cash and operational spend', const OwnerExpensesTab()),
+              onTap: () => go(
+                'Expenses',
+                'Rent, bills and other costs',
+                const OwnerExpensesTab(),
+                actions: [
+                  AppPageAction(
+                    icon: PhosphorIconsBold.plus,
+                    label: 'Add',
+                    tooltip: 'Add expense',
+                    onTap: () => showAddExpenseDialog(context, ref),
+                  ),
+                ],
+              ),
             ),
             AppDrawerItem(
               icon: PhosphorIconsRegular.chartLineUp,
@@ -491,13 +528,14 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
           child: const OwnerAttendanceTab(),
         ),
         onOpenClients: () => _switchToTab(OwnerTab.clients),
-        onOpenServices: () => openAppSubPage(
-          context,
-          title: 'Services',
-          subtitle: 'Service menu, stock and prices',
-          child: const OwnerInventoryTab(),
-        ),
+        onOpenServices: () => _openServices(context),
         onOpenTeam: () => _switchToTab(OwnerTab.team),
+        onOpenDues: () => openAppSubPage(
+          context,
+          title: 'Dues',
+          subtitle: 'What clients still owe, by client',
+          child: const DuesView(),
+        ),
         onOpenReports: () => openAppSubPage(
           context,
           title: 'Reports',
@@ -551,6 +589,8 @@ class OwnerReportsTab extends ConsumerStatefulWidget {
 class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
   String _activeSegment = 'Overview';
   String _timeframe = 'Last 6 Months';
+  // Staff tab's month: 0 = this month, 1 = last month, ...
+  int _staffMonthsBack = 0;
   /// null = every branch. Reports were salon-wide with no way to narrow them.
   String? _branchId;
 
@@ -587,7 +627,6 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isMobile = constraints.maxWidth < 768;
-        final salonName = state.settings?.salonName ?? ref.watch(authControllerProvider).salonName ?? 'Cuts Salon';
         // Reports used to be salon-wide with no way to narrow them, so an
         // owner running three branches could not answer "how did Vijay Nagar
         // do" from this page at all.
@@ -660,10 +699,9 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 1. Pinned Salon Header
-              _buildReportSalonHeader(context, salonName, branchName),
-              const SizedBox(height: 16),
-
+              // (A salon-name + owner-avatar strip used to sit here. The owner
+              // knows which salon this is; with several branches the branch
+              // pill below says which one.)
               // 2. Title & Timeframe Selector
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -685,37 +723,26 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                     onTap: () => _showTimeframePicker(context),
                     borderRadius: BorderRadius.circular(12),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6.5),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: const Color(0xFFE2E8F0)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.02),
-                            blurRadius: 4,
-                            offset: const Offset(0, 1),
-                          ),
-                        ],
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(PhosphorIconsRegular.calendarBlank, size: 14, color: Color(0xFF0F766E)),
+                          const Icon(PhosphorIconsRegular.calendarBlank, size: 14, color: Color(0xFF1E3A5F)),
                           const SizedBox(width: 6),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _timeframe.contains('6') ? 'Last 6' : _timeframe.contains('3') ? 'Last 3' : 'Current',
-                                style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
-                              ),
-                              Text(
-                                _timeframe == 'Current Year' ? 'Year' : 'Months',
-                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
-                              ),
-                            ],
+                          // One line - it was split over two tiny lines
+                          // ("Last 6" / "Months").
+                          Text(
+                            _timeframe.contains('6')
+                                ? 'Last 6 months'
+                                : _timeframe.contains('3')
+                                    ? 'Last 3 months'
+                                    : 'This year',
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
                           ),
                           const SizedBox(width: 4),
                           const Icon(PhosphorIconsBold.caretDown, size: 10, color: Color(0xFF94A3B8)),
@@ -769,10 +796,10 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                     Expanded(
                       child: _buildMetricTileCompact(
                         icon: PhosphorIconsRegular.receipt,
-                        iconBg: const Color(0xFFDBEAFE),
-                        iconColor: const Color(0xFF0D9488),
-                        title: 'Avg Ticket',
-                        value: '₹${atv.toStringAsFixed(0)}',
+                        iconBg: const Color(0xFFDCE4EF),
+                        iconColor: const Color(0xFF2F4E79),
+                        title: 'Avg bill',
+                        value: '${formatInr(atv)}',
                         subtext: 'Across $totalBillsCount bill${totalBillsCount == 1 ? '' : 's'}',
                         subtextColor: const Color(0xFF64748B),
                       ),
@@ -793,11 +820,11 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                     Expanded(
                       child: _buildMetricTileCompact(
                         icon: PhosphorIconsRegular.shieldCheck,
-                        iconBg: const Color(0xFFEFF6FF),
-                        iconColor: const Color(0xFF3B82F6),
+                        iconBg: const Color(0xFFF1F4F8),
+                        iconColor: const Color(0xFF3E5F8A),
                         title: 'Attendance',
                         value: '$attendanceRate%',
-                        subtext: 'This month, all staff',
+                        subtext: 'This month',
                         subtextColor: const Color(0xFF64748B),
                       ),
                     ),
@@ -826,6 +853,8 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                 const SizedBox(height: 14),
                 _buildTopServicesCard(state, bills),
               ] else if (_activeSegment == 'Staff') ...[
+                _buildStaffMonthlyCard(state),
+                const SizedBox(height: 14),
                 _buildStaffPerformanceCard(state, bills),
               ] else ...[
                 // Retention comes off the customer documents, not off the
@@ -871,7 +900,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(PhosphorIconsFill.mapPin, size: 14, color: Color(0xFF0F766E)),
+            const Icon(PhosphorIconsFill.mapPin, size: 14, color: Color(0xFF1E3A5F)),
             const SizedBox(width: 7),
             Text(
               label,
@@ -904,7 +933,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
             leading: Icon(
               branchId == null ? PhosphorIconsRegular.buildings : PhosphorIconsRegular.storefront,
               size: 19,
-              color: isSelected ? const Color(0xFF0F766E) : const Color(0xFF94A3B8),
+              color: isSelected ? const Color(0xFF1E3A5F) : const Color(0xFF94A3B8),
             ),
             title: Text(
               label,
@@ -914,7 +943,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                 color: const Color(0xFF0F172A),
               ),
             ),
-            trailing: isSelected ? const Icon(PhosphorIconsBold.check, size: 17, color: Color(0xFF0F766E)) : null,
+            trailing: isSelected ? const Icon(PhosphorIconsBold.check, size: 17, color: Color(0xFF1E3A5F)) : null,
             onTap: () {
               setState(() => _branchId = branchId);
               Navigator.pop(ctx);
@@ -980,9 +1009,9 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                 for (final e in top) ...[
                   _reportBarRow(
                     label: e.key,
-                    value: '₹${e.value.toStringAsFixed(0)} · ${countByService[e.key]}×',
+                    value: '${formatInr(e.value)} · ${countByService[e.key]}×',
                     fraction: maxVal > 0 ? e.value / maxVal : 0,
-                    color: const Color(0xFF0D9488),
+                    color: const Color(0xFF2F4E79),
                   ),
                   const SizedBox(height: 10),
                 ],
@@ -994,6 +1023,185 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
   /// Who brought the money in. Attributed per line item, because two stylists
   /// can share one bill - splitting by the bill's own total would credit all
   /// of it to whoever happened to be on the first line.
+  /// Clients each person handled in one calendar month, with bills,
+  /// services and takings beside it and the change from the month before.
+  /// Everyone on the team is listed, including people with nothing that
+  /// month - a missing row would hide exactly the person worth asking about.
+  Widget _buildStaffMonthlyCard(AppData state) {
+    final now = DateTime.now();
+    final month = DateTime(now.year, now.month - _staffMonthsBack, 1);
+    final next = DateTime(month.year, month.month + 1, 1);
+    final prev = DateTime(month.year, month.month - 1, 1);
+
+    Iterable<Bill> between(DateTime from, DateTime to) => state.bills.where((b) =>
+        b.createdAt != null &&
+        !b.createdAt!.isBefore(from) &&
+        b.createdAt!.isBefore(to) &&
+        (_branchId == null || b.branchId == _branchId));
+
+    final clients = <String, Set<String>>{};
+    final billIds = <String, Set<String>>{};
+    final services = <String, int>{};
+    final takings = <String, double>{};
+    for (final bill in between(month, next)) {
+      for (final item in bill.items) {
+        final id = item.employeeId;
+        if (id.isEmpty) continue;
+        (clients[id] ??= <String>{}).add(bill.customerId);
+        (billIds[id] ??= <String>{}).add(bill.id);
+        if (item.type == 'SERVICE') services[id] = (services[id] ?? 0) + item.quantity;
+        takings[id] = (takings[id] ?? 0) + (item.unitPrice * item.quantity - item.discountAmount);
+      }
+    }
+    final prevClients = <String, Set<String>>{};
+    for (final bill in between(prev, month)) {
+      for (final item in bill.items) {
+        if (item.employeeId.isEmpty) continue;
+        (prevClients[item.employeeId] ??= <String>{}).add(bill.customerId);
+      }
+    }
+
+    final ids = <String>{
+      ...state.employees
+          .where((e) => _branchId == null || e.branchId.isEmpty || e.branchId == _branchId)
+          .map((e) => e.id),
+      ...clients.keys,
+    }.toList()
+      ..sort((a, b) {
+        final byClients = (clients[b]?.length ?? 0).compareTo(clients[a]?.length ?? 0);
+        return byClients != 0 ? byClients : (takings[b] ?? 0).compareTo(takings[a] ?? 0);
+      });
+
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    final monthLabel = '${monthNames[month.month - 1]} ${month.year}';
+    final prevLabel = _kMonthAbbrevs[prev.month - 1];
+
+    Widget stepper(IconData icon, String tip, VoidCallback? onTap) => IconButton(
+          onPressed: onTap,
+          tooltip: tip,
+          visualDensity: VisualDensity.compact,
+          icon: Icon(icon, size: 16, color: onTap == null ? const Color(0xFFCBD5E1) : AppTheme.slateDark),
+        );
+
+    return _reportCard(
+      title: 'Clients handled',
+      subtitle: 'Per staff member, one month at a time',
+      child: Column(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: AppTheme.bgSurface,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                stepper(PhosphorIconsBold.caretLeft, 'Previous month',
+                    _staffMonthsBack >= 11 ? null : () => setState(() => _staffMonthsBack++)),
+                Expanded(
+                  child: Text(
+                    _staffMonthsBack == 0 ? '$monthLabel (so far)' : monthLabel,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.slateDark),
+                  ),
+                ),
+                stepper(PhosphorIconsBold.caretRight, 'Next month',
+                    _staffMonthsBack == 0 ? null : () => setState(() => _staffMonthsBack--)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          if (ids.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 18),
+              child: Text('No staff yet.', style: TextStyle(fontSize: 12.5, color: Color(0xFF94A3B8))),
+            )
+          else
+            for (var i = 0; i < ids.length; i++) ...[
+              if (i > 0) const Divider(height: 1, color: AppTheme.borderSubtle),
+              _staffMonthRow(
+                name: state.employeeById(ids[i])?.name ?? 'Former staff',
+                clients: clients[ids[i]]?.length ?? 0,
+                prevClients: prevClients[ids[i]]?.length ?? 0,
+                prevLabel: prevLabel,
+                bills: billIds[ids[i]]?.length ?? 0,
+                services: services[ids[i]] ?? 0,
+                takings: takings[ids[i]] ?? 0,
+              ),
+            ],
+        ],
+      ),
+    );
+  }
+
+  Widget _staffMonthRow({
+    required String name,
+    required int clients,
+    required int prevClients,
+    required String prevLabel,
+    required int bills,
+    required int services,
+    required double takings,
+  }) {
+    final (bg, fg) = AppTheme.avatarColorsFor(name);
+    final initials = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).take(2).map((p) => p[0].toUpperCase()).join();
+    final delta = clients - prevClients;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 11),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 18,
+            backgroundColor: bg,
+            child: Text(initials, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: fg)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: AppTheme.slateDark)),
+                const SizedBox(height: 2),
+                Text(
+                  '$bills bill${bills == 1 ? '' : 's'} · $services service${services == 1 ? '' : 's'} · ${_formatReportCurrency(takings)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11.5, color: AppTheme.slateLight),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '$clients',
+                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: AppTheme.slateDark),
+              ),
+              Text(
+                delta == 0
+                    ? 'clients · same as $prevLabel'
+                    : 'clients · ${delta > 0 ? '+' : ''}$delta vs $prevLabel',
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  color: delta > 0
+                      ? AppTheme.accentGreen
+                      : delta < 0
+                          ? AppTheme.accentRed
+                          : AppTheme.slateLight,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildStaffPerformanceCard(AppData state, List<Bill> bills) {
     final revenueByEmployee = <String, double>{};
     final itemsByEmployee = <String, int>{};
@@ -1011,8 +1219,8 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
     final maxVal = rows.isEmpty ? 1.0 : rows.first.value;
 
     return _reportCard(
-      title: 'Staff Performance',
-      subtitle: 'Revenue attributed per line item',
+      title: 'Takings by staff',
+      subtitle: 'For the period above, from the services and products each person billed',
       child: rows.isEmpty
           ? const Padding(
               padding: EdgeInsets.symmetric(vertical: 18),
@@ -1026,7 +1234,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                 for (final e in rows) ...[
                   _reportBarRow(
                     label: state.employeeById(e.key)?.name ?? 'Former staff',
-                    value: '₹${e.value.toStringAsFixed(0)} · ${billsByEmployee[e.key]!.length} bill${billsByEmployee[e.key]!.length == 1 ? '' : 's'}',
+                    value: '${formatInr(e.value)} · ${billsByEmployee[e.key]!.length} bill${billsByEmployee[e.key]!.length == 1 ? '' : 's'}',
                     fraction: maxVal > 0 ? e.value / maxVal : 0,
                     color: const Color(0xFF10B981),
                   ),
@@ -1046,13 +1254,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        boxShadow: AppTheme.cardShadow,
       ),
       padding: const EdgeInsets.all(18),
       child: Column(
@@ -1134,92 +1336,6 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
     );
   }
 
-  /// Salon name, scope, and the owner's avatar.
-  ///
-  /// The bell used to sit here too. Reports is opened from the drawer, never
-  /// as a tab, so it is not a place anyone lands on to triage notifications -
-  /// and the dot beside it was hardcoded, showing "unread" whether or not
-  /// anything was. Home and every tab still carry a working bell.
-  Widget _buildReportSalonHeader(BuildContext context, String salonName, String branchName) {
-    final ownerName = ref.watch(authControllerProvider).name;
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(7),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF1F5F9),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-          ),
-          child: const Icon(
-            PhosphorIconsRegular.storefront,
-            size: 18,
-            color: Color(0xFF1E293B),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                salonName,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                  color: Color(0xFF0F172A),
-                  letterSpacing: -0.3,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-              Row(
-                children: [
-                  Container(
-                    width: 5,
-                    height: 5,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF10B981),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    child: Text(
-                      branchName,
-                      style: const TextStyle(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF64748B),
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        Container(
-          width: 36,
-          height: 36,
-          decoration: const BoxDecoration(
-            color: Color(0xFF134E4A),
-            shape: BoxShape.circle,
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            _ownerInitials(ownerName),
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-              fontSize: 12.5,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildReportSegmentPill(String title) {
     final isSelected = _activeSegment == title;
     return InkWell(
@@ -1228,10 +1344,11 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF0F766E) : const Color(0xFFF1F5F9),
+          // Same light-tint chip as every other filter row in the app.
+          color: isSelected ? AppTheme.primaryLight : Colors.white,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isSelected ? const Color(0xFF0F766E) : const Color(0xFFE2E8F0),
+            color: isSelected ? const Color(0xFFC3D0E2) : const Color(0xFFE2E8F0),
           ),
         ),
         child: Text(
@@ -1239,7 +1356,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
           style: TextStyle(
             fontSize: 12,
             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-            color: isSelected ? Colors.white : const Color(0xFF475467),
+            color: isSelected ? AppTheme.primaryBlue : const Color(0xFF475467),
           ),
         ),
       ),
@@ -1267,13 +1384,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        boxShadow: AppTheme.cardShadow,
       ),
       padding: const EdgeInsets.all(18),
       child: Column(
@@ -1289,7 +1400,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                   Row(
                     children: [
                       const Text(
-                        'Revenue\nTrend',
+                        'Revenue trend',
                         style: TextStyle(
                           fontSize: 14.5,
                           fontWeight: FontWeight.w700,
@@ -1370,16 +1481,10 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                     decoration: BoxDecoration(
                       color: const Color(0xFF0F172A),
                       borderRadius: BorderRadius.circular(8),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.06),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
+                      boxShadow: AppTheme.cardShadow,
                     ),
                     child: Text(
-                      '₹${latestMonthRevenue.toStringAsFixed(0)} ($latestMonthName)',
+                      '${formatInr(latestMonthRevenue)} ($latestMonthName)',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 10.5,
@@ -1404,13 +1509,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        boxShadow: AppTheme.cardShadow,
       ),
       padding: const EdgeInsets.all(18),
       child: Column(
@@ -1422,7 +1521,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
               Row(
                 children: [
                   const Text(
-                    'Service Popularity',
+                    'Popular services',
                     style: TextStyle(
                       fontSize: 14.5,
                       fontWeight: FontWeight.w700,
@@ -1433,7 +1532,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFDBEAFE),
+                      color: const Color(0xFFDCE4EF),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: const Text(
@@ -1441,7 +1540,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
-                        color: Color(0xFF0D9488),
+                        color: Color(0xFF2F4E79),
                       ),
                     ),
                   ),
@@ -1452,7 +1551,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
           ),
           const SizedBox(height: 2),
           const Text(
-            'Volume by service category',
+            'Services done, by category',
             style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
           ),
           const SizedBox(height: 18),
@@ -1484,7 +1583,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                         width: 28,
                         height: barHeight,
                         decoration: const BoxDecoration(
-                          color: Color(0xFF0F766E),
+                          color: Color(0xFF1E3A5F),
                           borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
                         ),
                       ),
@@ -1525,13 +1624,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        boxShadow: AppTheme.cardShadow,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
       child: Column(
@@ -1594,13 +1687,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        boxShadow: AppTheme.cardShadow,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
@@ -1608,12 +1695,12 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: const Color(0xFFDBEAFE),
+              color: const Color(0xFFDCE4EF),
               borderRadius: BorderRadius.circular(10),
             ),
             child: const Icon(
               PhosphorIconsRegular.downloadSimple,
-              color: Color(0xFF0D9488),
+              color: Color(0xFF2F4E79),
               size: 18,
             ),
           ),
@@ -1623,7 +1710,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: const [
                 Text(
-                  'Export Detailed Audit',
+                  'Download bills',
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
@@ -1632,7 +1719,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                 ),
                 SizedBox(height: 2),
                 Text(
-                  'One row per bill line, CSV',
+                  'Spreadsheet (CSV), one row per item',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w500,
@@ -1823,7 +1910,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                 const SizedBox(height: 12),
                 ListTile(
                   title: const Text('Last 6 Months', style: TextStyle(fontWeight: FontWeight.w700)),
-                  trailing: _timeframe == 'Last 6 Months' ? const Icon(PhosphorIconsBold.check, color: Color(0xFF0F766E)) : null,
+                  trailing: _timeframe == 'Last 6 Months' ? const Icon(PhosphorIconsBold.check, color: Color(0xFF1E3A5F)) : null,
                   onTap: () {
                     setState(() => _timeframe = 'Last 6 Months');
                     Navigator.pop(ctx);
@@ -1831,7 +1918,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                 ),
                 ListTile(
                   title: const Text('Last 3 Months', style: TextStyle(fontWeight: FontWeight.w700)),
-                  trailing: _timeframe == 'Last 3 Months' ? const Icon(PhosphorIconsBold.check, color: Color(0xFF0F766E)) : null,
+                  trailing: _timeframe == 'Last 3 Months' ? const Icon(PhosphorIconsBold.check, color: Color(0xFF1E3A5F)) : null,
                   onTap: () {
                     setState(() => _timeframe = 'Last 3 Months');
                     Navigator.pop(ctx);
@@ -1839,7 +1926,7 @@ class _OwnerReportsTabState extends ConsumerState<OwnerReportsTab> {
                 ),
                 ListTile(
                   title: const Text('Current Year', style: TextStyle(fontWeight: FontWeight.w700)),
-                  trailing: _timeframe == 'Current Year' ? const Icon(PhosphorIconsBold.check, color: Color(0xFF0F766E)) : null,
+                  trailing: _timeframe == 'Current Year' ? const Icon(PhosphorIconsBold.check, color: Color(0xFF1E3A5F)) : null,
                   onTap: () {
                     setState(() => _timeframe = 'Current Year');
                     Navigator.pop(ctx);
@@ -1902,8 +1989,8 @@ class _ReportsRevenueCurvePainter extends CustomPainter {
     final fillPaint = Paint()
       ..shader = LinearGradient(
         colors: [
-          const Color(0xFF0D9488).withValues(alpha: 0.28),
-          const Color(0xFF0D9488).withValues(alpha: 0.0),
+          const Color(0xFF2F4E79).withValues(alpha: 0.28),
+          const Color(0xFF2F4E79).withValues(alpha: 0.0),
         ],
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
@@ -1923,7 +2010,7 @@ class _ReportsRevenueCurvePainter extends CustomPainter {
     }
 
     final strokePaint = Paint()
-      ..color = const Color(0xFF0D9488)
+      ..color = const Color(0xFF2F4E79)
       ..strokeWidth = 3
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
@@ -1933,7 +2020,7 @@ class _ReportsRevenueCurvePainter extends CustomPainter {
     // Draw dots and text
     final dotPaint = Paint()..color = Colors.white;
     final dotBorderPaint = Paint()
-      ..color = const Color(0xFF0D9488)
+      ..color = const Color(0xFF2F4E79)
       ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke;
 
@@ -1946,7 +2033,7 @@ class _ReportsRevenueCurvePainter extends CustomPainter {
       final textSpan = TextSpan(
         text: labels[i],
         style: TextStyle(
-          color: i == points.length - 1 ? const Color(0xFF0F766E) : const Color(0xFF94A3B8),
+          color: i == points.length - 1 ? const Color(0xFF1E3A5F) : const Color(0xFF94A3B8),
           fontSize: 10.5,
           fontWeight: i == points.length - 1 ? FontWeight.w700 : FontWeight.w600,
         ),

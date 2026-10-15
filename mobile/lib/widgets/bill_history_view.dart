@@ -4,6 +4,8 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../data/app_data.dart';
 import '../data/models.dart';
 import '../theme.dart';
+import 'app_sub_page.dart';
+import 'dues_view.dart';
 
 /// Bill history for the Billing section.
 ///
@@ -62,7 +64,13 @@ String _timeAgo(DateTime? when) {
     final m = when.minute.toString().padLeft(2, '0');
     return '$h:$m ${when.hour < 12 ? 'AM' : 'PM'}';
   }
-  if (diff.inDays < 7) return '${diff.inDays}d ago';
+  // Calendar days, not 24-hour blocks: a bill from 11 PM last night is
+  // "Yesterday", not "0d ago".
+  final days = DateTime(now.year, now.month, now.day)
+      .difference(DateTime(when.year, when.month, when.day))
+      .inDays;
+  if (days == 1) return 'Yesterday';
+  if (days < 7) return '${days}d ago';
   return '${when.day} ${_kMonths[when.month - 1]}';
 }
 
@@ -392,16 +400,17 @@ class _BillHistoryViewState extends State<BillHistoryView> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: selected ? AppTheme.primaryBlue : Colors.white,
+          // Light tint when selected - the same chip as Clients and Team.
+          color: selected ? AppTheme.primaryLight : Colors.white,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: selected ? AppTheme.primaryBlue : AppTheme.borderSubtle),
+          border: Border.all(color: selected ? const Color(0xFFC3D0E2) : AppTheme.borderSubtle),
         ),
         child: Text(
           '$label ($count)',
           style: TextStyle(
             fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: selected ? Colors.white : AppTheme.slateMedium,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+            color: selected ? AppTheme.primaryBlue : AppTheme.slateMedium,
           ),
         ),
       ),
@@ -462,7 +471,12 @@ class _BillHistoryViewState extends State<BillHistoryView> {
     final itemCount = bill.items.fold<int>(0, (s, i) => s + i.quantity);
 
     return InkWell(
-      onTap: () => showBillDetailSheet(context, bill: bill, state: widget.state),
+      onTap: () => showBillDetailSheet(
+        context,
+        bill: bill,
+        state: widget.state,
+        requestOnly: widget.onlyEmployeeId != null,
+      ),
       borderRadius: BorderRadius.circular(16),
       child: Container(
         padding: const EdgeInsets.all(14),
@@ -588,12 +602,14 @@ class _BillHistoryViewState extends State<BillHistoryView> {
 /// Read-only on purpose: bills are immutable once written (see the
 /// corresponding rule in firestore.rules), so this shows what was charged
 /// rather than offering an edit that the rules would reject anyway.
-/// Collecting an outstanding balance is a *payment*, and lives on the
-/// Pending Payments page under the same Billing gear.
+/// Collecting an outstanding balance is a *payment*: an unpaid bill gets a
+/// "Collect" button that opens Dues, where it is recorded (or, for staff,
+/// sent to the owner to confirm - [requestOnly]).
 Future<void> showBillDetailSheet(
   BuildContext context, {
   required Bill bill,
   required AppData state,
+  bool requestOnly = false,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -717,7 +733,9 @@ Future<void> showBillDetailSheet(
                                 child: Text(
                                   bill.isFullyPaid
                                       ? 'Paid in full via ${paymentMethodLabel(bill.paymentMethod)}'
-                                      : '${_rupees(bill.amountPaid)} collected · ${_rupees(bill.amountDue)} outstanding',
+                                      : bill.amountPaid > 0
+                                          ? '${_rupees(bill.amountPaid)} paid · ${_rupees(bill.amountDue)} still owed'
+                                          : 'Nothing paid yet · ${_rupees(bill.amountDue)} owed',
                                   style: TextStyle(
                                     fontSize: 12.5,
                                     fontWeight: FontWeight.w700,
@@ -730,6 +748,26 @@ Future<void> showBillDetailSheet(
                             ],
                           ),
                         ),
+                        if (!bill.isFullyPaid) ...[
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 46,
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                openAppSubPage(
+                                  context,
+                                  title: 'Dues',
+                                  subtitle: 'What clients still owe',
+                                  child: DuesView(requestOnly: requestOnly),
+                                );
+                              },
+                              icon: const Icon(PhosphorIconsRegular.handCoins, size: 17),
+                              label: Text('Collect ${_rupees(bill.amountDue)}'),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -767,7 +805,7 @@ Widget _billItemRow(BillItem item, AppData state) {
           height: 34,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: item.type == 'SERVICE' ? AppTheme.primaryLight : const Color(0xFFF0FDFA),
+            color: item.type == 'SERVICE' ? AppTheme.primaryLight : const Color(0xFFEEF2F7),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Icon(

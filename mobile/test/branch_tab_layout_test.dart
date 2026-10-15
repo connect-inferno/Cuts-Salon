@@ -96,7 +96,7 @@ void main() {
     // And the stat boxes inside the card that actually threw.
     expect(find.text('Served'), findsNWidgets(3));
     expect(find.text('Staff'), findsNWidgets(3));
-    expect(find.text('Rev/Emp'), findsNWidgets(3));
+    expect(find.text('Per staff'), findsNWidgets(3));
   });
 
   testWidgets('a single branch renders', (tester) async {
@@ -114,7 +114,7 @@ void main() {
     );
 
     expect(find.text('Vishram bagh'), findsOneWidget);
-    expect(find.text('Rev/Emp'), findsOneWidget);
+    expect(find.text('Per staff'), findsOneWidget);
   });
 
   testWidgets('no branches does not throw', (tester) async {

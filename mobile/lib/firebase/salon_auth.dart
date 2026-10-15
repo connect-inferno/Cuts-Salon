@@ -273,6 +273,37 @@ class SalonAuth {
     }
   }
 
+  // "Forgot password?" on the login screen, where nobody is signed in yet so
+  // the salon isn't known. Same routing as signIn: the login directory names
+  // the salon's project when it can; otherwise every project is asked. A
+  // project with no such account sends nothing (and, with Firebase's email-
+  // enumeration protection, doesn't say so either), and this never reports
+  // which case happened - the login screen shows one neutral message, so it
+  // can't be used to test whether an email has an account.
+  static Future<void> sendResetEmailForLogin(String email) async {
+    final normalizedEmail = email.trim();
+    final directedSalonId = await lookupSalonIdForEmail(normalizedEmail);
+    final directed = directedSalonId == null ? null : configForSalonId(directedSalonId);
+    final targets = directed != null ? [directed] : salonFirebaseConfigs;
+
+    SalonAuthException? networkError;
+    for (final config in targets) {
+      try {
+        final app = await _appFor(config).timeout(_sdkLoadTimeout);
+        await FirebaseAuth.instanceFor(app: app).sendPasswordResetEmail(email: normalizedEmail);
+      } on FirebaseAuthException catch (e) {
+        if (e.code == 'invalid-email') throw SalonAuthException(_authErrorMessage(e));
+        if (e.code == 'network-request-failed' || e.code == 'too-many-requests') {
+          networkError ??= SalonAuthException(_authErrorMessage(e));
+        }
+        // user-not-found and the like: not this salon - try the next.
+      } on TimeoutException {
+        networkError ??= SalonAuthException('Could not reach the server. Check your internet connection and try again.');
+      }
+    }
+    if (networkError != null && directed != null) throw networkError;
+  }
+
   // Unlike resetting a *coworker's* password (createEmployeeAccount /
   // sendPasswordResetEmail above), Firebase's client SDK can change the
   // currently-signed-in user's OWN password directly - no workaround

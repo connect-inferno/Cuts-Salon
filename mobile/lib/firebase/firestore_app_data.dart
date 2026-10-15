@@ -150,6 +150,7 @@ Bill billFromFS(FSBill b, {required List<FSBillItem> items, List<FSPayment> paym
       status: 'COMPLETED',
       createdAt: b.createdAt,
       items: items.map(billItemFromFS).toList(),
+      discountRequestId: b.discountRequestId,
     );
 
 Expense expenseFromFS(FSExpense e) => Expense(
@@ -219,7 +220,7 @@ AttendanceRecord attendanceFromFS(FSAttendanceRecord a) => AttendanceRecord(
       clockInLocationNote: a.clockInLocationNote,
     );
 
-SalonSettings settingsFromFS(FSSettings s) => SalonSettings(
+SalonSettings settingsFromFS(FSSettings s, {bool whatsappReady = false}) => SalonSettings(
       salonName: s.salonName,
       phone: s.phone,
       address: s.address,
@@ -228,6 +229,7 @@ SalonSettings settingsFromFS(FSSettings s) => SalonSettings(
       lateAttendancePenalty: s.lateAttendancePenalty,
       dailyRevenueTarget: s.dailyRevenueTarget,
       whatsappEnabled: s.whatsappEnabled,
+      whatsappReady: whatsappReady,
     );
 
 // Assembles one AppData from Firestore, replicating every requester-based
@@ -273,6 +275,7 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
     // See data/salary_provider.dart.
     fs.listPendingCommissions(employeeId: selfId),
     fs.listAttendance(employeeId: selfId),
+    fs.isWhatsAppReady(),
   ]);
 
   final settingsFS = results[0] as FSSettings;
@@ -289,6 +292,7 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
   final salesTargetsFS = results[11] as List<FSSalesTarget>;
   final commissionsFS = results[12] as List<FSCommissionRecord>;
   final attendanceFS = results[13] as List<FSAttendanceRecord>;
+  final whatsappReady = results[14] as bool;
 
   // -1 is the staff sentinel from the wait above: derive it from the list
   // they already hold rather than spending a second query on it.
@@ -383,6 +387,6 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
     commissions: commissionsFS.map(commissionRecordFromFS).toList(),
     attendance: attendanceFS.map(attendanceFromFS).toList(),
     dashboard: dashboard,
-    settings: settingsFromFS(settingsFS),
+    settings: settingsFromFS(settingsFS, whatsappReady: whatsappReady),
   );
 }

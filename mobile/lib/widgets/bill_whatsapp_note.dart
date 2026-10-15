@@ -20,7 +20,12 @@ class BillWhatsAppNote extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final data = ref.watch(appDataProvider).valueOrNull;
-    if (data?.settings?.whatsappEnabled != true) return const SizedBox.shrink();
+    // Both: switched on AND actually set up. A salon could flip the switch
+    // before WhatsApp was configured, and this used to then say the bill
+    // was going out when nothing would be sent.
+    if (data?.settings?.whatsappEnabled != true || data?.settings?.whatsappReady != true) {
+      return const SizedBox.shrink();
+    }
     final matches = data!.customers.where((c) => c.id == customerId);
     if (matches.isEmpty) return const SizedBox.shrink();
     final customer = matches.first;

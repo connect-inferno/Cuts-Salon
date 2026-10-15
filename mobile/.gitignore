@@ -44,3 +44,7 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 .vercel
+
+# Local-only login for the debug quick-login chip (see login_screen.dart).
+# Holds a real password - must never be committed.
+dev_login.json

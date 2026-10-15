@@ -31,11 +31,17 @@ class AppPageAction {
   final VoidCallback onTap;
   final int badgeCount;
 
+  /// When set, the action is drawn as a small filled button with this text
+  /// (e.g. "Add") instead of a bare icon - for a page's main action, which
+  /// shouldn't be a mystery glyph.
+  final String? label;
+
   const AppPageAction({
     required this.icon,
     required this.tooltip,
     required this.onTap,
     this.badgeCount = 0,
+    this.label,
   });
 }
 
@@ -157,6 +163,37 @@ class _AppHeaderIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final label = action.label;
+    if (label != null) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: Tooltip(
+          message: action.tooltip,
+          child: Material(
+            color: AppTheme.primaryBlue,
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              onTap: action.onTap,
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(action.icon, size: 15, color: Colors.white),
+                    const SizedBox(width: 6),
+                    Text(
+                      label,
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     return Tooltip(
       message: action.tooltip,
       child: InkWell(
