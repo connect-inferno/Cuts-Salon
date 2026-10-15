@@ -15,8 +15,6 @@ class LoginScreen extends ConsumerStatefulWidget {
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-const _devLoginEmail = String.fromEnvironment('DEV_LOGIN_EMAIL');
-const _devLoginPassword = String.fromEnvironment('DEV_LOGIN_PASSWORD');
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
@@ -231,27 +229,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 ),
                               ),
                               const SizedBox(height: 20),
-
-                              // Local development only. The login comes from
-                              // mobile/dev_login.json (git-ignored) via the
-                              // "flutter-web-login" launch entry's
-                              // --dart-define-from-file, so no password is ever
-                              // in the source or git history; kDebugMode keeps
-                              // the chip out of the release build entirely.
-                              if (kDebugMode && _devLoginEmail.isNotEmpty) ...[
-                                Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: ActionChip(
-                                    avatar: const Icon(PhosphorIconsRegular.user, size: 15),
-                                    label: const Text('Owner (test salon)', style: TextStyle(fontSize: 12)),
-                                    onPressed: () => setState(() {
-                                      _emailController.text = _devLoginEmail;
-                                      _passwordController.text = _devLoginPassword;
-                                    }),
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                              ],
 
                               // Email Label & Pill Input
                               const Text(
