@@ -8,6 +8,7 @@ import '../../../widgets/liquid_nav_bar.dart';
 import '../../../data/punch_location.dart';
 import '../../../data/salary_provider.dart';
 import '../../../data/models.dart';
+import '../../../data/client_search.dart';
 import '../../../widgets/app_page_header.dart';
 import '../../../widgets/app_page_switcher.dart';
 import '../../../widgets/add_customer_page.dart';
@@ -479,10 +480,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
     // the Archived chip is active.
     final source = showingArchived ? state.archivedCustomers : state.customers;
     final filteredCustomers = source.where((cust) {
-      final matchesSearch = query.isEmpty ||
-          cust.name.toLowerCase().contains(query) ||
-          cust.phone.contains(query) ||
-          (cust.email?.toLowerCase().contains(query) ?? false);
+      final matchesSearch = customerMatchesQuery(cust, query);
 
       if (!matchesSearch) return false;
       if (_activeFilter == 'Recent') return cust.visitCount > 0;
@@ -558,7 +556,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                   controller: _searchController,
                   onChanged: (_) => setState(() {}),
                   decoration: InputDecoration(
-                    hintText: 'Search name or phone',
+                    hintText: 'Search name or mobile number',
                     hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
                     prefixIcon: const Icon(PhosphorIconsRegular.magnifyingGlass, color: Color(0xFF94A3B8), size: 18),
                     filled: true,

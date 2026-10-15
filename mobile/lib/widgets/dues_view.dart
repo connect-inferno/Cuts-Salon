@@ -5,6 +5,7 @@ import '../theme.dart';
 import '../data/app_data_provider.dart';
 import '../data/payment_requests_provider.dart';
 import '../data/models.dart';
+import '../data/client_search.dart';
 import 'async_state_views.dart';
 import 'app_dialog.dart';
 
@@ -132,9 +133,7 @@ class _DuesViewState extends ConsumerState<DuesView> {
     final dues = q.isEmpty
         ? allDues
         : allDues
-            .where((d) =>
-                d.customer.name.toLowerCase().contains(q) ||
-                d.customer.phone.toLowerCase().contains(q))
+            .where((d) => customerMatchesQuery(d.customer, q))
             .toList();
 
     return RefreshIndicator(
@@ -164,7 +163,7 @@ class _DuesViewState extends ConsumerState<DuesView> {
                 onChanged: (_) => setState(() {}),
                 style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
                 decoration: InputDecoration(
-                  hintText: 'Search client by name or phone...',
+                  hintText: 'Search name or mobile number',
                   hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
                   prefixIcon: const Icon(PhosphorIconsRegular.magnifyingGlass, size: 18, color: Color(0xFF94A3B8)),
                   suffixIcon: _searchController.text.isEmpty

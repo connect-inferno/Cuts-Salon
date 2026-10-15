@@ -6,6 +6,7 @@ import '../../theme.dart';
 import '../../data/app_data_provider.dart';
 import '../../data/salary_provider.dart';
 import '../../data/models.dart';
+import '../../data/client_search.dart';
 import '../auth/auth_provider.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/app_page_header.dart';
@@ -1471,7 +1472,7 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
     final returningCount = mine.where((c) => (myBills[c.id]?.length ?? 0) > 1).length;
 
     final filtered = mine.where((c) {
-      final matches = q.isEmpty || c.name.toLowerCase().contains(q) || c.phone.contains(q);
+      final matches = customerMatchesQuery(c, q);
       if (!matches) return false;
 
       // "Returning" means returning *to this stylist* now, which is the
@@ -1536,7 +1537,7 @@ class _EmployeeCustomersTabState extends State<_EmployeeCustomersTab> {
               onChanged: (val) => setState(() => _searchQuery = val),
               style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
               decoration: const InputDecoration(
-                hintText: 'Search name or phone',
+                hintText: 'Search name or mobile number',
                 hintStyle: TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
                 prefixIcon: Icon(PhosphorIconsRegular.magnifyingGlass, size: 18, color: Color(0xFF94A3B8)),
                 border: InputBorder.none,

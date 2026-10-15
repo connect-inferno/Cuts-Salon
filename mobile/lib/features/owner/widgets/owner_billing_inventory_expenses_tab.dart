@@ -6,6 +6,7 @@ import '../../../data/app_data_provider.dart';
 import '../../../data/bill_math.dart';
 import '../../../data/expenses_provider.dart';
 import '../../../data/models.dart';
+import '../../../data/client_search.dart';
 import '../../../widgets/async_state_views.dart';
 import '../../../widgets/searchable_picker.dart';
 import '../../../widgets/bill_whatsapp_note.dart';
@@ -487,6 +488,8 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                             // A walk-in who isn't on file yet shouldn't mean
                             // abandoning a half-built bill to go and add them.
                             createLabel: 'Add a new client',
+                            searchHint: 'Name or mobile number',
+                            matches: customerMatchesQuery,
                             onCreate:
                                 (ctx) => openAppSubPage<Customer>(
                                   ctx,

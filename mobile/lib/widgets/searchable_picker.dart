@@ -20,6 +20,10 @@ Future<T?> showSearchablePicker<T>({
   String Function(T)? subtitleOf,
   Future<T?> Function(BuildContext)? onCreate,
   String createLabel = 'Add new',
+  /// Replaces the plain "label or subtitle contains" test - the client
+  /// picker passes customerMatchesQuery (data/client_search.dart).
+  bool Function(T item, String query)? matches,
+  String searchHint = 'Search...',
 }) {
   return showModalBottomSheet<T>(
     context: context,
@@ -33,6 +37,8 @@ Future<T?> showSearchablePicker<T>({
       subtitleOf: subtitleOf,
       onCreate: onCreate,
       createLabel: createLabel,
+      matches: matches,
+      searchHint: searchHint,
     ),
   );
 }
@@ -44,6 +50,8 @@ class _SearchablePickerSheet<T> extends StatefulWidget {
   final String Function(T)? subtitleOf;
   final Future<T?> Function(BuildContext)? onCreate;
   final String createLabel;
+  final bool Function(T item, String query)? matches;
+  final String searchHint;
 
   const _SearchablePickerSheet({
     required this.title,
@@ -52,6 +60,8 @@ class _SearchablePickerSheet<T> extends StatefulWidget {
     this.subtitleOf,
     this.onCreate,
     this.createLabel = 'Add new',
+    this.matches,
+    this.searchHint = 'Search...',
   });
 
   @override
@@ -127,6 +137,7 @@ class _SearchablePickerSheetState<T> extends State<_SearchablePickerSheet<T>> {
     final filtered = query.isEmpty
         ? widget.items
         : widget.items.where((item) {
+            if (widget.matches != null) return widget.matches!(item, query);
             final label = widget.labelOf(item).toLowerCase();
             final subtitle = widget.subtitleOf?.call(item).toLowerCase() ?? '';
             return label.contains(query) || subtitle.contains(query);
@@ -159,9 +170,9 @@ class _SearchablePickerSheetState<T> extends State<_SearchablePickerSheet<T>> {
                   controller: _searchController,
                   autofocus: true,
                   onChanged: (val) => setState(() => _query = val),
-                  decoration: const InputDecoration(
-                    hintText: 'Search...',
-                    prefixIcon: Icon(PhosphorIconsRegular.magnifyingGlass, size: 20),
+                  decoration: InputDecoration(
+                    hintText: widget.searchHint,
+                    prefixIcon: const Icon(PhosphorIconsRegular.magnifyingGlass, size: 20),
                   ),
                 ),
               ),
