@@ -254,6 +254,40 @@ service cloud.firestore {
     // date.day() to request.time.day() would reject every punch this salon
     // ever made. A window absorbs any offset on earth (max +/-14h) while
     // still making "mark me present for last month" impossible.
+    // The owner's rotating attendance QR, one doc per branch (doc id =
+    // branchId). The owner's Attendance QR screen replaces `token` every 30
+    // seconds and keeps the one before it as `prevToken`, so a code scanned
+    // just before it changed still works; attendanceRecords accepts either
+    // for 45s from its own issue time. No REST-era route - this postdates it.
+    //
+    // Staff must never read it: knowing the token is what proves you are
+    // standing in front of the screen. (Rules' own get() is not subject to
+    // rules, which is how attendanceRecords checks it.)
+    //
+    // issuedAt must be the server's time (FieldValue.serverTimestamp()), so
+    // a code's lifetime doesn't depend on the owner's phone clock. On
+    // update, prevToken/prevIssuedAt must be exactly the code being
+    // replaced (the app rotates in a transaction), so nobody - not even a
+    // stolen owner session - can plant an old code as "previous" to stretch
+    // its life.
+    match /attendanceQr/{branchId} {
+      function qrDocShape() {
+        return request.resource.data.token is string
+          && request.resource.data.token.size() >= 16
+          && request.resource.data.issuedAt == request.time
+          && exists(/databases/$(database)/documents/branches/$(branchId));
+      }
+
+      allow read: if isOwner();
+      allow create: if isOwner() && qrDocShape()
+        && request.resource.data.keys().hasOnly(['token', 'issuedAt']);
+      allow update: if isOwner() && qrDocShape()
+        && request.resource.data.keys().hasOnly(['token', 'issuedAt', 'prevToken', 'prevIssuedAt'])
+        && request.resource.data.prevToken == resource.data.token
+        && request.resource.data.prevIssuedAt == resource.data.issuedAt;
+      allow delete: if false;
+    }
+
     match /attendanceRecords/{recordId} {
       function datedNearNow() {
         return 'date' in request.resource.data
@@ -288,6 +322,7 @@ service cloud.firestore {
             isSelf(request.resource.data.employeeId)
             && request.resource.data.clockIn == request.time
             && notSelfConfirming()
+            && clockInQrValid()
           )
         );
 
@@ -307,18 +342,48 @@ service cloud.firestore {
       // was, and an edited client can send anything. The location is an
       // audit trail for the owner to look at, not a gate. Enforcing it needs
       // a Cloud Function - see the no-trusted-server note in CLAUDE.md.
+      //
+      // What IS enforced is presence at the counter: every staff punch must
+      // carry the code from the owner's rotating attendance QR (see
+      // attendanceQr below) and name the branch whose screen it came from.
+      // Staff cannot read attendanceQr, so the only way to know a live code
+      // is to scan the screen. The scanned code is stored on the record
+      // (clockInQrToken / clockOutQrToken) - it has expired by then, so it
+      // is just an audit trail of which screen the punch came from.
+      function qrCodeValid(token, branchId) {
+        let qr = get(/databases/$(database)/documents/attendanceQr/$(branchId)).data;
+        return token is string
+          && ((token == qr.token
+                && request.time < qr.issuedAt + duration.value(45, 's'))
+              || ('prevToken' in qr
+                && token == qr.prevToken
+                && request.time < qr.prevIssuedAt + duration.value(45, 's')));
+      }
+
+      function clockInQrValid() {
+        return qrCodeValid(request.resource.data.clockInQrToken, request.resource.data.clockInQrBranchId);
+      }
+
+      function clockOutQrValid() {
+        return qrCodeValid(request.resource.data.clockOutQrToken, request.resource.data.clockOutQrBranchId);
+      }
+
       function punchingIn() {
         return request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['clockIn', 'clockInLat', 'clockInLng', 'clockInLocationNote'])
+              .hasOnly(['clockIn', 'clockInLat', 'clockInLng', 'clockInLocationNote',
+                        'clockInQrToken', 'clockInQrBranchId'])
             && (!('clockIn' in resource.data) || resource.data.clockIn == null)
-            && request.resource.data.clockIn == request.time;
+            && request.resource.data.clockIn == request.time
+            && clockInQrValid();
       }
 
       function punchingOut() {
         return request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['clockOut', 'clockOutLat', 'clockOutLng', 'clockOutLocationNote'])
+              .hasOnly(['clockOut', 'clockOutLat', 'clockOutLng', 'clockOutLocationNote',
+                        'clockOutQrToken', 'clockOutQrBranchId'])
             && (!('clockOut' in resource.data) || resource.data.clockOut == null)
-            && request.resource.data.clockOut == request.time;
+            && request.resource.data.clockOut == request.time
+            && clockOutQrValid();
       }
 
       allow update: if isActiveEmployee()

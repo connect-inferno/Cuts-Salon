@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
 import {
   doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, writeBatch,
-  serverTimestamp, Timestamp, getCountFromServer, deleteField,
+  serverTimestamp, Timestamp, getCountFromServer, deleteField, runTransaction,
 } from 'firebase/firestore';
 
 const rules = readFileSync(process.argv[2] || new URL("../firestore.rules", import.meta.url), "utf8");
@@ -19,6 +19,9 @@ async function t(name, p) {
 
 const today = new Date(); const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+const LIVE = 'L'.repeat(24), PREV = 'P'.repeat(24), STALE = 'S'.repeat(24), OLDPREV = 'O'.repeat(24);
+const punch = (extra) => ({ employeeId: 'emp1', date: Timestamp.fromDate(midnight), clockIn: serverTimestamp(), clockOut: null, status: 'PRESENT', ...extra });
 
 async function seed() {
   await env.clearFirestore();
@@ -39,6 +42,16 @@ async function seed() {
       await setDoc(doc(db, `employeePay/${id}`), { baseSalary: 20000, serviceCommissionPct: 10, productCommissionPct: 5 });
     }
     await setDoc(doc(db, 'bills/b1'), { customerId: 'cu1', finalAmount: 500 });
+    const ago = (s) => Timestamp.fromMillis(Date.now() - s * 1000);
+    for (const b of ['br1', 'br2', 'br3', 'brNew']) await setDoc(doc(db, `branches/${b}`), { name: b, active: true });
+    // br1: live code issued 5s ago, previous one 35s ago (still in its 45s grace).
+    await setDoc(doc(db, 'attendanceQr/br1'), { token: LIVE, issuedAt: ago(5), prevToken: PREV, prevIssuedAt: ago(35) });
+    // br2: the owner's screen went off two minutes ago - nothing valid.
+    await setDoc(doc(db, 'attendanceQr/br2'), { token: STALE, issuedAt: ago(120) });
+    // br3: previous code is 50s old - past its grace.
+    await setDoc(doc(db, 'attendanceQr/br3'), { token: 'x'.repeat(24), issuedAt: ago(20), prevToken: OLDPREV, prevIssuedAt: ago(50) });
+    // emp2's day already has a status-only record (owner confirmed the roster first).
+    await setDoc(doc(db, `attendanceRecords/emp2_${ymd(today)}`), { employeeId: 'emp2', status: 'PRESENT', date: Timestamp.fromDate(midnight), confirmed: true });
     await setDoc(doc(db, 'inventoryItems/i1'), { name: 'Gel', stockCount: 5, price: 100 });
     await setDoc(doc(db, 'services/sv1'), { name: 'Cut', price: 200 });
     await setDoc(doc(db, 'counters/invoices'), { last: 5 });
@@ -85,9 +98,17 @@ console.log('Active employee (emp1)');
   await t('cannot read all attendance', assertFails(getDocs(collection(db, 'attendanceRecords'))));
   await t('cannot read a coworker\'s day', assertFails(getDoc(doc(db, 'attendanceRecords/emp2_2026-10-01'))));
   await t('can check today\'s (missing) record before punching', assertSucceeds(getDoc(doc(db, `attendanceRecords/emp1_${ymd(today)}`))));
-  await t('can clock in today', assertSucceeds(setDoc(doc(db, `attendanceRecords/emp1_${ymd(today)}`), {
-    employeeId: 'emp1', date: Timestamp.fromDate(midnight), clockIn: serverTimestamp(), clockOut: null, status: 'PRESENT',
-  })));
+  const mine = doc(db, `attendanceRecords/emp1_${ymd(today)}`);
+  await t('cannot read the attendance QR code', assertFails(getDoc(doc(db, 'attendanceQr/br1'))));
+  await t('cannot write the attendance QR code', assertFails(setDoc(doc(db, 'attendanceQr/br1'), { token: 'z'.repeat(24), issuedAt: serverTimestamp() })));
+  await t('cannot clock in without scanning', assertFails(setDoc(mine, punch({}))));
+  await t('cannot clock in with a made-up code', assertFails(setDoc(mine, punch({ clockInQrToken: 'q'.repeat(24), clockInQrBranchId: 'br1' }))));
+  await t('cannot clock in with an expired code', assertFails(setDoc(mine, punch({ clockInQrToken: STALE, clockInQrBranchId: 'br2' }))));
+  await t('cannot clock in with a code past its grace', assertFails(setDoc(mine, punch({ clockInQrToken: OLDPREV, clockInQrBranchId: 'br3' }))));
+  await t('cannot use a live code with the wrong branch', assertFails(setDoc(mine, punch({ clockInQrToken: LIVE, clockInQrBranchId: 'br3' }))));
+  await t('can clock in with the live code', assertSucceeds(setDoc(mine, punch({ clockInQrToken: LIVE, clockInQrBranchId: 'br1' }))));
+  await t('cannot clock out without scanning', assertFails(updateDoc(mine, { clockOut: serverTimestamp() })));
+  await t('can clock out with the code that just changed', assertSucceeds(updateDoc(mine, { clockOut: serverTimestamp(), clockOutQrToken: PREV, clockOutQrBranchId: 'br1' })));
   await t('can read own sales targets', assertSucceeds(getDocs(query(collection(db, 'salesTargets'), where('employeeId', '==', 'emp1')))));
   await t('cannot mark own target as met', assertFails(updateDoc(doc(db, 'salesTargets/t_emp1'), { progressValue: 1000, status: 'COMPLETED' })));
   await t('can read own payment requests', assertSucceeds(getDocs(query(collection(db, 'paymentRequests'), where('requestedBy', '==', 'emp1')))));
@@ -110,6 +131,14 @@ console.log('Active employee (emp1)');
   await t('cannot list pay', assertFails(getDocs(collection(db, 'employeePay'))));
   await t('cannot raise own pay', assertFails(setDoc(doc(db, 'employeePay/emp1'), { baseSalary: 99999, serviceCommissionPct: 10, productCommissionPct: 5 })));
   await t('cannot edit own record', assertFails(updateDoc(doc(db, 'employees/emp1'), { baseSalary: 99999 })));
+}
+
+console.log('Active employee (emp2) - day already on the roster');
+{
+  const db = env.authenticatedContext('emp2').firestore();
+  const day = doc(db, `attendanceRecords/emp2_${ymd(today)}`);
+  await t('cannot punch in on a rostered day without scanning', assertFails(updateDoc(day, { clockIn: serverTimestamp() })));
+  await t('can punch in on a rostered day with the live code', assertSucceeds(updateDoc(day, { clockIn: serverTimestamp(), clockInQrToken: LIVE, clockInQrBranchId: 'br1' })));
 }
 
 console.log('Owner');
@@ -145,6 +174,24 @@ console.log('Owner');
     }
     await t('can move pay off the roster docs', assertSucceeds(b.commit()));
   }
+  await t('can start a branch\'s QR code', assertSucceeds(setDoc(doc(db, 'attendanceQr/brNew'), { token: 'n'.repeat(24), issuedAt: serverTimestamp() })));
+  await t('cannot start a QR code with a phone-clock time', assertFails(setDoc(doc(db, 'attendanceQr/br9'), { token: 'n'.repeat(24), issuedAt: Timestamp.now() })));
+  await t('cannot start a QR code for a branch that does not exist', assertFails(setDoc(doc(db, 'attendanceQr/nope'), { token: 'n'.repeat(24), issuedAt: serverTimestamp() })));
+  await t('cannot use a short QR code', assertFails(setDoc(doc(db, 'attendanceQr/br3'), { token: 'short', issuedAt: serverTimestamp() })));
+  await t('can rotate the QR code', assertSucceeds(runTransaction(db, async (tx) => {
+    const ref = doc(db, 'attendanceQr/brNew');
+    const cur = (await tx.get(ref)).data();
+    tx.set(ref, { token: 'r'.repeat(24), issuedAt: serverTimestamp(), prevToken: cur.token, prevIssuedAt: cur.issuedAt });
+  })));
+  await t('cannot plant a fake previous code', assertFails(runTransaction(db, async (tx) => {
+    const ref = doc(db, 'attendanceQr/brNew');
+    const cur = (await tx.get(ref)).data();
+    tx.set(ref, { token: 's'.repeat(24), issuedAt: serverTimestamp(), prevToken: 'f'.repeat(24), prevIssuedAt: cur.issuedAt });
+  })));
+  await t('cannot delete a QR code', assertFails(deleteDoc(doc(db, 'attendanceQr/brNew'))));
+  await t('can clock in own shift without a QR', assertSucceeds(setDoc(doc(db, `attendanceRecords/owner1_${ymd(today)}`), {
+    employeeId: 'owner1', date: Timestamp.fromDate(midnight), clockIn: serverTimestamp(), clockOut: null, status: 'PRESENT',
+  })));
   await t('can read every salary slip', assertSucceeds(getDocs(collection(db, 'salaryRecords'))));
   await t('cannot delete a salary slip', assertFails(deleteDoc(doc(db, 'salaryRecords/s_emp1'))));
   await t('can read all attendance', assertSucceeds(getDocs(collection(db, 'attendanceRecords'))));

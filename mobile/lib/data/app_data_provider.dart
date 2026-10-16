@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:flutter/foundation.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,6 +12,7 @@ import '../firebase/firestore_models.dart';
 import '../firebase/salon_auth.dart';
 import '../firebase/salon_firestore.dart';
 import 'app_data.dart';
+import 'attendance_qr.dart';
 import 'birthday.dart';
 import 'punch_location.dart';
 import 'salary_provider.dart';
@@ -1180,18 +1182,63 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   /// permission or a phone with location off records a note instead of
   /// coordinates, because an app that refuses to let someone clock in over
   /// a permission prompt gets worked around, not complied with.
-  Future<void> clockIn() async {
+  ///
+  /// Staff must pass the [qr] code they scanned off the owner's attendance
+  /// QR screen; firestore.rules refuses a staff punch without a live one.
+  /// The owner punches their own shift without one.
+  Future<void> clockIn({AttendanceQrCode? qr}) async {
     final auth = ref.read(authControllerProvider);
+    _checkPunchQr(auth, qr);
     final where = await PunchLocationService.current();
-    final recordFS = await _fs.clockIn(auth.userId!, location: where.toFields('clockIn'));
+    final recordFS = await _punchWithQr(qr, () => _fs.clockIn(auth.userId!, punchFields: {
+          ...where.toFields('clockIn'),
+          ...?qr?.toPunchFields('clockIn'),
+        }));
     _patchAttendance(recordFS);
   }
 
-  Future<void> clockOut() async {
+  Future<void> clockOut({AttendanceQrCode? qr}) async {
     final auth = ref.read(authControllerProvider);
+    _checkPunchQr(auth, qr);
     final where = await PunchLocationService.current();
-    final recordFS = await _fs.clockOut(auth.userId!, location: where.toFields('clockOut'));
+    final recordFS = await _punchWithQr(qr, () => _fs.clockOut(auth.userId!, punchFields: {
+          ...where.toFields('clockOut'),
+          ...?qr?.toPunchFields('clockOut'),
+        }));
     _patchAttendance(recordFS);
+  }
+
+  void _checkPunchQr(AuthState auth, AttendanceQrCode? qr) {
+    if (qr == null) {
+      if (!auth.isOwner) throw Exception('Scan the attendance QR on the owner\'s screen to punch');
+      return;
+    }
+    if (qr.salonId != auth.salonId) {
+      throw Exception('This QR code is for a different salon');
+    }
+  }
+
+  // The rules' answer to a stale or wrong code is a bare permission error;
+  // for a scanned punch that almost always means the code had already
+  // changed (slow network, or a photo of the screen), so say that instead.
+  Future<FSAttendanceRecord> _punchWithQr(AttendanceQrCode? qr, Future<FSAttendanceRecord> Function() punch) async {
+    try {
+      return await punch();
+    } on FirebaseException catch (e) {
+      if (qr != null && e.code == 'permission-denied') {
+        throw Exception('That QR code has expired. Scan the code on the owner\'s screen again.');
+      }
+      rethrow;
+    }
+  }
+
+  /// Puts a new code on a branch's attendance QR (owner only) and returns
+  /// the text to show as the QR - only after the server has the code.
+  Future<String> rotateAttendanceQr(String branchId) async {
+    _requireOwner();
+    final auth = ref.read(authControllerProvider);
+    final token = await _fs.rotateAttendanceQr(branchId, newAttendanceQrToken());
+    return AttendanceQrCode(salonId: auth.salonId!, branchId: branchId, token: token).encode();
   }
 
   Future<void> markAttendance({required String employeeId, required String date, required String status, String? notes}) async {

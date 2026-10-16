@@ -52,6 +52,9 @@ dependencies:
   cloud_functions: ^5.6.2
   image_picker: ^1.2.4
   image: ^4.12.0
+  mobile_scanner: ^7.4.2
+  qr_flutter: ^4.1.0
+  wakelock_plus: ^1.7.0
 
 # Redirects phosphor_flutter to a local copy that bundles only the three icon
 # weights this app actually uses (Regular, Bold, Fill) instead of all six.

@@ -1140,7 +1140,34 @@ class SalonFirestore {
   String attendanceDocId(String employeeId, DateTime date) =>
       '${employeeId}_${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
-  Future<FSAttendanceRecord> clockIn(String employeeId, {Map<String, dynamic> location = const {}}) async {
+  /// Replaces a branch's attendance QR code (owner only) and returns the
+  /// new token, which the owner's screen shows only once this has been
+  /// saved - a code on screen that the server doesn't know would just
+  /// refuse every scan.
+  ///
+  /// A transaction because the rules require prevToken/prevIssuedAt to be
+  /// exactly the code being replaced (see attendanceQr in firestore.rules).
+  /// That keeps a code scanned just before the change working for its last
+  /// few seconds, and stays correct if two owner screens rotate the same
+  /// branch at once - the second simply retries on top of the first.
+  Future<String> rotateAttendanceQr(String branchId, String newToken) async {
+    final ref = db.collection('attendanceQr').doc(branchId);
+    await db.runTransaction((tx) async {
+      final current = await tx.get(ref);
+      final data = current.data();
+      tx.set(ref, {
+        'token': newToken,
+        'issuedAt': FieldValue.serverTimestamp(),
+        if (data != null) 'prevToken': data['token'],
+        if (data != null) 'prevIssuedAt': data['issuedAt'],
+      });
+    });
+    return newToken;
+  }
+
+  /// [punchFields] rides along with the clock time - the punch location and,
+  /// for staff, the scanned attendance QR code (AttendanceQrCode.toPunchFields).
+  Future<FSAttendanceRecord> clockIn(String employeeId, {Map<String, dynamic> punchFields = const {}}) async {
     final today = DateTime.now();
     final ref = db.collection('attendanceRecords').doc(attendanceDocId(employeeId, today));
     final existing = await ref.get();
@@ -1152,7 +1179,7 @@ class SalonFirestore {
     // overwrite the status they chose - which the rules now refuse anyway,
     // since staff may write their own clock times and nothing else.
     if (existing.exists) {
-      await ref.update({'clockIn': FieldValue.serverTimestamp(), ...location});
+      await ref.update({'clockIn': FieldValue.serverTimestamp(), ...punchFields});
     } else {
       await ref.set({
         'employeeId': employeeId,
@@ -1160,13 +1187,13 @@ class SalonFirestore {
         'clockIn': FieldValue.serverTimestamp(),
         'clockOut': null,
         'status': 'PRESENT',
-        ...location,
+        ...punchFields,
       });
     }
     return FSAttendanceRecord.fromFirestore(await ref.get());
   }
 
-  Future<FSAttendanceRecord> clockOut(String employeeId, {Map<String, dynamic> location = const {}}) async {
+  Future<FSAttendanceRecord> clockOut(String employeeId, {Map<String, dynamic> punchFields = const {}}) async {
     final today = DateTime.now();
     final ref = db.collection('attendanceRecords').doc(attendanceDocId(employeeId, today));
     final existing = await ref.get();
@@ -1176,7 +1203,7 @@ class SalonFirestore {
     if (existing.data()?['clockOut'] != null) {
       throw Exception('Already clocked out today');
     }
-    await ref.update({'clockOut': FieldValue.serverTimestamp(), ...location});
+    await ref.update({'clockOut': FieldValue.serverTimestamp(), ...punchFields});
     return FSAttendanceRecord.fromFirestore(await ref.get());
   }
 

@@ -23,6 +23,7 @@ import '../../../data/birthday.dart';
 import '../../auth/auth_provider.dart';
 import 'add_employee_page.dart';
 import 'owner_shift_card.dart';
+import 'attendance_qr_page.dart';
 import 'owner_birthdays_page.dart';
 import '../../../widgets/ds.dart';
 import 'owner_payroll_view.dart';
@@ -4752,6 +4753,19 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                   now: today,
                   onClockIn: () => _punch(ref, out: false),
                   onClockOut: () => _punch(ref, out: true),
+                ),
+                const SizedBox(height: 12),
+                // Staff punch only by scanning this (firestore.rules), so
+                // it sits right here rather than behind a menu.
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const AttendanceQrPage()),
+                    ),
+                    icon: const Icon(PhosphorIconsRegular.qrCode, size: 18),
+                    label: const Text('Show attendance QR for staff'),
+                  ),
                 ),
                 const SizedBox(height: 16),
 

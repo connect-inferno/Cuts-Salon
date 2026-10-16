@@ -15,6 +15,7 @@ import '../../widgets/app_settings_page.dart';
 import '../../widgets/app_sub_page.dart';
 import '../../widgets/app_dialog.dart';
 import '../../widgets/account_security.dart';
+import '../../widgets/attendance_qr_scanner.dart';
 import '../../widgets/async_state_views.dart';
 import '../../widgets/add_customer_page.dart';
 import '../../widgets/dues_view.dart';
@@ -669,11 +670,17 @@ class _EmployeeDashboardTab extends ConsumerWidget {
   }
 
   Future<void> _toggleClock(BuildContext context, WidgetRef ref, bool isClockedIn) async {
+    // Staff punch only by scanning the owner's attendance QR - the rules
+    // refuse a punch without a live code from it.
+    final salonId = ref.read(authControllerProvider).salonId;
+    if (salonId == null) return;
+    final qr = await scanAttendanceQr(context, salonId: salonId, clockingOut: isClockedIn);
+    if (qr == null || !context.mounted) return;
     try {
       if (isClockedIn) {
-        await ref.read(appDataProvider.notifier).clockOut();
+        await ref.read(appDataProvider.notifier).clockOut(qr: qr);
       } else {
-        await ref.read(appDataProvider.notifier).clockIn();
+        await ref.read(appDataProvider.notifier).clockIn(qr: qr);
       }
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1173,11 +1180,17 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
   const _EmployeeAttendanceTab({required this.profile, required this.state});
 
   Future<void> _toggleClock(BuildContext context, WidgetRef ref, bool isClockedIn) async {
+    // Staff punch only by scanning the owner's attendance QR - the rules
+    // refuse a punch without a live code from it.
+    final salonId = ref.read(authControllerProvider).salonId;
+    if (salonId == null) return;
+    final qr = await scanAttendanceQr(context, salonId: salonId, clockingOut: isClockedIn);
+    if (qr == null || !context.mounted) return;
     try {
       if (isClockedIn) {
-        await ref.read(appDataProvider.notifier).clockOut();
+        await ref.read(appDataProvider.notifier).clockOut(qr: qr);
       } else {
-        await ref.read(appDataProvider.notifier).clockIn();
+        await ref.read(appDataProvider.notifier).clockIn(qr: qr);
       }
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
