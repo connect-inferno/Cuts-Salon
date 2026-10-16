@@ -6,6 +6,7 @@ import '../../theme.dart';
 import '../../data/app_data_provider.dart';
 import '../../data/salary_provider.dart';
 import '../../data/models.dart';
+import '../../data/attendance_labels.dart';
 import '../../data/client_search.dart';
 import '../auth/auth_provider.dart';
 import '../../widgets/app_drawer.dart';
@@ -1216,7 +1217,7 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
     final isClockedIn = todayRecord != null && todayRecord.clockIn != null && todayRecord.clockOut == null;
     final shiftDone = todayRecord != null && todayRecord.clockIn != null && todayRecord.clockOut != null;
 
-    final history = [...state.attendance]..sort((a, b) => (b.date ?? DateTime(0)).compareTo(a.date ?? DateTime(0)));
+    final history = [...state.attendance]..sort(compareAttendanceNewestFirst);
 
     // Month stats
     final now = DateTime.now();
@@ -1351,43 +1352,105 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('History', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.slateDark)),
-                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text('History', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.slateDark)),
+                        ),
+                        // The card shows the latest few; the rest open in a
+                        // sheet rather than silently stopping at a cap.
+                        if (history.length > _historyPreview)
+                          TextButton(
+                            onPressed: () => _showFullHistory(context, history),
+                            child: Text('View all ${history.length}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
                     if (history.isEmpty)
                       const Text('No attendance records yet.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
                     else
                       ListView.separated(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
-                        itemCount: history.length > 20 ? 20 : history.length,
+                        itemCount: history.length > _historyPreview ? _historyPreview : history.length,
                         separatorBuilder: (context, idx) => const Divider(color: Color(0xFFF1F5F9), height: 16),
-                        itemBuilder: (context, idx) {
-                          final rec = history[idx];
-                          Color statusColor = AppTheme.accentGreen;
-                          Color statusBg = AppTheme.accentGreenBg;
-                          if (rec.status == 'LATE') { statusColor = AppTheme.accentAmber; statusBg = AppTheme.accentAmberBg; }
-                          if (rec.status == 'ABSENT') { statusColor = AppTheme.accentRed; statusBg = AppTheme.accentRedBg; }
-                          return Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(_formatDate(rec.date), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                                    if (rec.clockIn != null)
-                                      Text(
-                                        'In: ${_formatTime(rec.clockIn)}${rec.clockOut != null ? '  •  Out: ${_formatTime(rec.clockOut)}' : ''}',
-                                        style: const TextStyle(fontSize: 11, color: AppTheme.slateLight),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              _statusBadge(rec.status, statusBg, statusColor),
-                            ],
-                          );
-                        },
+                        itemBuilder: (context, idx) => _historyRow(history[idx]),
                       ),
                   ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  static const _historyPreview = 10;
+
+  /// One day: the date, its clock times (in, out, hours - or "on shift" /
+  /// "no clock-out"), and the status the day carries.
+  static Widget _historyRow(AttendanceRecord rec) {
+    final (fg, bg) = switch (rec.status) {
+      'LATE' => (AppTheme.accentAmber, AppTheme.accentAmberBg),
+      'ABSENT' => (AppTheme.accentRed, AppTheme.accentRedBg),
+      'LEAVE' => (AppTheme.slateMedium, AppTheme.bgSurface),
+      _ => (AppTheme.accentGreen, AppTheme.accentGreenBg),
+    };
+    final times = punchTimesLabel(rec);
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(_formatDate(rec.date), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 2),
+              Text(
+                times ?? 'Marked by the owner',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: times != null && times.endsWith('no clock-out') ? AppTheme.accentAmber : AppTheme.slateLight,
+                ),
+              ),
+            ],
+          ),
+        ),
+        _statusBadge(attendanceStatusLabel(rec.status), bg, fg),
+      ],
+    );
+  }
+
+  void _showFullHistory(BuildContext context, List<AttendanceRecord> history) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.8,
+        maxChildSize: 0.95,
+        minChildSize: 0.5,
+        expand: false,
+        builder: (context, scrollCtrl) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(width: 40, height: 4, decoration: BoxDecoration(color: AppTheme.borderSubtle, borderRadius: BorderRadius.circular(2))),
+              ),
+              const SizedBox(height: 16),
+              const Text('Attendance history', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppTheme.slateDark)),
+              const SizedBox(height: 12),
+              Expanded(
+                child: ListView.separated(
+                  controller: scrollCtrl,
+                  padding: const EdgeInsets.only(bottom: 24),
+                  itemCount: history.length,
+                  separatorBuilder: (_, __) => const Divider(color: Color(0xFFF1F5F9), height: 16),
+                  itemBuilder: (_, idx) => _historyRow(history[idx]),
                 ),
               ),
             ],

@@ -7,6 +7,7 @@ import '../../../data/app_data_provider.dart';
 import '../../../widgets/liquid_nav_bar.dart';
 import '../../../data/salary_provider.dart';
 import '../../../data/models.dart';
+import '../../../data/attendance_labels.dart';
 import '../../../data/client_search.dart';
 import '../../../widgets/app_page_header.dart';
 import '../../../widgets/app_page_switcher.dart';
@@ -3900,7 +3901,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
 
   void _showScheduleSheet(BuildContext context, EmployeeProfile emp, AppData state) {
     final recentAttendance = state.attendance.where((a) => a.employeeId == emp.id && a.date != null).toList()
-      ..sort((a, b) => (b.date ?? DateTime(0)).compareTo(a.date ?? DateTime(0)));
+      ..sort(compareAttendanceNewestFirst);
 
     showModalBottomSheet(
       context: context,
@@ -3936,9 +3937,9 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  'Recent check-ins and shifts for this month',
-                  style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                const Text(
+                  'Most recent days, newest first',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                 ),
                 const SizedBox(height: 14),
                 if (recentAttendance.isEmpty)
@@ -3957,7 +3958,18 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                         return ListTile(
                           contentPadding: EdgeInsets.zero,
                           title: Text(_formatDate(rec.date), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-                          subtitle: Text('Shift: Morning & Evening', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                          // The day's real clock times. This used to read
+                          // "Shift: Morning & Evening" on every row whatever
+                          // had happened.
+                          subtitle: Text(
+                            punchTimesLabel(rec) ?? 'Marked on the roster',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: (punchTimesLabel(rec) ?? '').endsWith('no clock-out')
+                                  ? const Color(0xFFD97706)
+                                  : const Color(0xFF64748B),
+                            ),
+                          ),
                           trailing: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
@@ -3969,7 +3981,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              rec.status,
+                              attendanceStatusLabel(rec.status),
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w700,
@@ -4501,7 +4513,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                     // AM In" plus the chip overruns the row on a phone.
                     Flexible(
                       child: Text(
-                        _formatRosterDate(rec.date, rec.clockIn),
+                        _formatRosterDate(rec.date, null),
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                       ),
@@ -4531,6 +4543,19 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                     ],
                   ],
                 ),
+                // In, out and hours - or "on shift" / "no clock-out". A
+                // forgotten clock-out is amber so it stands out in the log.
+                if (punchTimesLabel(rec) case final times?) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    times,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: times.endsWith('no clock-out') ? const Color(0xFFD97706) : const Color(0xFF64748B),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -4538,7 +4563,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(color: badgeBg, borderRadius: BorderRadius.circular(12)),
             child: Text(
-              rec.status,
+              attendanceStatusLabel(rec.status),
               style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: badgeFg, letterSpacing: 0.3),
             ),
           ),
@@ -4683,7 +4708,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     final todayFormatted = 'Today, ${today.day} ${months[today.month - 1]}';
 
-    final recentAttendance = [...state.attendance]..sort((a, b) => (b.date ?? DateTime(0)).compareTo(a.date ?? DateTime(0)));
+    final recentAttendance = [...state.attendance]..sort(compareAttendanceNewestFirst);
 
     return Container(
       color: const Color(0xFFF8F9FC),
