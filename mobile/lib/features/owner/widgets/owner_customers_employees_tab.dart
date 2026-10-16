@@ -8,6 +8,8 @@ import '../../../widgets/liquid_nav_bar.dart';
 import '../../../data/salary_provider.dart';
 import '../../../data/models.dart';
 import '../../../data/attendance_labels.dart';
+import '../../../data/attendance_shift.dart';
+import '../../../widgets/load_older_attendance.dart';
 import '../../../data/client_search.dart';
 import '../../../widgets/app_page_header.dart';
 import '../../../widgets/app_page_switcher.dart';
@@ -4310,17 +4312,14 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
   // not grey out the other.
   bool _submittingOwnPunch = false;
 
-  /// The owner's own record for today, or null if they have not punched.
+  /// The owner's own current shift - still open (even since yesterday
+  /// evening), else today's record - or null if they have not punched.
   ///
   /// An owner is an employees/{uid} document like anyone else, so this is the
-  /// same lookup the roster does for a stylist - just scoped to whoever is
-  /// signed in.
+  /// same lookup a stylist's clock card does (attendance_shift.dart).
   AttendanceRecord? _ownRecordToday(AppData state, String? userId, DateTime now) {
     if (userId == null) return null;
-    final match = state.attendance.where(
-      (a) => a.employeeId == userId && a.date != null && _isSameDay(a.date!, now),
-    );
-    return match.isEmpty ? null : match.first;
+    return currentShiftRecord(state.attendance, userId, now);
   }
 
   Future<void> _punch(WidgetRef ref, {required bool out}) async {
@@ -4447,18 +4446,28 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                   const Text('Attendance History Log', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
                   const SizedBox(height: 12),
                   Expanded(
-                    child: records.isEmpty
-                        ? const Center(child: Text('No attendance history recorded.', style: TextStyle(color: Color(0xFF64748B))))
-                        : ListView.separated(
-                            controller: scrollCtrl,
-                            itemCount: records.length,
-                            separatorBuilder: (context, index) => const Divider(color: Color(0xFFF1F5F9)),
-                            itemBuilder: (context, idx) {
-                              final rec = records[idx];
-                              final emp = state.employeeById(rec.employeeId);
-                              return _buildLogTile(rec, emp, branches: state.branches);
-                            },
-                          ),
+                    // Read live rather than from the list handed in, so
+                    // "Load older days" at the bottom grows this sheet.
+                    child: Consumer(
+                      builder: (context, ref, _) {
+                        final live = ref.watch(appDataProvider).valueOrNull ?? state;
+                        final all = [...live.attendance]..sort(compareAttendanceNewestFirst);
+                        if (all.isEmpty) {
+                          return const Center(child: Text('No attendance history recorded.', style: TextStyle(color: Color(0xFF64748B))));
+                        }
+                        return ListView.separated(
+                          controller: scrollCtrl,
+                          itemCount: all.length + 1,
+                          separatorBuilder: (context, index) => const Divider(color: Color(0xFFF1F5F9)),
+                          itemBuilder: (context, idx) {
+                            if (idx == all.length) return const LoadOlderAttendance();
+                            final rec = all[idx];
+                            final emp = live.employeeById(rec.employeeId);
+                            return _buildLogTile(rec, emp, branches: live.branches);
+                          },
+                        );
+                      },
+                    ),
                   ),
                 ],
               ),

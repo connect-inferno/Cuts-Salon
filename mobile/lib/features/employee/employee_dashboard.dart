@@ -7,6 +7,8 @@ import '../../data/app_data_provider.dart';
 import '../../data/salary_provider.dart';
 import '../../data/models.dart';
 import '../../data/attendance_labels.dart';
+import '../../data/attendance_shift.dart';
+import '../../widgets/load_older_attendance.dart';
 import '../../data/client_search.dart';
 import '../auth/auth_provider.dart';
 import '../../widgets/app_drawer.dart';
@@ -70,11 +72,10 @@ String _greeting(int hour) {
   return 'evening';
 }
 
-AttendanceRecord? _todayAttendance(AppData state, String employeeId) {
-  final today = DateTime.now();
-  final match = state.attendance.where((a) => a.employeeId == employeeId && a.date != null && _isSameDay(a.date!, today));
-  return match.isEmpty ? null : match.first;
-}
+/// The shift the clock card is about: one still open - even a night shift
+/// that started yesterday - or else today's record (see attendance_shift.dart).
+AttendanceRecord? _todayAttendance(AppData state, String employeeId) =>
+    currentShiftRecord(state.attendance, employeeId, DateTime.now());
 
 /// Month names, at the top level because the payout statements, the greeting
 /// line and the pay-period header all print them and three local copies had
@@ -1445,12 +1446,20 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
               const Text('Attendance history', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppTheme.slateDark)),
               const SizedBox(height: 12),
               Expanded(
-                child: ListView.separated(
-                  controller: scrollCtrl,
-                  padding: const EdgeInsets.only(bottom: 24),
-                  itemCount: history.length,
-                  separatorBuilder: (_, __) => const Divider(color: Color(0xFFF1F5F9), height: 16),
-                  itemBuilder: (_, idx) => _historyRow(history[idx]),
+                // Read live rather than from the list handed in, so "Load
+                // older days" at the bottom grows this sheet.
+                child: Consumer(
+                  builder: (context, ref, _) {
+                    final live = ref.watch(appDataProvider).valueOrNull?.attendance ?? history;
+                    final all = [...live]..sort(compareAttendanceNewestFirst);
+                    return ListView.separated(
+                      controller: scrollCtrl,
+                      padding: const EdgeInsets.only(bottom: 24),
+                      itemCount: all.length + 1,
+                      separatorBuilder: (_, __) => const Divider(color: Color(0xFFF1F5F9), height: 16),
+                      itemBuilder: (_, idx) => idx == all.length ? const LoadOlderAttendance() : _historyRow(all[idx]),
+                    );
+                  },
                 ),
               ),
             ],

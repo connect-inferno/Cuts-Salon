@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
 import {
   doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, writeBatch,
-  serverTimestamp, Timestamp, getCountFromServer, deleteField, runTransaction,
+  serverTimestamp, Timestamp, getCountFromServer, deleteField, runTransaction, orderBy, startAfter, limit, documentId,
 } from 'firebase/firestore';
 
 const rules = readFileSync(process.argv[2] || new URL("../firestore.rules", import.meta.url), "utf8");
@@ -18,6 +18,7 @@ async function t(name, p) {
 }
 
 const today = new Date(); const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+const yesterdayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 const LIVE = 'L'.repeat(24), PREV = 'P'.repeat(24), STALE = 'S'.repeat(24), OLDPREV = 'O'.repeat(24);
@@ -50,6 +51,10 @@ async function seed() {
     await setDoc(doc(db, 'attendanceQr/br2'), { token: STALE, issuedAt: ago(120) });
     // br3: previous code is 50s old - past its grace.
     await setDoc(doc(db, 'attendanceQr/br3'), { token: 'x'.repeat(24), issuedAt: ago(20), prevToken: OLDPREV, prevIssuedAt: ago(50) });
+    // emp1 started a night shift yesterday evening and is still on it.
+    await setDoc(doc(db, `attendanceRecords/emp1_${ymd(yesterdayMidnight)}`), {
+      employeeId: 'emp1', date: Timestamp.fromDate(yesterdayMidnight), clockIn: ago(4 * 3600), clockOut: null, status: 'PRESENT',
+    });
     // emp2's day already has a status-only record (owner confirmed the roster first).
     await setDoc(doc(db, `attendanceRecords/emp2_${ymd(today)}`), { employeeId: 'emp2', status: 'PRESENT', date: Timestamp.fromDate(midnight), confirmed: true });
     await setDoc(doc(db, 'inventoryItems/i1'), { name: 'Gel', stockCount: 5, price: 100 });
@@ -109,6 +114,14 @@ console.log('Active employee (emp1)');
   await t('can clock in with the live code', assertSucceeds(setDoc(mine, punch({ clockInQrToken: LIVE, clockInQrBranchId: 'br1' }))));
   await t('cannot clock out without scanning', assertFails(updateDoc(mine, { clockOut: serverTimestamp() })));
   await t('can clock out with the code that just changed', assertSucceeds(updateDoc(mine, { clockOut: serverTimestamp(), clockOutQrToken: PREV, clockOutQrBranchId: 'br1' })));
+  const night = doc(db, `attendanceRecords/emp1_${ymd(yesterdayMidnight)}`);
+  await t('can clock out a night shift that started yesterday', assertSucceeds(updateDoc(night, { clockOut: serverTimestamp(), clockOutQrToken: LIVE, clockOutQrBranchId: 'br1' })));
+  const page = (...extra) => getDocs(query(collection(db, 'attendanceRecords'), ...extra, orderBy('date', 'desc'), orderBy(documentId(), 'desc'), limit(100)));
+  await t('can page back through own history', assertSucceeds(page(where('employeeId', '==', 'emp1'))));
+  await t('can continue a page from a record', assertSucceeds(getDocs(query(collection(db, 'attendanceRecords'),
+    where('employeeId', '==', 'emp1'), orderBy('date', 'desc'), orderBy(documentId(), 'desc'),
+    startAfter(Timestamp.fromDate(midnight), `emp1_${ymd(today)}`), limit(100)))));
+  await t('cannot page through everyone\'s history', assertFails(page()));
   await t('can read own sales targets', assertSucceeds(getDocs(query(collection(db, 'salesTargets'), where('employeeId', '==', 'emp1')))));
   await t('cannot mark own target as met', assertFails(updateDoc(doc(db, 'salesTargets/t_emp1'), { progressValue: 1000, status: 'COMPLETED' })));
   await t('can read own payment requests', assertSucceeds(getDocs(query(collection(db, 'paymentRequests'), where('requestedBy', '==', 'emp1')))));
@@ -194,6 +207,8 @@ console.log('Owner');
   })));
   await t('can read every salary slip', assertSucceeds(getDocs(collection(db, 'salaryRecords'))));
   await t('cannot delete a salary slip', assertFails(deleteDoc(doc(db, 'salaryRecords/s_emp1'))));
+  await t('can page back through everyone\'s history', assertSucceeds(getDocs(query(collection(db, 'attendanceRecords'),
+    orderBy('date', 'desc'), orderBy(documentId(), 'desc'), startAfter(Timestamp.fromDate(midnight), 'zzz'), limit(100)))));
   await t('can read all attendance', assertSucceeds(getDocs(collection(db, 'attendanceRecords'))));
   await t('can mark attendance', assertSucceeds(setDoc(doc(db, 'attendanceRecords/emp1_2026-10-01'), { status: 'LATE', confirmed: true }, { merge: true })));
   await t('can read all payment requests', assertSucceeds(getDocs(collection(db, 'paymentRequests'))));

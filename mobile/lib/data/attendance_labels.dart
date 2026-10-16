@@ -1,3 +1,4 @@
+import 'attendance_shift.dart';
 import 'models.dart';
 
 /// Wording shared by every attendance history list (staff Attendance tab,
@@ -40,9 +41,11 @@ String formatShiftLength(Duration d) {
 /// marked on the roster - nobody punched).
 ///
 /// - both punches: "In 9:05 AM · Out 6:10 PM · 9h 5m"
-/// - in, today:     "In 9:05 AM · on shift"
-/// - in, past day:  "In 9:05 AM · no clock-out" - they forgot, and the
-///   owner should see that rather than a day that looks finished.
+/// - in, still open: "In 9:05 AM · on shift" (also a night shift that
+///   started yesterday - see attendance_shift.dart)
+/// - in, left open past [maxShiftLength]: "In 9:05 AM · no clock-out" -
+///   they forgot, and the owner should see that rather than a day that
+///   looks finished.
 String? punchTimesLabel(AttendanceRecord rec, {DateTime? now}) {
   final clockIn = rec.clockIn;
   final clockOut = rec.clockOut;
@@ -51,10 +54,8 @@ String? punchTimesLabel(AttendanceRecord rec, {DateTime? now}) {
   if (clockOut != null) {
     return '$inText · Out ${formatClockTime(clockOut)} · ${formatShiftLength(clockOut.difference(clockIn))}';
   }
-  final today = now ?? DateTime.now();
-  final day = rec.date ?? clockIn;
-  final isToday = day.year == today.year && day.month == today.month && day.day == today.day;
-  return '$inText · ${isToday ? 'on shift' : 'no clock-out'}';
+  final open = isOpenShift(clockIn: clockIn, clockOut: clockOut, now: now ?? DateTime.now());
+  return '$inText · ${open ? 'on shift' : 'no clock-out'}';
 }
 
 /// Newest day first; on the same day, the later clock-in first, and a day

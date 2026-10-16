@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
+import '../data/attendance_shift.dart';
 import '../data/bill_math.dart';
 import 'firestore_models.dart';
 
@@ -1175,9 +1176,16 @@ class SalonFirestore {
   Future<FSAttendanceRecord> clockIn(String employeeId, {Map<String, dynamic> punchFields = const {}}) async {
     final today = DateTime.now();
     final ref = db.collection('attendanceRecords').doc(attendanceDocId(employeeId, today));
-    final existing = await ref.get();
+    // Today's record and yesterday's together - one round trip, not two.
+    final snaps = await Future.wait([ref.get(), _yesterdayRecord(employeeId, today).get()]);
+    final existing = snaps[0];
     if (existing.exists && existing.data()?['clockIn'] != null) {
       throw Exception('Already clocked in today');
+    }
+    // A night shift that started yesterday is still running: a second
+    // clock-in would start an overlapping shift (see attendance_shift.dart).
+    if (_isOpen(snaps[1].data(), today)) {
+      throw Exception('You are still clocked in from yesterday. Clock out first.');
     }
     // Two paths on purpose. If the owner has already confirmed the roster
     // there is a status-only record for today, and a blanket set() would
@@ -1198,19 +1206,40 @@ class SalonFirestore {
     return FSAttendanceRecord.fromMap(ref.id, {...fresh, 'clockIn': Timestamp.now()});
   }
 
+  /// Closes the shift that is still open - today's, or a night shift that
+  /// started yesterday (a shift belongs to the day it started). A shift left
+  /// open past maxShiftLength is a forgotten clock-out and is not closed
+  /// here: that would book a 30-hour shift. The owner corrects it instead.
   Future<FSAttendanceRecord> clockOut(String employeeId, {Map<String, dynamic> punchFields = const {}}) async {
-    final today = DateTime.now();
-    final ref = db.collection('attendanceRecords').doc(attendanceDocId(employeeId, today));
-    final existing = await ref.get();
-    if (!existing.exists || existing.data()?['clockIn'] == null) {
+    final now = DateTime.now();
+    final todayRef = db.collection('attendanceRecords').doc(attendanceDocId(employeeId, now));
+    final snaps = await Future.wait([todayRef.get(), _yesterdayRecord(employeeId, now).get()]);
+
+    final open = snaps.where((snap) => _isOpen(snap.data(), now)).firstOrNull;
+    if (open == null) {
+      final today = snaps[0].data();
+      if (today?['clockIn'] != null && today?['clockOut'] != null) {
+        throw Exception('Already clocked out today');
+      }
+      if (today?['clockIn'] != null || snaps[1].data()?['clockIn'] != null && snaps[1].data()?['clockOut'] == null) {
+        throw Exception("This shift was left open for more than ${maxShiftLength.inHours} hours, so it can't be clocked out now. Ask the owner to correct it.");
+      }
       throw Exception('You have not clocked in today');
     }
-    if (existing.data()?['clockOut'] != null) {
-      throw Exception('Already clocked out today');
-    }
-    await ref.update({'clockOut': FieldValue.serverTimestamp(), ...punchFields});
-    return FSAttendanceRecord.fromMap(ref.id, {...?existing.data(), 'clockOut': Timestamp.now()});
+    await open.reference.update({'clockOut': FieldValue.serverTimestamp(), ...punchFields});
+    return FSAttendanceRecord.fromMap(open.id, {...?open.data(), 'clockOut': Timestamp.now()});
   }
+
+  DocumentReference<Map<String, dynamic>> _yesterdayRecord(String employeeId, DateTime now) =>
+      db.collection('attendanceRecords').doc(attendanceDocId(employeeId, DateTime(now.year, now.month, now.day - 1)));
+
+  static bool _isOpen(Map<String, dynamic>? data, DateTime now) =>
+      data != null &&
+      isOpenShift(
+        clockIn: (data['clockIn'] as Timestamp?)?.toDate(),
+        clockOut: (data['clockOut'] as Timestamp?)?.toDate(),
+        now: now,
+      );
 
   /// Sets one day's status for one employee, leaving any clock times alone.
   ///
@@ -1255,12 +1284,37 @@ class SalonFirestore {
     );
   }
 
-  Future<List<FSAttendanceRecord>> listAttendance({String? employeeId, int limit = 500}) async {
+  /// How many attendance records sign-in loads. Older ones come a page at
+  /// a time when someone asks for them ([listAttendance] with `after`).
+  static const attendanceFirstPage = 500;
+
+  /// Attendance, newest day first. [after] continues from a record already
+  /// loaded - its date and id, the same two fields the query is ordered by,
+  /// so a page boundary in the middle of a day (one record per person per
+  /// day) neither skips nor repeats anyone.
+  Future<List<FSAttendanceRecord>> listAttendance({
+    String? employeeId,
+    int limit = attendanceFirstPage,
+    ({DateTime date, String id})? after,
+  }) async {
     Query<Map<String, dynamic>> q = db.collection('attendanceRecords');
     if (employeeId != null) q = q.where('employeeId', isEqualTo: employeeId);
-    q = q.orderBy('date', descending: true).limit(limit);
-    final snap = await q.get();
-    return snap.docs.map(FSAttendanceRecord.fromFirestore).toList();
+    q = q.orderBy('date', descending: true).orderBy(FieldPath.documentId, descending: true);
+    if (after != null) q = q.startAfter([Timestamp.fromDate(after.date), after.id]);
+    try {
+      final snap = await q.limit(limit).get();
+      return snap.docs.map(FSAttendanceRecord.fromFirestore).toList();
+    } on FirebaseException catch (e) {
+      // The first page must never fail the whole sign-in load: if the
+      // id tie-breaker needs an index this project doesn't have yet, fall
+      // back to the plain date order it always used.
+      if (after != null || e.code != 'failed-precondition') rethrow;
+      debugPrint('[Stylux] attendance id ordering unavailable, using date only: $e');
+      Query<Map<String, dynamic>> plain = db.collection('attendanceRecords');
+      if (employeeId != null) plain = plain.where('employeeId', isEqualTo: employeeId);
+      final snap = await plain.orderBy('date', descending: true).limit(limit).get();
+      return snap.docs.map(FSAttendanceRecord.fromFirestore).toList();
+    }
   }
 
   // --- Sales targets ---

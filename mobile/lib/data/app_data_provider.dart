@@ -97,6 +97,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     // firestore.rules.
     if (auth.isOwner) _watchTodayStats();
     _watchNewBills();
+    _olderAttendanceExhausted = loaded.attendance.length < SalonFirestore.attendanceFirstPage;
     return loaded;
   }
 
@@ -206,6 +207,10 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     if (!auth.isAuthenticated) return;
     state = const AsyncLoading<AppData>().copyWithPrevious(state);
     state = await AsyncValue.guard(() => _loadAll(auth));
+    final reloaded = state.value;
+    if (reloaded != null) {
+      _olderAttendanceExhausted = reloaded.attendance.length < SalonFirestore.attendanceFirstPage;
+    }
   }
 
   // --- Branches ---
@@ -1259,6 +1264,56 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       existingClockOut: existing.isEmpty ? null : existing.first.clockOut,
     );
     _patchAttendance(recordFS);
+  }
+
+  // --- Attendance history paging ---
+
+  // Sign-in loads the newest SalonFirestore.attendanceFirstPage records;
+  // this is set once a page comes back short, i.e. nothing older exists.
+  bool _olderAttendanceExhausted = false;
+
+  /// Whether [loadOlderAttendance] could still find anything.
+  bool get hasOlderAttendance => !_olderAttendanceExhausted;
+
+  /// Adds the next [pageSize] older attendance records to AppData - the
+  /// "Load older" button under every attendance history list. Owners page
+  /// through everyone's; staff through their own (the rules allow nothing
+  /// else). Returns how many were added.
+  Future<int> loadOlderAttendance({int pageSize = 100}) async {
+    final current = state.value;
+    if (current == null || _olderAttendanceExhausted) return 0;
+    final auth = ref.read(authControllerProvider);
+    final selfId = auth.isOwner ? null : auth.userId;
+
+    // The last record in the query's own order (date desc, then id desc).
+    AttendanceRecord? oldest;
+    for (final a in current.attendance) {
+      if (a.date == null || (selfId != null && a.employeeId != selfId)) continue;
+      if (oldest == null ||
+          a.date!.isBefore(oldest.date!) ||
+          (a.date!.isAtSameMomentAs(oldest.date!) && a.id.compareTo(oldest.id) < 0)) {
+        oldest = a;
+      }
+    }
+    if (oldest == null) {
+      _olderAttendanceExhausted = true;
+      return 0;
+    }
+
+    final page = await _fs.listAttendance(
+      employeeId: selfId,
+      limit: pageSize,
+      after: (date: oldest.date!, id: oldest.id),
+    );
+    if (page.length < pageSize) _olderAttendanceExhausted = true;
+
+    // Re-read after the await - a punch may have landed meanwhile.
+    final latest = state.value;
+    if (latest == null) return 0;
+    final known = {for (final a in latest.attendance) a.id};
+    final added = page.where((r) => !known.contains(r.id)).map(attendanceFromFS).toList();
+    state = AsyncData(latest.copyWith(attendance: [...latest.attendance, ...added]));
+    return added.length;
   }
 
   // clockIn/clockOut/markAttendance each touch exactly one doc id
