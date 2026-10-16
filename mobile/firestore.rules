@@ -333,17 +333,8 @@ service cloud.firestore {
       // Two shapes because a day may already exist before anyone punches:
       // confirming the roster writes a status-only record for every
       // employee, so the first punch of that day is an update, not a create.
-      // The location fields ride along with the punch they belong to, and
-      // only with it - so a punch cannot be given a different location
-      // afterwards, once somebody notices it was recorded miles away.
       //
-      // These rules do NOT check the coordinates. Rules cannot: they have no
-      // way to know whether the numbers describe where the device really
-      // was, and an edited client can send anything. The location is an
-      // audit trail for the owner to look at, not a gate. Enforcing it needs
-      // a Cloud Function - see the no-trusted-server note in CLAUDE.md.
-      //
-      // What IS enforced is presence at the counter: every staff punch must
+      // Presence at the counter is what's enforced: every staff punch must
       // carry the code from the owner's rotating attendance QR (see
       // attendanceQr below) and name the branch whose screen it came from.
       // Staff cannot read attendanceQr, so the only way to know a live code
@@ -370,8 +361,7 @@ service cloud.firestore {
 
       function punchingIn() {
         return request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['clockIn', 'clockInLat', 'clockInLng', 'clockInLocationNote',
-                        'clockInQrToken', 'clockInQrBranchId'])
+              .hasOnly(['clockIn', 'clockInQrToken', 'clockInQrBranchId'])
             && (!('clockIn' in resource.data) || resource.data.clockIn == null)
             && request.resource.data.clockIn == request.time
             && clockInQrValid();
@@ -379,8 +369,7 @@ service cloud.firestore {
 
       function punchingOut() {
         return request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['clockOut', 'clockOutLat', 'clockOutLng', 'clockOutLocationNote',
-                        'clockOutQrToken', 'clockOutQrBranchId'])
+              .hasOnly(['clockOut', 'clockOutQrToken', 'clockOutQrBranchId'])
             && (!('clockOut' in resource.data) || resource.data.clockOut == null)
             && request.resource.data.clockOut == request.time
             && clockOutQrValid();

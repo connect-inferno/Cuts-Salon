@@ -610,19 +610,6 @@ class FSAttendanceRecord {
   final String? confirmedBy;
   final DateTime? confirmedAt;
 
-  /// Where each punch was made, and a note when the device would not say.
-  ///
-  /// Recorded for the owner to look at, NOT checked by anything: Firestore
-  /// rules cannot verify a coordinate, so a tampered client can send any
-  /// numbers it likes. The value is that a punch from across town is
-  /// visible - see data/punch_location.dart.
-  final double? clockInLat;
-  final double? clockInLng;
-  final String? clockInLocationNote;
-  final double? clockOutLat;
-  final double? clockOutLng;
-  final String? clockOutLocationNote;
-
   FSAttendanceRecord({
     required this.id,
     required this.employeeId,
@@ -633,18 +620,16 @@ class FSAttendanceRecord {
     this.confirmed = false,
     this.confirmedBy,
     this.confirmedAt,
-    this.clockInLat,
-    this.clockInLng,
-    this.clockInLocationNote,
-    this.clockOutLat,
-    this.clockOutLng,
-    this.clockOutLocationNote,
   });
 
-  factory FSAttendanceRecord.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data() ?? {};
+  factory FSAttendanceRecord.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) =>
+      FSAttendanceRecord.fromMap(doc.id, doc.data() ?? {});
+
+  /// From a document's fields - also used to build the record a punch just
+  /// wrote without reading it back (see SalonFirestore.clockIn).
+  factory FSAttendanceRecord.fromMap(String id, Map<String, dynamic> d) {
     return FSAttendanceRecord(
-      id: doc.id,
+      id: id,
       employeeId: d['employeeId'] ?? '',
       date: _ts(d['date']),
       clockIn: _ts(d['clockIn']),
@@ -653,12 +638,6 @@ class FSAttendanceRecord {
       confirmed: d['confirmed'] == true,
       confirmedBy: d['confirmedBy'],
       confirmedAt: _ts(d['confirmedAt']),
-      clockInLat: (d['clockInLat'] as num?)?.toDouble(),
-      clockInLng: (d['clockInLng'] as num?)?.toDouble(),
-      clockInLocationNote: d['clockInLocationNote'],
-      clockOutLat: (d['clockOutLat'] as num?)?.toDouble(),
-      clockOutLng: (d['clockOutLng'] as num?)?.toDouble(),
-      clockOutLocationNote: d['clockOutLocationNote'],
     );
   }
 
@@ -671,12 +650,6 @@ class FSAttendanceRecord {
         'confirmed': confirmed,
         'confirmedBy': confirmedBy,
         'confirmedAt': confirmedAt == null ? null : Timestamp.fromDate(confirmedAt!),
-        'clockInLat': clockInLat,
-        'clockInLng': clockInLng,
-        'clockInLocationNote': clockInLocationNote,
-        'clockOutLat': clockOutLat,
-        'clockOutLng': clockOutLng,
-        'clockOutLocationNote': clockOutLocationNote,
       };
 }
 

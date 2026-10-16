@@ -565,12 +565,6 @@ class AttendanceRecord {
   final bool confirmed;
   final String? confirmedBy;
 
-  /// Where the clock-in was made, and a note when the device would not say.
-  /// Recorded for the owner to judge, not checked by anything.
-  final double? clockInLat;
-  final double? clockInLng;
-  final String? clockInLocationNote;
-
   AttendanceRecord({
     required this.id,
     required this.employeeId,
@@ -580,9 +574,6 @@ class AttendanceRecord {
     required this.status,
     this.confirmed = false,
     this.confirmedBy,
-    this.clockInLat,
-    this.clockInLng,
-    this.clockInLocationNote,
   });
 
   factory AttendanceRecord.fromJson(Map<String, dynamic> json) => AttendanceRecord(

@@ -1165,8 +1165,13 @@ class SalonFirestore {
     return newToken;
   }
 
-  /// [punchFields] rides along with the clock time - the punch location and,
-  /// for staff, the scanned attendance QR code (AttendanceQrCode.toPunchFields).
+  /// [punchFields] rides along with the clock time - for staff, the scanned
+  /// attendance QR code (AttendanceQrCode.toPunchFields).
+  ///
+  /// Returns the record as written rather than reading it back: a read
+  /// after the write is one more server round trip on every punch, and the
+  /// only thing it would learn is the server's exact clock time, which the
+  /// next load picks up anyway.
   Future<FSAttendanceRecord> clockIn(String employeeId, {Map<String, dynamic> punchFields = const {}}) async {
     final today = DateTime.now();
     final ref = db.collection('attendanceRecords').doc(attendanceDocId(employeeId, today));
@@ -1180,17 +1185,17 @@ class SalonFirestore {
     // since staff may write their own clock times and nothing else.
     if (existing.exists) {
       await ref.update({'clockIn': FieldValue.serverTimestamp(), ...punchFields});
-    } else {
-      await ref.set({
-        'employeeId': employeeId,
-        'date': Timestamp.fromDate(DateTime(today.year, today.month, today.day)),
-        'clockIn': FieldValue.serverTimestamp(),
-        'clockOut': null,
-        'status': 'PRESENT',
-        ...punchFields,
-      });
+      return FSAttendanceRecord.fromMap(ref.id, {...?existing.data(), 'clockIn': Timestamp.now()});
     }
-    return FSAttendanceRecord.fromFirestore(await ref.get());
+    final fresh = {
+      'employeeId': employeeId,
+      'date': Timestamp.fromDate(DateTime(today.year, today.month, today.day)),
+      'clockOut': null,
+      'status': 'PRESENT',
+      ...punchFields,
+    };
+    await ref.set({...fresh, 'clockIn': FieldValue.serverTimestamp()});
+    return FSAttendanceRecord.fromMap(ref.id, {...fresh, 'clockIn': Timestamp.now()});
   }
 
   Future<FSAttendanceRecord> clockOut(String employeeId, {Map<String, dynamic> punchFields = const {}}) async {
@@ -1204,7 +1209,7 @@ class SalonFirestore {
       throw Exception('Already clocked out today');
     }
     await ref.update({'clockOut': FieldValue.serverTimestamp(), ...punchFields});
-    return FSAttendanceRecord.fromFirestore(await ref.get());
+    return FSAttendanceRecord.fromMap(ref.id, {...?existing.data(), 'clockOut': Timestamp.now()});
   }
 
   /// Sets one day's status for one employee, leaving any clock times alone.

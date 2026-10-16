@@ -14,7 +14,6 @@ import '../firebase/salon_firestore.dart';
 import 'app_data.dart';
 import 'attendance_qr.dart';
 import 'birthday.dart';
-import 'punch_location.dart';
 import 'salary_provider.dart';
 import 'models.dart';
 
@@ -1176,22 +1175,13 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
 
   // --- Attendance ---
 
-  /// Where the punch happened rides along with it.
-  ///
-  /// [PunchLocationService] never throws and never blocks: a denied
-  /// permission or a phone with location off records a note instead of
-  /// coordinates, because an app that refuses to let someone clock in over
-  /// a permission prompt gets worked around, not complied with.
-  ///
   /// Staff must pass the [qr] code they scanned off the owner's attendance
   /// QR screen; firestore.rules refuses a staff punch without a live one.
   /// The owner punches their own shift without one.
   Future<void> clockIn({AttendanceQrCode? qr}) async {
     final auth = ref.read(authControllerProvider);
     _checkPunchQr(auth, qr);
-    final where = await PunchLocationService.current();
     final recordFS = await _punchWithQr(qr, () => _fs.clockIn(auth.userId!, punchFields: {
-          ...where.toFields('clockIn'),
           ...?qr?.toPunchFields('clockIn'),
         }));
     _patchAttendance(recordFS);
@@ -1200,9 +1190,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   Future<void> clockOut({AttendanceQrCode? qr}) async {
     final auth = ref.read(authControllerProvider);
     _checkPunchQr(auth, qr);
-    final where = await PunchLocationService.current();
     final recordFS = await _punchWithQr(qr, () => _fs.clockOut(auth.userId!, punchFields: {
-          ...where.toFields('clockOut'),
           ...?qr?.toPunchFields('clockOut'),
         }));
     _patchAttendance(recordFS);
