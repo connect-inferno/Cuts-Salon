@@ -208,9 +208,6 @@ AttendanceRecord attendanceFromFS(FSAttendanceRecord a) => AttendanceRecord(
       status: a.status,
       confirmed: a.confirmed,
       confirmedBy: a.confirmedBy,
-      clockInLat: a.clockInLat,
-      clockInLng: a.clockInLng,
-      clockInLocationNote: a.clockInLocationNote,
     );
 
 SalonSettings settingsFromFS(FSSettings s, {bool whatsappReady = false}) => SalonSettings(

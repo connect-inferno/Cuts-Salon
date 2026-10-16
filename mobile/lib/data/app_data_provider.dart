@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:flutter/foundation.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,8 +12,8 @@ import '../firebase/firestore_models.dart';
 import '../firebase/salon_auth.dart';
 import '../firebase/salon_firestore.dart';
 import 'app_data.dart';
+import 'attendance_qr.dart';
 import 'birthday.dart';
-import 'punch_location.dart';
 import 'salary_provider.dart';
 import 'models.dart';
 
@@ -96,6 +97,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     // firestore.rules.
     if (auth.isOwner) _watchTodayStats();
     _watchNewBills();
+    _olderAttendanceExhausted = loaded.attendance.length < SalonFirestore.attendanceFirstPage;
     return loaded;
   }
 
@@ -205,6 +207,10 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     if (!auth.isAuthenticated) return;
     state = const AsyncLoading<AppData>().copyWithPrevious(state);
     state = await AsyncValue.guard(() => _loadAll(auth));
+    final reloaded = state.value;
+    if (reloaded != null) {
+      _olderAttendanceExhausted = reloaded.attendance.length < SalonFirestore.attendanceFirstPage;
+    }
   }
 
   // --- Branches ---
@@ -1174,24 +1180,58 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
 
   // --- Attendance ---
 
-  /// Where the punch happened rides along with it.
-  ///
-  /// [PunchLocationService] never throws and never blocks: a denied
-  /// permission or a phone with location off records a note instead of
-  /// coordinates, because an app that refuses to let someone clock in over
-  /// a permission prompt gets worked around, not complied with.
-  Future<void> clockIn() async {
+  /// Staff must pass the [qr] code they scanned off the owner's attendance
+  /// QR screen; firestore.rules refuses a staff punch without a live one.
+  /// The owner punches their own shift without one.
+  Future<void> clockIn({AttendanceQrCode? qr}) async {
     final auth = ref.read(authControllerProvider);
-    final where = await PunchLocationService.current();
-    final recordFS = await _fs.clockIn(auth.userId!, location: where.toFields('clockIn'));
+    _checkPunchQr(auth, qr);
+    final recordFS = await _punchWithQr(qr, () => _fs.clockIn(auth.userId!, punchFields: {
+          ...?qr?.toPunchFields('clockIn'),
+        }));
     _patchAttendance(recordFS);
   }
 
-  Future<void> clockOut() async {
+  Future<void> clockOut({AttendanceQrCode? qr}) async {
     final auth = ref.read(authControllerProvider);
-    final where = await PunchLocationService.current();
-    final recordFS = await _fs.clockOut(auth.userId!, location: where.toFields('clockOut'));
+    _checkPunchQr(auth, qr);
+    final recordFS = await _punchWithQr(qr, () => _fs.clockOut(auth.userId!, punchFields: {
+          ...?qr?.toPunchFields('clockOut'),
+        }));
     _patchAttendance(recordFS);
+  }
+
+  void _checkPunchQr(AuthState auth, AttendanceQrCode? qr) {
+    if (qr == null) {
+      if (!auth.isOwner) throw Exception('Scan the attendance QR on the owner\'s screen to punch');
+      return;
+    }
+    if (qr.salonId != auth.salonId) {
+      throw Exception('This QR code is for a different salon');
+    }
+  }
+
+  // The rules' answer to a stale or wrong code is a bare permission error;
+  // for a scanned punch that almost always means the code had already
+  // changed (slow network, or a photo of the screen), so say that instead.
+  Future<FSAttendanceRecord> _punchWithQr(AttendanceQrCode? qr, Future<FSAttendanceRecord> Function() punch) async {
+    try {
+      return await punch();
+    } on FirebaseException catch (e) {
+      if (qr != null && e.code == 'permission-denied') {
+        throw Exception('That QR code has expired. Scan the code on the owner\'s screen again.');
+      }
+      rethrow;
+    }
+  }
+
+  /// Puts a new code on a branch's attendance QR (owner only) and returns
+  /// the text to show as the QR - only after the server has the code.
+  Future<String> rotateAttendanceQr(String branchId) async {
+    _requireOwner();
+    final auth = ref.read(authControllerProvider);
+    final token = await _fs.rotateAttendanceQr(branchId, newAttendanceQrToken());
+    return AttendanceQrCode(salonId: auth.salonId!, branchId: branchId, token: token).encode();
   }
 
   Future<void> markAttendance({required String employeeId, required String date, required String status, String? notes}) async {
@@ -1224,6 +1264,56 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       existingClockOut: existing.isEmpty ? null : existing.first.clockOut,
     );
     _patchAttendance(recordFS);
+  }
+
+  // --- Attendance history paging ---
+
+  // Sign-in loads the newest SalonFirestore.attendanceFirstPage records;
+  // this is set once a page comes back short, i.e. nothing older exists.
+  bool _olderAttendanceExhausted = false;
+
+  /// Whether [loadOlderAttendance] could still find anything.
+  bool get hasOlderAttendance => !_olderAttendanceExhausted;
+
+  /// Adds the next [pageSize] older attendance records to AppData - the
+  /// "Load older" button under every attendance history list. Owners page
+  /// through everyone's; staff through their own (the rules allow nothing
+  /// else). Returns how many were added.
+  Future<int> loadOlderAttendance({int pageSize = 100}) async {
+    final current = state.value;
+    if (current == null || _olderAttendanceExhausted) return 0;
+    final auth = ref.read(authControllerProvider);
+    final selfId = auth.isOwner ? null : auth.userId;
+
+    // The last record in the query's own order (date desc, then id desc).
+    AttendanceRecord? oldest;
+    for (final a in current.attendance) {
+      if (a.date == null || (selfId != null && a.employeeId != selfId)) continue;
+      if (oldest == null ||
+          a.date!.isBefore(oldest.date!) ||
+          (a.date!.isAtSameMomentAs(oldest.date!) && a.id.compareTo(oldest.id) < 0)) {
+        oldest = a;
+      }
+    }
+    if (oldest == null) {
+      _olderAttendanceExhausted = true;
+      return 0;
+    }
+
+    final page = await _fs.listAttendance(
+      employeeId: selfId,
+      limit: pageSize,
+      after: (date: oldest.date!, id: oldest.id),
+    );
+    if (page.length < pageSize) _olderAttendanceExhausted = true;
+
+    // Re-read after the await - a punch may have landed meanwhile.
+    final latest = state.value;
+    if (latest == null) return 0;
+    final known = {for (final a in latest.attendance) a.id};
+    final added = page.where((r) => !known.contains(r.id)).map(attendanceFromFS).toList();
+    state = AsyncData(latest.copyWith(attendance: [...latest.attendance, ...added]));
+    return added.length;
   }
 
   // clockIn/clockOut/markAttendance each touch exactly one doc id

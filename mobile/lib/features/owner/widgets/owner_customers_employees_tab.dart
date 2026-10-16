@@ -5,9 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../theme.dart';
 import '../../../data/app_data_provider.dart';
 import '../../../widgets/liquid_nav_bar.dart';
-import '../../../data/punch_location.dart';
 import '../../../data/salary_provider.dart';
 import '../../../data/models.dart';
+import '../../../data/attendance_labels.dart';
+import '../../../data/attendance_shift.dart';
+import '../../../widgets/load_older_attendance.dart';
 import '../../../data/client_search.dart';
 import '../../../widgets/app_page_header.dart';
 import '../../../widgets/app_page_switcher.dart';
@@ -23,6 +25,7 @@ import '../../../data/birthday.dart';
 import '../../auth/auth_provider.dart';
 import 'add_employee_page.dart';
 import 'owner_shift_card.dart';
+import 'attendance_qr_page.dart';
 import 'owner_birthdays_page.dart';
 import '../../../widgets/ds.dart';
 import 'owner_payroll_view.dart';
@@ -3900,7 +3903,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
 
   void _showScheduleSheet(BuildContext context, EmployeeProfile emp, AppData state) {
     final recentAttendance = state.attendance.where((a) => a.employeeId == emp.id && a.date != null).toList()
-      ..sort((a, b) => (b.date ?? DateTime(0)).compareTo(a.date ?? DateTime(0)));
+      ..sort(compareAttendanceNewestFirst);
 
     showModalBottomSheet(
       context: context,
@@ -3936,9 +3939,9 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  'Recent check-ins and shifts for this month',
-                  style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                const Text(
+                  'Most recent days, newest first',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                 ),
                 const SizedBox(height: 14),
                 if (recentAttendance.isEmpty)
@@ -3957,7 +3960,18 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                         return ListTile(
                           contentPadding: EdgeInsets.zero,
                           title: Text(_formatDate(rec.date), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-                          subtitle: Text('Shift: Morning & Evening', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                          // The day's real clock times. This used to read
+                          // "Shift: Morning & Evening" on every row whatever
+                          // had happened.
+                          subtitle: Text(
+                            punchTimesLabel(rec) ?? 'Marked on the roster',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: (punchTimesLabel(rec) ?? '').endsWith('no clock-out')
+                                  ? const Color(0xFFD97706)
+                                  : const Color(0xFF64748B),
+                            ),
+                          ),
                           trailing: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
@@ -3969,7 +3983,7 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              rec.status,
+                              attendanceStatusLabel(rec.status),
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w700,
@@ -4298,17 +4312,14 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
   // not grey out the other.
   bool _submittingOwnPunch = false;
 
-  /// The owner's own record for today, or null if they have not punched.
+  /// The owner's own current shift - still open (even since yesterday
+  /// evening), else today's record - or null if they have not punched.
   ///
   /// An owner is an employees/{uid} document like anyone else, so this is the
-  /// same lookup the roster does for a stylist - just scoped to whoever is
-  /// signed in.
+  /// same lookup a stylist's clock card does (attendance_shift.dart).
   AttendanceRecord? _ownRecordToday(AppData state, String? userId, DateTime now) {
     if (userId == null) return null;
-    final match = state.attendance.where(
-      (a) => a.employeeId == userId && a.date != null && _isSameDay(a.date!, now),
-    );
-    return match.isEmpty ? null : match.first;
+    return currentShiftRecord(state.attendance, userId, now);
   }
 
   Future<void> _punch(WidgetRef ref, {required bool out}) async {
@@ -4435,18 +4446,28 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                   const Text('Attendance History Log', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF0F172A))),
                   const SizedBox(height: 12),
                   Expanded(
-                    child: records.isEmpty
-                        ? const Center(child: Text('No attendance history recorded.', style: TextStyle(color: Color(0xFF64748B))))
-                        : ListView.separated(
-                            controller: scrollCtrl,
-                            itemCount: records.length,
-                            separatorBuilder: (context, index) => const Divider(color: Color(0xFFF1F5F9)),
-                            itemBuilder: (context, idx) {
-                              final rec = records[idx];
-                              final emp = state.employeeById(rec.employeeId);
-                              return _buildLogTile(rec, emp, branches: state.branches);
-                            },
-                          ),
+                    // Read live rather than from the list handed in, so
+                    // "Load older days" at the bottom grows this sheet.
+                    child: Consumer(
+                      builder: (context, ref, _) {
+                        final live = ref.watch(appDataProvider).valueOrNull ?? state;
+                        final all = [...live.attendance]..sort(compareAttendanceNewestFirst);
+                        if (all.isEmpty) {
+                          return const Center(child: Text('No attendance history recorded.', style: TextStyle(color: Color(0xFF64748B))));
+                        }
+                        return ListView.separated(
+                          controller: scrollCtrl,
+                          itemCount: all.length + 1,
+                          separatorBuilder: (context, index) => const Divider(color: Color(0xFFF1F5F9)),
+                          itemBuilder: (context, idx) {
+                            if (idx == all.length) return const LoadOlderAttendance();
+                            final rec = all[idx];
+                            final emp = live.employeeById(rec.employeeId);
+                            return _buildLogTile(rec, emp, branches: live.branches);
+                          },
+                        );
+                      },
+                    ),
                   ),
                 ],
               ),
@@ -4455,27 +4476,6 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
         );
       },
     );
-  }
-
-  /// How far this punch was from the branch it belongs to, in words.
-  ///
-  /// Null when there is nothing to say: no coordinates on the punch, or no
-  /// location set on the branch. Only surfaced when it is far enough to be
-  /// worth a second look - a number next to every single row would be
-  /// noise, and noise is what stops people reading a log.
-  String? _punchDistanceNote(AttendanceRecord rec, EmployeeProfile? emp, List<Branch> branches) {
-    if (rec.clockInLocationNote != null) return 'Location unavailable';
-    if (rec.clockInLat == null || rec.clockInLng == null) return null;
-
-    final branch = branches.where((b) => b.id == emp?.branchId && b.hasLocation);
-    if (branch.isEmpty) return null;
-
-    final metres = PunchLocationService.metresBetween(
-      rec.clockInLat!, rec.clockInLng!, branch.first.lat!, branch.first.lng!);
-    if (metres < 250) return null;
-    return metres < 1000
-        ? '${metres.round()} m from ${branch.first.name}'
-        : '${(metres / 1000).toStringAsFixed(1)} km from ${branch.first.name}';
   }
 
   Widget _buildLogTile(AttendanceRecord rec, EmployeeProfile? emp, {List<Branch> branches = const []}) {
@@ -4522,7 +4522,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                     // AM In" plus the chip overruns the row on a phone.
                     Flexible(
                       child: Text(
-                        _formatRosterDate(rec.date, rec.clockIn),
+                        _formatRosterDate(rec.date, null),
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                       ),
@@ -4532,24 +4532,6 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                     // fact - and payroll will not deduct for an unconfirmed
                     // LATE. Saying so here is the whole point: confirmation
                     // that is invisible never gets done.
-                    if (_punchDistanceNote(rec, emp, branches) != null) ...[
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFFBEB),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          _punchDistanceNote(rec, emp, branches)!,
-                          style: const TextStyle(
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFFD97706),
-                          ),
-                        ),
-                      ),
-                    ],
                     if (!rec.confirmed) ...[
                       const SizedBox(width: 6),
                       Container(
@@ -4570,6 +4552,19 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                     ],
                   ],
                 ),
+                // In, out and hours - or "on shift" / "no clock-out". A
+                // forgotten clock-out is amber so it stands out in the log.
+                if (punchTimesLabel(rec) case final times?) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    times,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: times.endsWith('no clock-out') ? const Color(0xFFD97706) : const Color(0xFF64748B),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -4577,7 +4572,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(color: badgeBg, borderRadius: BorderRadius.circular(12)),
             child: Text(
-              rec.status,
+              attendanceStatusLabel(rec.status),
               style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: badgeFg, letterSpacing: 0.3),
             ),
           ),
@@ -4722,7 +4717,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     final todayFormatted = 'Today, ${today.day} ${months[today.month - 1]}';
 
-    final recentAttendance = [...state.attendance]..sort((a, b) => (b.date ?? DateTime(0)).compareTo(a.date ?? DateTime(0)));
+    final recentAttendance = [...state.attendance]..sort(compareAttendanceNewestFirst);
 
     return Container(
       color: const Color(0xFFF8F9FC),
@@ -4752,6 +4747,19 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                   now: today,
                   onClockIn: () => _punch(ref, out: false),
                   onClockOut: () => _punch(ref, out: true),
+                ),
+                const SizedBox(height: 12),
+                // Staff punch only by scanning this (firestore.rules), so
+                // it sits right here rather than behind a menu.
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const AttendanceQrPage()),
+                    ),
+                    icon: const Icon(PhosphorIconsRegular.qrCode, size: 18),
+                    label: const Text('Show attendance QR for staff'),
+                  ),
                 ),
                 const SizedBox(height: 16),
 

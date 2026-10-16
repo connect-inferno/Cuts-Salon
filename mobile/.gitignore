@@ -44,3 +44,6 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 .vercel
+
+# Self-signed HTTPS cert for testing the web app on a phone over the LAN (flutter-web-lan)
+.dev-tls/

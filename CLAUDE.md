@@ -102,6 +102,45 @@ header has a button for each that shows it full screen for a client.
   from it; needs Blaze). Each salon must be in `ALLOWED_SALON_IDS` in
   `directory-project/functions/.env`, or its owner's upload is refused.
 
+## Attendance (QR punch)
+
+- **Staff clock in/out only by scanning the owner's rotating QR.** The
+  owner opens Team > Attendance > "Show attendance QR for staff"
+  (`attendance_qr_page.dart`), which writes a new random code to
+  `attendanceQr/{branchId}` every 30s (`attendanceQrRotation`) and keeps the
+  screen awake. Staff tap Clock in / Clock out, which opens a camera-only
+  scanner (`widgets/attendance_qr_scanner.dart`, no gallery upload) and
+  sends the code with the punch (`clockInQrToken` / `clockInQrBranchId`).
+- **The rules are the real check:** staff cannot read `attendanceQr`, and a
+  staff punch is refused unless it carries that branch's current code (or
+  the one just replaced) within 45s of issue (server time). The owner's own
+  punch needs no QR. Keep the 45s in `firestore.rules` above the 30s in
+  `data/attendance_qr.dart`.
+- **No punch location any more** (removed 2026-10-16): no GPS, no geolocator
+  package, no location permissions; rules refuse location fields on a punch.
+- **A shift belongs to the day it started.** Clock-out closes whichever shift
+  is still open, today's or one that started yesterday (night shifts). A
+  shift open longer than 16h (`maxShiftLength`, `data/attendance_shift.dart`)
+  counts as a forgotten clock-out: history shows "no clock-out", it can't be
+  closed, and it doesn't block clocking in. Clock-in refuses while
+  yesterday's shift is still open.
+- **History:** sign-in loads the newest 500 records
+  (`SalonFirestore.attendanceFirstPage`); every "View all" sheet ends in
+  "Load older days" (`widgets/load_older_attendance.dart`), paging 100 at a
+  time on (date, record id). Wording (times, hours, "on shift", "no
+  clock-out", status words) comes from `data/attendance_labels.dart` - use it
+  rather than formatting a record by hand.
+- **Camera on the web needs https** (or localhost): a phone can't scan from a
+  plain `http://` dev-server address. `vercel.json` allows `camera=(self)`.
+  For phone testing use the Vercel preview, or the `flutter-web-lan` launch
+  entry (release build, self-signed cert in `mobile/.dev-tls/`, Android
+  only - iPhone Safari refuses the camera with a self-signed cert).
+- **Deploy status:** QR rules are on `test-salon-ee06a` only (2026-10-16).
+  They are restrictive - old app versions can't punch under them, and the
+  new app's owner QR screen can't save codes without them - so for the other
+  salons, merge to main, wait for Vercel, then deploy the rules straight
+  away, outside opening hours.
+
 ## Billing and catalog data rules
 
 - **Invoice numbers** are sequential per salon (`INV-0001`...), taken from

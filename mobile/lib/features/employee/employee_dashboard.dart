@@ -6,6 +6,9 @@ import '../../theme.dart';
 import '../../data/app_data_provider.dart';
 import '../../data/salary_provider.dart';
 import '../../data/models.dart';
+import '../../data/attendance_labels.dart';
+import '../../data/attendance_shift.dart';
+import '../../widgets/load_older_attendance.dart';
 import '../../data/client_search.dart';
 import '../auth/auth_provider.dart';
 import '../../widgets/app_drawer.dart';
@@ -15,6 +18,7 @@ import '../../widgets/app_settings_page.dart';
 import '../../widgets/app_sub_page.dart';
 import '../../widgets/app_dialog.dart';
 import '../../widgets/account_security.dart';
+import '../../widgets/attendance_qr_scanner.dart';
 import '../../widgets/async_state_views.dart';
 import '../../widgets/add_customer_page.dart';
 import '../../widgets/dues_view.dart';
@@ -68,11 +72,10 @@ String _greeting(int hour) {
   return 'evening';
 }
 
-AttendanceRecord? _todayAttendance(AppData state, String employeeId) {
-  final today = DateTime.now();
-  final match = state.attendance.where((a) => a.employeeId == employeeId && a.date != null && _isSameDay(a.date!, today));
-  return match.isEmpty ? null : match.first;
-}
+/// The shift the clock card is about: one still open - even a night shift
+/// that started yesterday - or else today's record (see attendance_shift.dart).
+AttendanceRecord? _todayAttendance(AppData state, String employeeId) =>
+    currentShiftRecord(state.attendance, employeeId, DateTime.now());
 
 /// Month names, at the top level because the payout statements, the greeting
 /// line and the pay-period header all print them and three local copies had
@@ -669,11 +672,17 @@ class _EmployeeDashboardTab extends ConsumerWidget {
   }
 
   Future<void> _toggleClock(BuildContext context, WidgetRef ref, bool isClockedIn) async {
+    // Staff punch only by scanning the owner's attendance QR - the rules
+    // refuse a punch without a live code from it.
+    final salonId = ref.read(authControllerProvider).salonId;
+    if (salonId == null) return;
+    final qr = await scanAttendanceQr(context, salonId: salonId, clockingOut: isClockedIn);
+    if (qr == null || !context.mounted) return;
     try {
       if (isClockedIn) {
-        await ref.read(appDataProvider.notifier).clockOut();
+        await ref.read(appDataProvider.notifier).clockOut(qr: qr);
       } else {
-        await ref.read(appDataProvider.notifier).clockIn();
+        await ref.read(appDataProvider.notifier).clockIn(qr: qr);
       }
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1173,11 +1182,17 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
   const _EmployeeAttendanceTab({required this.profile, required this.state});
 
   Future<void> _toggleClock(BuildContext context, WidgetRef ref, bool isClockedIn) async {
+    // Staff punch only by scanning the owner's attendance QR - the rules
+    // refuse a punch without a live code from it.
+    final salonId = ref.read(authControllerProvider).salonId;
+    if (salonId == null) return;
+    final qr = await scanAttendanceQr(context, salonId: salonId, clockingOut: isClockedIn);
+    if (qr == null || !context.mounted) return;
     try {
       if (isClockedIn) {
-        await ref.read(appDataProvider.notifier).clockOut();
+        await ref.read(appDataProvider.notifier).clockOut(qr: qr);
       } else {
-        await ref.read(appDataProvider.notifier).clockIn();
+        await ref.read(appDataProvider.notifier).clockIn(qr: qr);
       }
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1203,7 +1218,7 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
     final isClockedIn = todayRecord != null && todayRecord.clockIn != null && todayRecord.clockOut == null;
     final shiftDone = todayRecord != null && todayRecord.clockIn != null && todayRecord.clockOut != null;
 
-    final history = [...state.attendance]..sort((a, b) => (b.date ?? DateTime(0)).compareTo(a.date ?? DateTime(0)));
+    final history = [...state.attendance]..sort(compareAttendanceNewestFirst);
 
     // Month stats
     final now = DateTime.now();
@@ -1338,43 +1353,113 @@ class _EmployeeAttendanceTab extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('History', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.slateDark)),
-                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text('History', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.slateDark)),
+                        ),
+                        // The card shows the latest few; the rest open in a
+                        // sheet rather than silently stopping at a cap.
+                        if (history.length > _historyPreview)
+                          TextButton(
+                            onPressed: () => _showFullHistory(context, history),
+                            child: Text('View all ${history.length}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
                     if (history.isEmpty)
                       const Text('No attendance records yet.', style: TextStyle(color: AppTheme.slateLight, fontSize: 12))
                     else
                       ListView.separated(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
-                        itemCount: history.length > 20 ? 20 : history.length,
+                        itemCount: history.length > _historyPreview ? _historyPreview : history.length,
                         separatorBuilder: (context, idx) => const Divider(color: Color(0xFFF1F5F9), height: 16),
-                        itemBuilder: (context, idx) {
-                          final rec = history[idx];
-                          Color statusColor = AppTheme.accentGreen;
-                          Color statusBg = AppTheme.accentGreenBg;
-                          if (rec.status == 'LATE') { statusColor = AppTheme.accentAmber; statusBg = AppTheme.accentAmberBg; }
-                          if (rec.status == 'ABSENT') { statusColor = AppTheme.accentRed; statusBg = AppTheme.accentRedBg; }
-                          return Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(_formatDate(rec.date), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                                    if (rec.clockIn != null)
-                                      Text(
-                                        'In: ${_formatTime(rec.clockIn)}${rec.clockOut != null ? '  •  Out: ${_formatTime(rec.clockOut)}' : ''}',
-                                        style: const TextStyle(fontSize: 11, color: AppTheme.slateLight),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              _statusBadge(rec.status, statusBg, statusColor),
-                            ],
-                          );
-                        },
+                        itemBuilder: (context, idx) => _historyRow(history[idx]),
                       ),
                   ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  static const _historyPreview = 10;
+
+  /// One day: the date, its clock times (in, out, hours - or "on shift" /
+  /// "no clock-out"), and the status the day carries.
+  static Widget _historyRow(AttendanceRecord rec) {
+    final (fg, bg) = switch (rec.status) {
+      'LATE' => (AppTheme.accentAmber, AppTheme.accentAmberBg),
+      'ABSENT' => (AppTheme.accentRed, AppTheme.accentRedBg),
+      'LEAVE' => (AppTheme.slateMedium, AppTheme.bgSurface),
+      _ => (AppTheme.accentGreen, AppTheme.accentGreenBg),
+    };
+    final times = punchTimesLabel(rec);
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(_formatDate(rec.date), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 2),
+              Text(
+                times ?? 'Marked by the owner',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: times != null && times.endsWith('no clock-out') ? AppTheme.accentAmber : AppTheme.slateLight,
+                ),
+              ),
+            ],
+          ),
+        ),
+        _statusBadge(attendanceStatusLabel(rec.status), bg, fg),
+      ],
+    );
+  }
+
+  void _showFullHistory(BuildContext context, List<AttendanceRecord> history) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.8,
+        maxChildSize: 0.95,
+        minChildSize: 0.5,
+        expand: false,
+        builder: (context, scrollCtrl) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(width: 40, height: 4, decoration: BoxDecoration(color: AppTheme.borderSubtle, borderRadius: BorderRadius.circular(2))),
+              ),
+              const SizedBox(height: 16),
+              const Text('Attendance history', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppTheme.slateDark)),
+              const SizedBox(height: 12),
+              Expanded(
+                // Read live rather than from the list handed in, so "Load
+                // older days" at the bottom grows this sheet.
+                child: Consumer(
+                  builder: (context, ref, _) {
+                    final live = ref.watch(appDataProvider).valueOrNull?.attendance ?? history;
+                    final all = [...live]..sort(compareAttendanceNewestFirst);
+                    return ListView.separated(
+                      controller: scrollCtrl,
+                      padding: const EdgeInsets.only(bottom: 24),
+                      itemCount: all.length + 1,
+                      separatorBuilder: (_, __) => const Divider(color: Color(0xFFF1F5F9), height: 16),
+                      itemBuilder: (_, idx) => idx == all.length ? const LoadOlderAttendance() : _historyRow(all[idx]),
+                    );
+                  },
                 ),
               ),
             ],
