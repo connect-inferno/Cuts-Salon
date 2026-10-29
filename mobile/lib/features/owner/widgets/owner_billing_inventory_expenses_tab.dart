@@ -379,11 +379,13 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
             : _firstOrNull(
               state.customers.where((c) => c.id == _selectedCustomerId),
             );
+    // Staff removed from the team (active: false) can't be billed against.
+    final billableStaff = state.employees.where((e) => e.active).toList();
     final selectedEmployee =
         _selectedEmployeeId == null
-            ? (state.employees.isNotEmpty ? state.employees.first : null)
+            ? (billableStaff.isNotEmpty ? billableStaff.first : null)
             : _firstOrNull(
-              state.employees.where((e) => e.id == _selectedEmployeeId),
+              billableStaff.where((e) => e.id == _selectedEmployeeId),
             );
 
     if (_selectedEmployeeId == null && selectedEmployee != null) {
@@ -594,7 +596,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                               await showSearchablePicker<EmployeeProfile>(
                                 context: context,
                                 title: 'Who did the service?',
-                                items: state.employees,
+                                items: billableStaff,
                                 labelOf: (e) => e.name,
                                 subtitleOf:
                                     (e) =>
