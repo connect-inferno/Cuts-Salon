@@ -52,6 +52,29 @@ void main() {
     expect(find.text('Email Address'), findsOneWidget);
   });
 
+  testWidgets('gender is a Male / Female choice that can be cleared', (tester) async {
+    await _pump(tester);
+
+    expect(find.text('Gender'), findsOneWidget);
+    Color textColor(String label) => tester.widget<Text>(find.text(label)).style!.color!;
+    final unpicked = textColor('Female');
+
+    await tester.tap(find.byKey(const Key('genderFemale')));
+    await tester.pump();
+    expect(textColor('Female'), isNot(unpicked));
+    expect(textColor('Male'), unpicked);
+
+    await tester.tap(find.byKey(const Key('genderMale')));
+    await tester.pump();
+    expect(textColor('Female'), unpicked);
+    expect(textColor('Male'), isNot(unpicked));
+
+    // Optional: tapping the picked one again un-picks it.
+    await tester.tap(find.byKey(const Key('genderMale')));
+    await tester.pump();
+    expect(textColor('Male'), unpicked);
+  });
+
   testWidgets('has no VIP toggle', (tester) async {
     await _pump(tester);
 

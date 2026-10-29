@@ -41,6 +41,9 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
   final _emailController = TextEditingController();
   // "MM-DD" once both day and month are picked - see data/birthday.dart.
   String? _birthday;
+  // 'MALE' / 'FEMALE', or null if not picked - the codes Reports' gender
+  // split counts (computeClientDetails in data/insights.dart).
+  String? _gender;
   bool _whatsappOptIn = false;
   bool _submitting = false;
 
@@ -131,6 +134,7 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
             name: name,
             phone: phone,
             email: _emailController.text.trim(),
+            gender: _gender,
             birthday: _birthday,
             whatsappOptIn: _whatsappOptIn,
             registeredAtBranchId:
@@ -338,6 +342,24 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
             textCapitalization: TextCapitalization.words,
           ),
           const SizedBox(height: 14),
+          const Text(
+            'Gender',
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.slateMedium,
+              letterSpacing: 0.1,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(child: _genderOption('FEMALE', 'Female')),
+              const SizedBox(width: 10),
+              Expanded(child: _genderOption('MALE', 'Male')),
+            ],
+          ),
+          const SizedBox(height: 14),
           _field(
             controller: _phoneController,
             label: 'Phone Number *',
@@ -376,6 +398,40 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
             onChanged: (v) => setState(() => _whatsappOptIn = v),
           ),
         ],
+      ),
+    );
+  }
+
+  /// One half of the gender choice, sized like the text fields. Optional:
+  /// tapping the picked one again clears it.
+  Widget _genderOption(String code, String label) {
+    final selected = _gender == code;
+    return Material(
+      color: selected ? AppTheme.primaryLight : const Color(0xFFF8FAFC),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+          color: selected ? AppTheme.primaryBlue : AppTheme.borderSubtle,
+          width: selected ? 1.5 : 1,
+        ),
+      ),
+      child: InkWell(
+        key: Key('gender$label'),
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => setState(() => _gender = selected ? null : code),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 13),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: selected ? AppTheme.primaryBlue : AppTheme.slateDark,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
