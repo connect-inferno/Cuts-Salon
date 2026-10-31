@@ -126,6 +126,10 @@ class Customer {
   /// comment for why it lives on the customer doc rather than being summed.
   final double outstandingBalance;
   final DateTime? lastVisitAt;
+  /// When the WhatsApp come-back reminder last went to this client (set by
+  /// functions/index.js, cleared by the bill that follows it). Reports
+  /// counts that bill as a reminder bringing someone back.
+  final DateTime? lastReminderAt;
   // Archived clients are hidden from every list in the app but their
   // documents (and all their past bills) stay exactly where they were -
   // firestore.rules blocks customer deletes on purpose.
@@ -154,6 +158,7 @@ class Customer {
     this.totalSpent = 0,
     this.outstandingBalance = 0,
     this.lastVisitAt,
+    this.lastReminderAt,
     this.archived = false,
     this.createdById,
     this.createdByName,
@@ -175,6 +180,7 @@ class Customer {
         totalSpent: _num(json['totalSpent']),
         outstandingBalance: _num(json['outstandingBalance']),
         lastVisitAt: _date(json['lastVisitAt']),
+        lastReminderAt: _date(json['lastReminderAt']),
         createdById: json['createdById'],
         createdByName: json['createdByName'],
         birthday: json['birthday'],
@@ -198,6 +204,10 @@ class SalonService {
   final double price;
   final String categoryId;
   final String? categoryName;
+  /// Days after a visit with this service before the WhatsApp come-back
+  /// reminder goes - see FSService.reminderDays. Null = the salon's general
+  /// gap (SalonSettings.whatsappReminderDays).
+  final int? reminderDays;
 
   SalonService({
     required this.id,
@@ -205,6 +215,7 @@ class SalonService {
     required this.price,
     required this.categoryId,
     this.categoryName,
+    this.reminderDays,
   });
 
   factory SalonService.fromJson(Map<String, dynamic> json) => SalonService(
@@ -667,6 +678,12 @@ class SalonSettings {
   /// the operator can write - see SalonFirestore.isWhatsAppReady. Until it's
   /// true the app offers "contact us" instead of the on/off switch.
   final bool whatsappReady;
+  /// Per-message switches and timing - see FSSettings.whatsappBillOn.
+  final bool whatsappBillOn;
+  final bool whatsappBirthdayOn;
+  final int whatsappBirthdayDaysBefore;
+  final bool whatsappReminderOn;
+  final int whatsappReminderDays;
   /// QR image URLs - see FSSettings.paymentQrUrl / reviewQrUrl.
   final String? paymentQrUrl;
   final String? reviewQrUrl;
@@ -681,6 +698,11 @@ class SalonSettings {
     this.dailyRevenueTarget = 0,
     this.whatsappEnabled = false,
     this.whatsappReady = false,
+    this.whatsappBillOn = true,
+    this.whatsappBirthdayOn = true,
+    this.whatsappBirthdayDaysBefore = 0,
+    this.whatsappReminderOn = true,
+    this.whatsappReminderDays = 21,
     this.paymentQrUrl,
     this.reviewQrUrl,
   });

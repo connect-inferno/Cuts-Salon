@@ -12,3 +12,15 @@ String formatInr(num amount) {
       .replaceAllMapped(RegExp(r'\B(?=(\d{2})+(?!\d))'), (m) => ',');
   return '$sign₹$rest,$last3';
 }
+
+/// "₹850", "₹12.5k", "₹1.2L", "₹2.4Cr" - for chart labels and axis ticks,
+/// where a full "₹1,25,000" would not fit. Use [formatInr] everywhere else.
+String formatInrCompact(num amount) {
+  final sign = amount < 0 ? '-' : '';
+  final v = amount.abs().toDouble();
+  String trim(double x) => x >= 100 ? x.round().toString() : x.toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '');
+  if (v >= 1e7) return '$sign₹${trim(v / 1e7)}Cr';
+  if (v >= 1e5) return '$sign₹${trim(v / 1e5)}L';
+  if (v >= 1e3) return '$sign₹${trim(v / 1e3)}k';
+  return '$sign₹${v.round()}';
+}

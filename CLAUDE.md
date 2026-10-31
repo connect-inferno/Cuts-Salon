@@ -7,6 +7,7 @@ Multi-tenant salon management SaaS. Each salon runs on its own Firebase project 
 - `mobile/` — Flutter app (salon staff/owner client), deployed to Vercel as a web build. This is the entire app; there is no separate backend service.
 - `mobile/lib/firebase/` — everything Firebase-specific: `salon_directory.dart` (the list of provisioned salons and their Firebase project config), `salon_auth.dart` (multi-project sign-in), `login_directory.dart` (fast email -> salonId lookup against `salon-saas-87b6a`, see Multi-tenancy model below), `salon_firestore.dart` (all Firestore reads/writes), `firestore_models.dart` (Firestore document <-> app model conversions), `firestore_app_data.dart` (assembles one salon's full `AppData` snapshot).
 - `mobile/lib/data/app_data_provider.dart` — the single source of truth for app state (`AppDataNotifier`). Every mutation (create bill, clock in, confirm a payment request, etc.) lives here as a method that validates input and calls into `SalonFirestore`.
+- `website/` — the public marketing site (React + three.js + GSAP, Vite; dev server is the `website` entry in `.claude/launch.json`, port 5190). Static, talks to no salon's Firebase. Its screenshots come from the test salon only; see `website/README.md`. **Hosted on Firebase Hosting in `salon-saas-87b6a`** (https://stylux.infernos.co.in, also salon-saas-87b6a.web.app; first deployed 2026-10-15): from `website/`, `npm run build` then `firebase deploy --only hosting --project salon-saas-87b6a`. Always `--only hosting` there: the same project's rules, storage and functions are deployed from elsewhere (see the login directory and QR code sections).
 - `mobile/firestore.rules` / `mobile/firestore.indexes.json` — deployed per-project via `firebase deploy --only firestore:rules,firestore:indexes --project <salonId>`.
 
 ## Hard rule: business logic and its trust boundary
@@ -71,9 +72,29 @@ template wording and troubleshooting: `mobile/functions/whatsapp.md`.
   and the bill screen never claims a WhatsApp send.
 - In the app: customers have a birthday picker and an "OK to send WhatsApp
   messages" checkbox (Add Customer, and "Birthday & WhatsApp" on a client);
-  the owner's switch and test buttons are the WhatsApp card in Settings >
-  Business; "Bill Generated" says whether the bill is going out on WhatsApp
+  "Bill Generated" says whether the bill is going out on WhatsApp
   (`widgets/bill_whatsapp_note.dart`).
+- **Menu > WhatsApp** (`owner_whatsapp_page.dart`, owner only; Settings >
+  Business has a link to it): the master switch, then each message as its
+  own row with a switch, opening a page with its timing, an example of the
+  message, sends per month (from `monthlyStats.wa`) and its recent
+  `whatsappLog` entries with plain-words failure reasons. Per-message
+  settings live on `settings/main`: `whatsappBillOn`,
+  `whatsappBirthdayOn`, `whatsappBirthdayDaysBefore` (0/1),
+  `whatsappReminderOn`, `whatsappReminderDays` (7-120). Absent = all on,
+  on the day, 21 days (`whatsapp_core.taskSettings`, which the functions
+  use and clamp). Changing the reminder days needs the functions deployed
+  with this code; until then the salon keeps sending at 21. One task's
+  message list needs the `whatsappLog (kind, createdAt)` index in
+  `firestore.indexes.json` - deploy indexes to every salon.
+- **Per-service reminder gaps:** a service may carry `reminderDays`
+  (7-120, set in Add/Edit Service; blank = the salon default above).
+  `createBill` writes `customers/{id}.reminderDueOn` ("YYYY-MM-DD") from
+  the earliest gap among the bill's services, or deletes it when none has
+  one. The daily function sends to `reminderDueOn == today`, and the
+  general N-days rule skips clients that carry a `reminderDueOn`. Both use
+  the same `reminder_{customerId}_{visitDay}` log key, so nobody gets two.
+  A changed gap applies from the next bill.
 - Unit tests for the pure helpers: `cd mobile/functions && npm test`.
 - First functions deploy to a new project often fails for two functions
   with an Eventarc permission error - wait 3-5 minutes and deploy again.
@@ -135,13 +156,46 @@ header has a button for each that shows it full screen for a client.
   For phone testing use the Vercel preview, or the `flutter-web-lan` launch
   entry (release build, self-signed cert in `mobile/.dev-tls/`, Android
   only - iPhone Safari refuses the camera with a self-signed cert).
-- **Deploy status:** QR rules are on `test-salon-ee06a` only (2026-10-16).
-  They are restrictive - old app versions can't punch under them, and the
-  new app's owner QR screen can't save codes without them - so for the other
-  salons, merge to main, wait for Vercel, then deploy the rules straight
-  away, outside opening hours.
+- **Deploy status:** QR rules deployed to all three salons on 2026-10-16
+  (~17:05 IST), right after PR #6 reached production on Vercel. They are
+  restrictive - old app versions can't punch under them, and the app's
+  owner QR screen can't save codes without them - so any future change to
+  the punch rules must ship app first, then rules, back to back.
 
-## Billing and catalog data rules
+## Reports analytics (rollups)
+
+Reports' charts (busy hours, profit & loss, services vs products, category,
+team productivity, new vs returning, WhatsApp results) read **rollup docs**,
+never the bills: the app only loads the newest 300 bills, which a busy salon
+fills in ~10 days, so anything summed from them under-reports.
+
+- `createBill`'s transaction adds each bill to `dailyStats/{YYYY-MM-DD}`
+  (extra fields: `byHour`, `byStaff`, `serviceSales`/`productSales`,
+  `productCost`, `discount`, `tax`...) and `monthlyStats/{YYYY-MM}` (same,
+  plus the weekday x hour `slots` grid, `byCategory`, `byBranch`,
+  `newClients`, `reminderReturns`). The amounts come from one pure function,
+  `billRollupFields` in `lib/data/insights.dart` - use it for any new figure.
+  The first live write to a month stamps `liveSince`.
+- Reports loads ~13 month docs + ~30 day docs + `monthlyStats/_meta` when it
+  opens (`data/insights_provider.dart`), owner only. Stock, client value,
+  client details and dues come from data sign-in already loaded (no reads).
+- **Past months:** a one-time "Add your past months" button reads the last
+  12 months of bills once and writes their totals into each month doc's
+  separate `pre` field (only bills before `liveSince`, so nothing is counted
+  twice; rerunning rewrites the same numbers). `RollupStats` adds live + pre.
+- P&L = takings without GST - product cost (current cost price) - expenses
+  - salary slips (commission so far when payroll hasn't run). Expenses and
+  slips come from the existing Expenses/Payroll providers.
+- WhatsApp: on a successful send the functions add to
+  `monthlyStats.wa.{receipts,birthdays,reminders}`; a reminder also stamps
+  `customers/{id}.lastReminderAt`, and a bill within 30 days of it counts as
+  a reminder return (and clears the stamp).
+- **Deploy order: rules first, then the app.** `createBill` reads
+  `monthlyStats` inside its transaction, so an app build with this code on a
+  salon whose rules lack `match /monthlyStats` cannot bill at all. Deploy the
+  rules to every salon, then push; then deploy functions to WhatsApp salons.
+
+
 
 - **Invoice numbers** are sequential per salon (`INV-0001`...), taken from
   `counters/invoices` (`{ last: N }`) inside `createBill`'s transaction.

@@ -24,7 +24,14 @@ class AddCustomerPage extends ConsumerStatefulWidget {
   /// note is worth showing, and to stamp where the client was registered.
   final List<Branch> branches;
 
-  const AddCustomerPage({super.key, required this.branches});
+  /// Set to edit this client instead of adding one: the form opens filled
+  /// in and saves through AppDataNotifier.updateCustomer. Visits, spend and
+  /// dues aren't on the form, so editing can't touch them.
+  final Customer? existing;
+
+  const AddCustomerPage({super.key, required this.branches, this.existing});
+
+  bool get isEdit => existing != null;
 
   @override
   ConsumerState<AddCustomerPage> createState() => _AddCustomerPageState();
@@ -50,8 +57,28 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
   @override
   void initState() {
     super.initState();
+    final e = widget.existing;
+    if (e != null) {
+      // Saved as one name; split back into first, middle and last for the
+      // form - the first word, the last word, and whatever sits between.
+      final parts = e.name.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+      if (parts.isNotEmpty) _firstNameController.text = parts.first;
+      if (parts.length > 1) _lastNameController.text = parts.last;
+      if (parts.length > 2) _middleNameController.text = parts.sublist(1, parts.length - 1).join(' ');
+      _phoneController.text = e.phone;
+      _emailController.text = e.email ?? '';
+      _gender = switch ((e.gender ?? '').toUpperCase()) {
+        'FEMALE' || 'F' => 'FEMALE',
+        'MALE' || 'M' => 'MALE',
+        _ => null,
+      };
+      _birthday = e.birthday;
+      _whatsappOptIn = e.whatsappOptIn;
+    }
     // Drives the preview card's initials and name as they are typed. Local
-    // state only - it rebuilds this page and touches nothing else.
+    // state only - it rebuilds this page and touches nothing else. Added
+    // after the pre-fill: setting the text fires them, and setState isn't
+    // allowed while the state is still being set up.
     for (final c in _nameControllers) {
       c.addListener(_onNameChanged);
     }
@@ -109,9 +136,11 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
     final last = _tidy(_lastNameController.text);
     final phone = _phoneController.text.trim();
     // Says exactly what is missing rather than a generic "required".
+    // Clients saved before the name was split may have only one name, so
+    // a last name is only insisted on for new clients.
     final missing = [
       if (first.isEmpty) 'first name',
-      if (last.isEmpty) 'last name',
+      if (last.isEmpty && !widget.isEdit) 'last name',
       if (phone.isEmpty) 'phone number',
     ];
     if (missing.isNotEmpty) {
@@ -130,7 +159,19 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
 
     setState(() => _submitting = true);
     try {
-      final created = await ref.read(appDataProvider.notifier).addCustomer(
+      final notifier = ref.read(appDataProvider.notifier);
+      final existing = widget.existing;
+      final created = existing != null
+          ? await notifier.updateCustomer(
+              existing.id,
+              name: name,
+              phone: phone,
+              email: _emailController.text.trim(),
+              gender: _gender,
+              birthday: _birthday,
+              whatsappOptIn: _whatsappOptIn,
+            )
+          : await notifier.addCustomer(
             name: name,
             phone: phone,
             email: _emailController.text.trim(),
@@ -148,7 +189,7 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
       Navigator.of(context).pop(created);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('$name added.'),
+          content: Text(existing != null ? '$name saved.' : '$name added.'),
           backgroundColor: AppTheme.accentGreen,
         ),
       );
@@ -336,7 +377,7 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
           const SizedBox(height: 14),
           _field(
             controller: _lastNameController,
-            label: 'Last Name *',
+            label: widget.isEdit ? 'Last Name' : 'Last Name *',
             hint: 'e.g. Sharma',
             icon: PhosphorIconsRegular.user,
             textCapitalization: TextCapitalization.words,
@@ -391,7 +432,7 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
             ),
           ),
           const SizedBox(height: 6),
-          BirthdayPicker(onChanged: (b) => _birthday = b),
+          BirthdayPicker(initial: _birthday, onChanged: (b) => _birthday = b),
           const SizedBox(height: 8),
           WhatsAppOptInTile(
             value: _whatsappOptIn,
@@ -521,12 +562,19 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _noteLine(
-            PhosphorIconsRegular.receipt,
-            'They can be billed straight away - the client picker in Billing '
-            'will find them by name or phone.',
-          ),
-          if (widget.branches.length > 1) ...[
+          if (widget.isEdit)
+            _noteLine(
+              PhosphorIconsRegular.clockCounterClockwise,
+              'Visits, spend and dues stay as they are. Past bills keep the name '
+              'they were billed under.',
+            )
+          else
+            _noteLine(
+              PhosphorIconsRegular.receipt,
+              'They can be billed straight away - the client picker in Billing '
+              'will find them by name or phone.',
+            ),
+          if (widget.branches.length > 1 && !widget.isEdit) ...[
             const SizedBox(height: 10),
             _noteLine(
               PhosphorIconsRegular.storefront,
@@ -643,15 +691,15 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
                       )
                     // min + Flexible so the label ellipsises rather than
                     // overflowing the button on a narrow phone.
-                    : const Row(
+                    : Row(
                         mainAxisSize: MainAxisSize.min,
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(PhosphorIconsBold.userPlus, size: 16),
-                          SizedBox(width: 8),
+                          Icon(widget.isEdit ? PhosphorIconsBold.check : PhosphorIconsBold.userPlus, size: 16),
+                          const SizedBox(width: 8),
                           Flexible(
                             child: Text(
-                              'Add client',
+                              widget.isEdit ? 'Save changes' : 'Add client',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(

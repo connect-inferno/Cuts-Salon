@@ -140,8 +140,73 @@ function dailyResultText(counts) {
   return parts.join(' ');
 }
 
+/** 'YYYY-MM' of an instant in IST - the monthlyStats doc a send is counted in. */
+function istMonthKey(now = new Date()) {
+  const { y, m } = istDate(now);
+  return `${y}-${String(m).padStart(2, '0')}`;
+}
+
+/** "YYYY-MM-DD" of an IST calendar day - customers/{id}.reminderDueOn. */
+function dayKey({ y, m, d }) {
+  return `${y}-${pad2(m)}-${pad2(d)}`;
+}
+
+/**
+ * The key part naming the visit a reminder follows up: the instant its IST
+ * day started, as an ISO date. Both reminder paths use it, so a client is
+ * reminded once per visit whichever path finds them.
+ */
+function visitKey(lastVisitAt) {
+  return istMidnight(istDate(lastVisitAt)).toISOString().slice(0, 10);
+}
+
+/** Shortest and longest come-back gap the owner can pick in the app. */
+const MIN_REMINDER_DAYS = 7;
+const MAX_REMINDER_DAYS = 120;
+
+/**
+ * What the owner's WhatsApp page set in settings/main, with the old
+ * behaviour for anything never set: every message on, birthday wishes on
+ * the day, reminders after [defaultReminderDays]. Values are clamped, so a
+ * hand-edited or corrupt setting can't message every client at once.
+ */
+function taskSettings(settings = {}, defaultReminderDays = 21) {
+  const days = Math.round(Number(settings.whatsappReminderDays));
+  return {
+    bill: settings.whatsappBillOn !== false,
+    birthday: settings.whatsappBirthdayOn !== false,
+    birthdayDaysBefore: settings.whatsappBirthdayDaysBefore === 1 ? 1 : 0,
+    reminder: settings.whatsappReminderOn !== false,
+    reminderDays: Number.isFinite(days)
+      ? Math.min(MAX_REMINDER_DAYS, Math.max(MIN_REMINDER_DAYS, days))
+      : defaultReminderDays,
+  };
+}
+
+/**
+ * The calendar day whose birthdays are wished today: today, or tomorrow
+ * when the owner chose "the day before". Rolls over months and years.
+ */
+function birthdayDayFor(today, daysBefore) {
+  const d = new Date(Date.UTC(today.y, today.m - 1, today.d + daysBefore));
+  return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() };
+}
+
+/** The monthlyStats `wa` counter a send of this kind adds to, or null (test sends). */
+function sendCounterFor(kind) {
+  return { bill: 'receipts', birthday: 'birthdays', reminder: 'reminders' }[kind] ?? null;
+}
+
 module.exports = {
   canRetryLog,
+  istMonthKey,
+  sendCounterFor,
+  taskSettings,
+  dayKey,
+  visitKey,
+  birthdayDayFor,
+  MIN_REMINDER_DAYS,
+  MAX_REMINDER_DAYS,
   dailyResultText,
   istDate,
   istMidnight,

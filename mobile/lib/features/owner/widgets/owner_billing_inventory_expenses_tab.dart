@@ -15,7 +15,7 @@ import '../../../widgets/app_page_header.dart';
 import '../../../widgets/bill_history_view.dart';
 import '../../../widgets/add_customer_page.dart';
 import '../../../widgets/app_sub_page.dart';
-import '../owner_dashboard.dart';
+import 'owner_reports_page.dart';
 import '../../../data/money.dart';
 
 T? _firstOrNull<T>(Iterable<T> items) => items.isEmpty ? null : items.first;
@@ -270,7 +270,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                         onOpenReports: () => openAppSubPage(
                           context,
                           title: 'Reports',
-                          subtitle: 'Revenue, retention and staff performance',
+                          subtitle: 'Takings, profit, team, clients and stock - month by month',
                           // New bill from a client opened in the Clients
                           // report: their page has closed itself, so close
                           // Reports too and start the bill right here.
@@ -2183,6 +2183,32 @@ void showAddProductDialog(BuildContext context, WidgetRef ref) {
   );
 }
 
+/// A service's own WhatsApp come-back gap (SalonService.reminderDays),
+/// optional: blank means the salon's general gap from the WhatsApp page.
+Widget _serviceReminderField(TextEditingController controller, WidgetRef ref) {
+  final general = ref.read(appDataProvider).valueOrNull?.settings?.whatsappReminderDays ?? 21;
+  return TextField(
+    key: const Key('serviceReminderDays'),
+    controller: controller,
+    keyboardType: TextInputType.number,
+    decoration: appDialogFieldDecoration(
+      label: 'Come-back reminder after (days)',
+      hint: 'Blank = salon default, $general days',
+      icon: PhosphorIconsRegular.clockCounterClockwise,
+    ),
+  );
+}
+
+/// Blank -> null (salon default); otherwise whole days. Range is checked by
+/// AppDataNotifier so the message there is the one shown.
+int? _parseReminderDays(String raw) {
+  final t = raw.trim();
+  if (t.isEmpty) return null;
+  final n = int.tryParse(t);
+  if (n == null) throw Exception('Reminder days must be a whole number, or left blank');
+  return n;
+}
+
 void showAddServiceDialog(
   BuildContext context,
   WidgetRef ref,
@@ -2191,6 +2217,7 @@ void showAddServiceDialog(
   final nameController = TextEditingController();
   final priceController = TextEditingController();
   final categoryController = TextEditingController();
+  final reminderController = TextEditingController();
   bool submitting = false;
 
   showDialog(
@@ -2258,6 +2285,8 @@ void showAddServiceDialog(
                         ),
                       ),
                     ],
+                    const SizedBox(height: 12),
+                    _serviceReminderField(reminderController, ref),
                   ],
                 ),
                 actions: AppDialogActions(
@@ -2283,6 +2312,7 @@ void showAddServiceDialog(
                     }
                     setDialogState(() => submitting = true);
                     try {
+                      final reminderDays = _parseReminderDays(reminderController.text);
                       final existing = categories.where(
                         (c) =>
                             c.name.toLowerCase() ==
@@ -2300,6 +2330,7 @@ void showAddServiceDialog(
                             name: name,
                             price: price,
                             categoryId: categoryId,
+                            reminderDays: reminderDays,
                           );
                       if (ctx.mounted) Navigator.pop(ctx);
                       if (context.mounted) {
@@ -2536,6 +2567,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
   void _showEditServiceDialog(BuildContext context, WidgetRef ref, SalonService svc) {
     final nameController = TextEditingController(text: svc.name);
     final priceController = TextEditingController(text: svc.price.toStringAsFixed(0));
+    final reminderController = TextEditingController(text: svc.reminderDays?.toString() ?? '');
     bool submitting = false;
 
     showDialog(
@@ -2566,6 +2598,8 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                           icon: PhosphorIconsRegular.currencyInr,
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      _serviceReminderField(reminderController, ref),
                       const SizedBox(height: 4),
                       _removeButton(
                         label: 'Remove from menu',
@@ -2603,6 +2637,7 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                               svc.id,
                               name: nameController.text,
                               price: price,
+                              reminderDays: _parseReminderDays(reminderController.text),
                             );
                         if (ctx.mounted) Navigator.pop(ctx);
                         if (context.mounted) {

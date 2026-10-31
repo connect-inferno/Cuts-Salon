@@ -985,6 +985,14 @@ class _OwnerCustomerDetailPageState extends ConsumerState<OwnerCustomerDetailPag
                       style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Color(0xFF0F172A), letterSpacing: -0.3),
                     ),
                   ),
+                  // Owner only - staff don't edit clients (firestore.rules).
+                  if (ref.watch(authControllerProvider).isOwner)
+                    TextButton.icon(
+                      key: const Key('editClient'),
+                      onPressed: () => _openEditClient(context, ref, cust),
+                      icon: const Icon(PhosphorIconsRegular.pencilSimple, size: 16),
+                      label: const Text('Edit', style: TextStyle(fontWeight: FontWeight.w700)),
+                    ),
                 ] else
                   const Spacer(),
               ],
@@ -1133,18 +1141,15 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                   },
                 ),
                 ListTile(
-                  leading: const Icon(PhosphorIconsRegular.cake, color: Color(0xFF16A34A)),
-                  title: const Text('Birthday & WhatsApp', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                  subtitle: Text(
-                    [
-                      formatBirthday(cust.birthday) ?? 'No birthday',
-                      cust.whatsappOptIn ? 'WhatsApp OK' : 'No WhatsApp consent',
-                    ].join(' • '),
-                    style: const TextStyle(fontSize: 11),
+                  leading: const Icon(PhosphorIconsRegular.pencilSimple, color: Color(0xFF1E3A5F)),
+                  title: const Text('Edit details', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  subtitle: const Text(
+                    'Name, phone, email, gender, birthday, WhatsApp',
+                    style: TextStyle(fontSize: 11),
                   ),
                   onTap: () {
                     Navigator.pop(ctx);
-                    _editBirthdayAndWhatsApp(context, ref, cust);
+                    _openEditClient(context, ref, cust);
                   },
                 ),
                 const Divider(height: 18, color: Color(0xFFF1F5F9)),
@@ -1190,11 +1195,19 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
     );
   }
 
-  // Clients registered before birthdays existed - or who only share one on
-  // a later visit - get it here. These two fields drive the WhatsApp
-  // messages (functions/index.js), which is why they're the editable ones.
-  void _editBirthdayAndWhatsApp(BuildContext context, WidgetRef ref, Customer cust) =>
-      showClientBirthdayDialog(context, ref, cust);
+  /// Edit client: the Add client form, filled in (AddCustomerPage with
+  /// existing). Name, phone, email, gender, birthday and WhatsApp consent.
+  void _openEditClient(BuildContext context, WidgetRef ref, Customer cust) {
+    openAppSubPage(
+      context,
+      title: 'Edit client',
+      subtitle: cust.name,
+      child: AddCustomerPage(
+        branches: ref.read(appDataProvider).valueOrNull?.branches ?? const [],
+        existing: cust,
+      ),
+    );
+  }
 
   // Firestore blocks real customer deletes (see archiveCustomer) - this hides
   // the client everywhere without touching a single bill.
@@ -1610,7 +1623,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
           // glance whether this client will get them.
           const SizedBox(height: 8),
           InkWell(
-            onTap: () => _editBirthdayAndWhatsApp(context, ref, cust),
+            onTap: () => _openEditClient(context, ref, cust),
             borderRadius: BorderRadius.circular(8),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),

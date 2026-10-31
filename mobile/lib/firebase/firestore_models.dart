@@ -248,6 +248,7 @@ class FSCustomer {
   // decrements it, both inside their transaction.
   final double outstandingBalance;
   final DateTime? lastVisitAt;
+  final DateTime? lastReminderAt;
   final bool archived;
   /// Who added this client, stamped once at create. Denormalizing the name
   /// beside the uid keeps the directory readable after that staff member
@@ -275,6 +276,7 @@ class FSCustomer {
     this.totalSpent = 0,
     this.outstandingBalance = 0,
     this.lastVisitAt,
+    this.lastReminderAt,
     this.archived = false,
     this.createdById,
     this.createdByName,
@@ -298,6 +300,7 @@ class FSCustomer {
       totalSpent: _num(d['totalSpent']),
       outstandingBalance: _num(d['outstandingBalance']),
       lastVisitAt: _ts(d['lastVisitAt']),
+      lastReminderAt: _ts(d['lastReminderAt']),
       archived: d['archived'] ?? false,
       createdById: d['createdById'],
       createdByName: d['createdByName'],
@@ -358,6 +361,10 @@ class FSService {
   /// Taken off the menu. Never deleted - past bills and reports still point
   /// at it - so the app just doesn't load it (firestore_app_data.dart).
   final bool archived;
+  /// This service's own come-back reminder gap in days (7-120), or null for
+  /// the salon's general one. createBill turns the earliest gap on a bill
+  /// into customers/{id}.reminderDueOn, which functions/index.js sends on.
+  final int? reminderDays;
 
   FSService({
     required this.id,
@@ -366,6 +373,7 @@ class FSService {
     required this.categoryId,
     this.categoryName,
     this.archived = false,
+    this.reminderDays,
   });
 
   factory FSService.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -377,6 +385,7 @@ class FSService {
       categoryId: d['categoryId'] ?? '',
       categoryName: d['categoryName'],
       archived: d['archived'] ?? false,
+      reminderDays: d['reminderDays'] == null ? null : _int(d['reminderDays']),
     );
   }
 
@@ -385,6 +394,7 @@ class FSService {
         'price': price,
         'categoryId': categoryId,
         'categoryName': categoryName,
+        if (reminderDays != null) 'reminderDays': reminderDays,
       };
 }
 
@@ -942,6 +952,10 @@ class FSExpense {
       };
 }
 
+/// The come-back reminder's default gap - the 21 days it has always used,
+/// matching WHATSAPP_REMINDER_DAYS in functions/.env.
+const int kDefaultReminderDays = 21;
+
 class FSSettings {
   final String salonName;
   final String? phone;
@@ -955,6 +969,17 @@ class FSSettings {
   /// The owner's on/off switch for automatic WhatsApp messages. Off unless
   /// turned on; the functions in functions/index.js check it before every send.
   final bool whatsappEnabled;
+  /// Each automatic message's own switch and timing, under [whatsappEnabled]
+  /// (the WhatsApp page, owner_whatsapp_page.dart). Absent = the behaviour
+  /// before these existed: all on, birthday on the day, reminder after
+  /// [kDefaultReminderDays]. functions/index.js reads the same fields.
+  final bool whatsappBillOn;
+  final bool whatsappBirthdayOn;
+  /// 0 = on the birthday, 1 = the day before.
+  final int whatsappBirthdayDaysBefore;
+  final bool whatsappReminderOn;
+  /// Days since the last visit before the come-back reminder goes.
+  final int whatsappReminderDays;
   /// Download URLs of the owner's payment QR and Google review QR images,
   /// shown from the Home header. The images live in the shared
   /// salon-saas-87b6a Storage (salonQr/{salonId}/...), uploaded through the
@@ -972,6 +997,11 @@ class FSSettings {
     required this.lateAttendancePenalty,
     this.dailyRevenueTarget = 0,
     this.whatsappEnabled = false,
+    this.whatsappBillOn = true,
+    this.whatsappBirthdayOn = true,
+    this.whatsappBirthdayDaysBefore = 0,
+    this.whatsappReminderOn = true,
+    this.whatsappReminderDays = kDefaultReminderDays,
     this.paymentQrUrl,
     this.reviewQrUrl,
   });
@@ -995,6 +1025,11 @@ class FSSettings {
       lateAttendancePenalty: _num(d['lateAttendancePenalty']),
       dailyRevenueTarget: _num(d['dailyRevenueTarget']),
       whatsappEnabled: d['whatsappEnabled'] ?? false,
+      whatsappBillOn: d['whatsappBillOn'] ?? true,
+      whatsappBirthdayOn: d['whatsappBirthdayOn'] ?? true,
+      whatsappBirthdayDaysBefore: _int(d['whatsappBirthdayDaysBefore']),
+      whatsappReminderOn: d['whatsappReminderOn'] ?? true,
+      whatsappReminderDays: d['whatsappReminderDays'] == null ? kDefaultReminderDays : _int(d['whatsappReminderDays']),
       paymentQrUrl: d['paymentQrUrl'],
       reviewQrUrl: d['reviewQrUrl'],
     );
