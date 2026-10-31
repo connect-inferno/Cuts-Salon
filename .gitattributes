@@ -1,0 +1,4 @@
+# Shell scripts must keep LF line endings, or bash (Git Bash included)
+# chokes on the carriage returns. Windows checkouts convert everything else
+# to CRLF.
+*.sh text eol=lf
