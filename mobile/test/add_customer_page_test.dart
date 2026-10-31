@@ -11,6 +11,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:mobile/data/app_data.dart';
+import 'package:mobile/data/app_data_provider.dart';
 import 'package:mobile/data/models.dart';
 import 'package:mobile/widgets/add_customer_page.dart';
 
@@ -41,7 +43,110 @@ Future<void> _pump(WidgetTester tester, {List<Branch> branches = const []}) asyn
   await tester.pumpAndSettle();
 }
 
+final _priya = Customer(
+  id: 'c1',
+  name: 'Priya Kumari Sharma',
+  phone: '9876543210',
+  email: 'priya@example.com',
+  gender: 'F',
+  isVip: false,
+  branchId: 'b1',
+  visitCount: 7,
+  birthday: '03-14',
+  whatsappOptIn: true,
+);
+
+/// Records what Edit client saves instead of writing to Firestore.
+class _EditStub extends AppDataNotifier {
+  final List<Map<String, Object?>> saved = [];
+
+  @override
+  Future<AppData> build() async => AppData(
+        branches: const [],
+        employees: const [],
+        customers: [_priya],
+        categories: const [],
+        services: const [],
+        inventory: const [],
+        bills: const [],
+        salesTargets: const [],
+        commissions: const [],
+        attendance: const [],
+        dashboard: null,
+        settings: null,
+      );
+
+  @override
+  Future<Customer> updateCustomer(String id,
+      {required String name,
+      required String phone,
+      String? email,
+      String? gender,
+      String? birthday,
+      required bool whatsappOptIn}) async {
+    saved.add({'id': id, 'name': name, 'phone': phone, 'email': email, 'gender': gender, 'birthday': birthday, 'whatsappOptIn': whatsappOptIn});
+    return _priya;
+  }
+}
+
+Future<_EditStub> _pumpEdit(WidgetTester tester, Customer existing) async {
+  final stub = _EditStub();
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [appDataProvider.overrideWith(() => stub)],
+      child: MaterialApp(
+        home: Scaffold(body: AddCustomerPage(branches: const [], existing: existing)),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  return stub;
+}
+
 void main() {
+  group('edit client', () {
+    testWidgets('opens filled in, with the name split into its parts', (tester) async {
+      await _pumpEdit(tester, _priya);
+      expect(find.widgetWithText(TextField, 'Priya'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'Kumari'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'Sharma'), findsOneWidget);
+      expect(find.widgetWithText(TextField, '9876543210'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'priya@example.com'), findsOneWidget);
+      expect(find.text('Save changes'), findsOneWidget);
+      expect(find.textContaining('Past bills keep the name'), findsOneWidget);
+    });
+
+    testWidgets('saves the changed details, keeping gender and birthday', (tester) async {
+      final stub = await _pumpEdit(tester, _priya);
+      await tester.enterText(find.widgetWithText(TextField, 'Sharma'), 'Verma');
+      await tester.enterText(find.widgetWithText(TextField, '9876543210'), '9123456780');
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Save changes'));
+      await tester.pumpAndSettle();
+      expect(stub.saved, [
+        {
+          'id': 'c1',
+          'name': 'Priya Kumari Verma',
+          'phone': '9123456780',
+          'email': 'priya@example.com',
+          'gender': 'FEMALE',
+          'birthday': '03-14',
+          'whatsappOptIn': true,
+        },
+      ]);
+    });
+
+    testWidgets('a client saved with one name can still be saved', (tester) async {
+      final stub = await _pumpEdit(
+        tester,
+        Customer(id: 'c2', name: 'Ravi', phone: '9000000001', isVip: false, branchId: 'b1'),
+      );
+      expect(find.text('Last Name'), findsOneWidget);
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Save changes'));
+      await tester.pumpAndSettle();
+      expect(stub.saved.single['name'], 'Ravi');
+    });
+  });
+
   testWidgets('shows the client fields, with the name in three parts', (tester) async {
     await _pump(tester);
 

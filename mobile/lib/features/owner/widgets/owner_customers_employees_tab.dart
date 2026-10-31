@@ -985,6 +985,14 @@ class _OwnerCustomerDetailPageState extends ConsumerState<OwnerCustomerDetailPag
                       style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Color(0xFF0F172A), letterSpacing: -0.3),
                     ),
                   ),
+                  // Owner only - staff don't edit clients (firestore.rules).
+                  if (ref.watch(authControllerProvider).isOwner)
+                    TextButton.icon(
+                      key: const Key('editClient'),
+                      onPressed: () => _openEditClient(context, ref, cust),
+                      icon: const Icon(PhosphorIconsRegular.pencilSimple, size: 16),
+                      label: const Text('Edit', style: TextStyle(fontWeight: FontWeight.w700)),
+                    ),
                 ] else
                   const Spacer(),
               ],
@@ -1133,18 +1141,15 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
                   },
                 ),
                 ListTile(
-                  leading: const Icon(PhosphorIconsRegular.cake, color: Color(0xFF16A34A)),
-                  title: const Text('Birthday & WhatsApp', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                  subtitle: Text(
-                    [
-                      formatBirthday(cust.birthday) ?? 'No birthday',
-                      cust.whatsappOptIn ? 'WhatsApp OK' : 'No WhatsApp consent',
-                    ].join(' • '),
-                    style: const TextStyle(fontSize: 11),
+                  leading: const Icon(PhosphorIconsRegular.pencilSimple, color: Color(0xFF1E3A5F)),
+                  title: const Text('Edit details', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  subtitle: const Text(
+                    'Name, phone, email, gender, birthday, WhatsApp',
+                    style: TextStyle(fontSize: 11),
                   ),
                   onTap: () {
                     Navigator.pop(ctx);
-                    _editBirthdayAndWhatsApp(context, ref, cust);
+                    _openEditClient(context, ref, cust);
                   },
                 ),
                 const Divider(height: 18, color: Color(0xFFF1F5F9)),
@@ -1190,11 +1195,19 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
     );
   }
 
-  // Clients registered before birthdays existed - or who only share one on
-  // a later visit - get it here. These two fields drive the WhatsApp
-  // messages (functions/index.js), which is why they're the editable ones.
-  void _editBirthdayAndWhatsApp(BuildContext context, WidgetRef ref, Customer cust) =>
-      showClientBirthdayDialog(context, ref, cust);
+  /// Edit client: the Add client form, filled in (AddCustomerPage with
+  /// existing). Name, phone, email, gender, birthday and WhatsApp consent.
+  void _openEditClient(BuildContext context, WidgetRef ref, Customer cust) {
+    openAppSubPage(
+      context,
+      title: 'Edit client',
+      subtitle: cust.name,
+      child: AddCustomerPage(
+        branches: ref.read(appDataProvider).valueOrNull?.branches ?? const [],
+        existing: cust,
+      ),
+    );
+  }
 
   // Firestore blocks real customer deletes (see archiveCustomer) - this hides
   // the client everywhere without touching a single bill.
@@ -1610,7 +1623,7 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
           // glance whether this client will get them.
           const SizedBox(height: 8),
           InkWell(
-            onTap: () => _editBirthdayAndWhatsApp(context, ref, cust),
+            onTap: () => _openEditClient(context, ref, cust),
             borderRadius: BorderRadius.circular(8),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
@@ -1918,7 +1931,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                   // Role and today's state in words - the dot alone didn't
                   // say what grey meant.
                   Text(
-                    '${emp.roleTitle.isEmpty ? 'Staff' : emp.roleTitle} · ${isPresent ? 'In today' : isLate ? 'Late today' : 'Not in yet'}',
+                    '${emp.roleTitle.isEmpty ? 'Staff' : emp.roleTitle} · ${!emp.active ? 'Removed' : isPresent ? 'In today' : isLate ? 'Late today' : 'Not in yet'}',
                     style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -1978,8 +1991,9 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
               loading: () => const AppLoadingView(),
               error: (err, st) => AppErrorView(error: err, onRetry: () => ref.read(appDataProvider.notifier).refresh()),
               data: (state) {
+                final team = state.employees.where((e) => e.active).toList();
                 final present =
-                    state.employees.where((e) => _todayStatus(state, e.id) == 'PRESENT').length;
+                    team.where((e) => _todayStatus(state, e.id) == 'PRESENT').length;
                 return Container(
                   color: AppTheme.bgSurface,
                   child: Column(
@@ -1987,7 +2001,7 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                       AppPageHeader(
                         title: 'Team',
                         subtitle:
-                            '${state.employees.length} staff · $present in today',
+                            '${team.length} staff · $present in today',
                         actions: [
                           // Add, then the bell - Attendance and Payroll were
                           // behind a "Team settings" gear; they're buttons on
@@ -2071,8 +2085,8 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
     final selected = state.branches.where((b) => b.id == _branchFilterId);
     final label = selected.isNotEmpty ? selected.first.name : 'All branches';
     final shown = _branchFilterId == null
-        ? state.employees.length
-        : state.employees.where((e) => e.branchId == _branchFilterId).length;
+        ? state.employees.where((e) => e.active).length
+        : state.employees.where((e) => e.active && e.branchId == _branchFilterId).length;
 
     return InkWell(
       onTap: () => _showBranchPicker(state),
@@ -2171,9 +2185,9 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
                   style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
                 ),
               ),
-              option('All branches', null, state.employees.length),
+              option('All branches', null, state.employees.where((e) => e.active).length),
               for (final b in state.branches)
-                option(b.name, b.id, state.employees.where((e) => e.branchId == b.id).length),
+                option(b.name, b.id, state.employees.where((e) => e.active && e.branchId == b.id).length),
               const SizedBox(height: 8),
             ],
           ),
@@ -2189,21 +2203,36 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
     var presentCount = 0;
     var stylistCount = 0;
     var receptionCount = 0;
+    // Removed staff (active: false - rules don't allow deleting an
+    // employee) only show under the Removed chip, so they can be brought
+    // back; every other count and chip is the current team.
+    final team = <EmployeeProfile>[];
+    final removed = <EmployeeProfile>[];
     for (final e in state.employees) {
+      if (!e.active) {
+        removed.add(e);
+        continue;
+      }
+      team.add(e);
       if (_todayStatus(state, e.id) == 'PRESENT') presentCount++;
       final role = e.roleTitle.toLowerCase();
       if (role.contains('stylist')) stylistCount++;
       if (role.contains('reception')) receptionCount++;
     }
+    // The last removed person was just brought back - don't strand the
+    // list on an empty, chip-less filter.
+    if (_activeFilter == 'Removed' && removed.isEmpty) _activeFilter = 'All';
+    final showingRemoved = _activeFilter == 'Removed';
 
     final q = _searchController.text.toLowerCase().trim();
-    final filteredEmployees = state.employees.where((emp) {
+    final filteredEmployees = (showingRemoved ? removed : team).where((emp) {
       if (_branchFilterId != null && emp.branchId != _branchFilterId) {
         return false;
       }
       if (q.isNotEmpty && !emp.name.toLowerCase().contains(q) && !emp.roleTitle.toLowerCase().contains(q)) {
         return false;
       }
+      if (showingRemoved) return true;
       if (_activeFilter == 'Present') {
         return _todayStatus(state, emp.id) == 'PRESENT';
       }
@@ -2301,13 +2330,17 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _buildFilterChip('All', 'All', count: state.employees.length),
+                _buildFilterChip('All', 'All', count: team.length),
                 const SizedBox(width: 8),
                 _buildFilterChip('Present', 'Present', count: presentCount),
                 const SizedBox(width: 8),
                 _buildFilterChip('Stylists', 'Stylist', count: stylistCount),
                 const SizedBox(width: 8),
                 _buildFilterChip('Reception', 'Reception', count: receptionCount),
+                if (removed.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  _buildFilterChip('Removed', 'Removed', count: removed.length),
+                ],
               ],
             ),
           ),
@@ -2318,9 +2351,9 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'All staff',
-                style: TextStyle(
+              Text(
+                showingRemoved ? 'Removed staff' : 'All staff',
+                style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
                   color: Color(0xFF0F172A),
@@ -2371,7 +2404,11 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
   }
 
   Widget _buildDesktopStaffView(BuildContext context, WidgetRef ref, AppData state) {
-    final presentCount = state.employees.where((e) => _todayStatus(state, e.id) == 'PRESENT').length;
+    final team = state.employees.where((e) => e.active).toList();
+    final presentCount = team.where((e) => _todayStatus(state, e.id) == 'PRESENT').length;
+    // Removed staff go last, marked as such, so they can still be opened
+    // and brought back.
+    final listed = [...team, ...state.employees.where((e) => !e.active)];
 
     final Widget listColumn = Container(
       decoration: BoxDecoration(
@@ -2407,22 +2444,22 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
           ),
           const SizedBox(height: 8),
           Text(
-            'Active on Shift: $presentCount / ${state.employees.length}',
+            'Active on Shift: $presentCount / ${team.length}',
             style: const TextStyle(color: AppTheme.slateLight, fontSize: 12, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 16),
           Expanded(
-            child: state.employees.isEmpty
+            child: listed.isEmpty
                 ? const Center(child: Text('No employees yet.', style: TextStyle(color: AppTheme.slateLight)))
                 : ListView.builder(
-                    itemCount: state.employees.length,
+                    itemCount: listed.length,
                     itemBuilder: (context, idx) {
-                      final emp = state.employees[idx];
+                      final emp = listed[idx];
                       final isSel = _selectedEmployee?.id == emp.id;
-                      final status = _todayStatus(state, emp.id);
+                      final status = emp.active ? _todayStatus(state, emp.id) : 'REMOVED';
                       Color statusColor = AppTheme.accentGreen;
                       if (status == 'LATE') statusColor = AppTheme.accentAmber;
-                      if (status == 'ABSENT') statusColor = AppTheme.slateLight;
+                      if (status == 'ABSENT' || status == 'REMOVED') statusColor = AppTheme.slateLight;
 
                       return Container(
                         margin: const EdgeInsets.only(bottom: 8),
@@ -2541,6 +2578,8 @@ class _OwnerEmployeesTabState extends State<OwnerEmployeesTab> with _EmployeeDet
               ],
             ),
           ),
+          const SizedBox(height: 12),
+          _buildRemoveFromTeamButton(context, ref, emp),
           const SizedBox(height: 16),
           Container(
             decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.borderSubtle)),
@@ -2993,6 +3032,86 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
     );
   }
 
+  /// "Remove from team", or "Bring back" for someone already removed.
+  /// Nothing on the owner's own profile - updateEmployee and the rules both
+  /// refuse deactivating yourself (it would lock the salon out).
+  Widget _buildRemoveFromTeamButton(BuildContext context, WidgetRef ref, EmployeeProfile emp) {
+    if (ref.read(authControllerProvider).userId == emp.id) return const SizedBox.shrink();
+    final removing = emp.active;
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        key: const Key('removeFromTeam'),
+        onPressed: () => _confirmRemoveFromTeam(context, ref, emp),
+        icon: Icon(removing ? PhosphorIconsRegular.userMinus : PhosphorIconsRegular.arrowCounterClockwise, size: 16),
+        label: Text(removing ? 'Remove from team' : 'Bring back to team'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: removing ? AppTheme.accentRed : AppTheme.primaryBlue,
+          side: BorderSide(color: removing ? AppTheme.accentRedBg : AppTheme.borderStrong),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      ),
+    );
+  }
+
+  // Firestore blocks deleting an employee (firestore.rules) - their bills,
+  // commissions, attendance and slips all point at employees/{uid}. Removing
+  // sets active: false instead: they can't sign in (auth_provider.dart) and
+  // drop out of the Team list and billing, and everything they did stays.
+  void _confirmRemoveFromTeam(BuildContext context, WidgetRef ref, EmployeeProfile emp) {
+    final removing = emp.active;
+    bool submitting = false;
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AppDialog(
+          icon: removing ? PhosphorIconsRegular.userMinus : PhosphorIconsRegular.arrowCounterClockwise,
+          iconColor: removing ? AppTheme.accentRed : null,
+          iconBackground: removing ? AppTheme.accentRedBg : null,
+          title: removing ? 'Remove ${emp.name}?' : 'Bring back ${emp.name}?',
+          subtitle: removing
+              ? 'They will no longer be able to sign in, and won\'t appear in the team or billing.'
+              : 'They can sign in again with their old email and password.',
+          child: Text(
+            removing
+                ? 'Their past bills, commissions, attendance and salary slips stay exactly as they are. '
+                    'You can bring them back any time from Team > Removed.'
+                : 'They go back on the team list and can be picked in billing again.',
+            style: const TextStyle(fontSize: 12.5, color: AppTheme.slateMedium, height: 1.4),
+          ),
+          actions: AppDialogActions(
+            submitLabel: removing ? 'Remove' : 'Bring back',
+            submitting: submitting,
+            onCancel: () => Navigator.pop(ctx),
+            onSubmit: () async {
+              setDialogState(() => submitting = true);
+              try {
+                await ref.read(appDataProvider.notifier).updateEmployee(emp.id, {'active': !removing});
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(removing ? '${emp.name} removed from the team.' : '${emp.name} is back on the team.'),
+                      backgroundColor: AppTheme.accentGreen,
+                    ),
+                  );
+                }
+              } catch (e) {
+                setDialogState(() => submitting = false);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed),
+                  );
+                }
+              }
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
   /// A date as a tappable field rather than a button: the label sits above
   /// the value instead of sharing a line with it, so neither is ever the one
   /// that gets truncated on a narrow screen.
@@ -3384,7 +3503,9 @@ mixin _EmployeeDetailSections<T extends StatefulWidget> on State<T> {
           const SizedBox(height: 8),
           _buildStaffInfoRow(PhosphorIconsRegular.envelopeSimple, 'Email', emp.email),
           const SizedBox(height: 8),
-          _buildStaffInfoRow(PhosphorIconsRegular.userCircle, 'Status', emp.active ? 'Active' : 'Deactivated'),
+          _buildStaffInfoRow(PhosphorIconsRegular.userCircle, 'Status', emp.active ? 'Active' : 'Removed'),
+          const SizedBox(height: 14),
+          _buildRemoveFromTeamButton(context, ref, emp),
         ],
       ),
     );
@@ -4705,10 +4826,13 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
   }
 
   Widget _buildContent(BuildContext context, WidgetRef ref, AppData state) {
+    // Removed staff (active: false) are off the roster - see
+    // _confirmRemoveFromTeam.
+    final staff = state.employees.where((e) => e.active).toList();
     final isMobile = MediaQuery.of(context).size.width < 768;
 
     int presentCount = 0;
-    for (final emp in state.employees) {
+    for (final emp in staff) {
       final s = _statusFor(state, emp.id);
       if (s == 'PRESENT' || s == 'LATE') presentCount++;
     }
@@ -4784,7 +4908,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                             // "Today, ..." beside it on a phone.
                             Flexible(
                               child: Text(
-                                '$presentCount of ${state.employees.length} in today',
+                                '$presentCount of ${staff.length} in today',
                                 style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -4798,7 +4922,7 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                     InkWell(
                       onTap: () {
                         setState(() {
-                          for (final emp in state.employees) {
+                          for (final emp in staff) {
                             _pendingRosterEdits[emp.id] = 'PRESENT';
                           }
                         });
@@ -4874,13 +4998,13 @@ class _OwnerAttendanceTabState extends State<OwnerAttendanceTab> {
                       const SizedBox(height: 18),
 
                       // Staff Roster Items
-                      if (state.employees.isEmpty)
+                      if (staff.isEmpty)
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 24.0),
                           child: Center(child: Text('No employees found in system.', style: TextStyle(color: Color(0xFF64748B)))),
                         )
                       else
-                        ...state.employees.asMap().entries.map((entry) {
+                        ...staff.asMap().entries.map((entry) {
                           final idx = entry.key;
                           final emp = entry.value;
                           final status = _statusFor(state, emp.id);

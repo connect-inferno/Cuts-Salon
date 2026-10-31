@@ -43,7 +43,9 @@ const TEMPLATE_BILL = defineString('WHATSAPP_TEMPLATE_BILL', { default: 'bill_re
 const TEMPLATE_BIRTHDAY = defineString('WHATSAPP_TEMPLATE_BIRTHDAY', { default: 'birthday_wish' });
 const TEMPLATE_REMINDER = defineString('WHATSAPP_TEMPLATE_REMINDER', { default: 'visit_reminder' });
 const TEMPLATE_LANGUAGE = defineString('WHATSAPP_TEMPLATE_LANGUAGE', { default: 'en' });
-// Same 21 days as kFollowUpDays in the app's client list.
+// Same 21 days as kFollowUpDays in the app's client list. Only the default:
+// the owner picks the real gap on the app's WhatsApp page
+// (settings/main.whatsappReminderDays).
 const REMINDER_DAYS = defineInt('WHATSAPP_REMINDER_DAYS', { default: 21 });
 
 const GRAPH_API = 'https://graph.facebook.com/v25.0';
@@ -113,11 +115,44 @@ async function sendOnce(logKey, { kind, customerId, customerName, to, template, 
       params,
     }));
     await logRef.update({ status: 'sent', messageId, sentAt: FieldValue.serverTimestamp() });
+    await recordSent(kind, customerId);
     return 'sent';
   } catch (err) {
     logger.warn(`WhatsApp ${kind} to ${to} failed`, { logKey, error: err.message });
     await logRef.update({ status: 'failed', error: err.message.slice(0, 500) });
     return 'failed';
+  }
+}
+
+/**
+ * Counts a delivered send in this month's Reports totals, and for a
+ * come-back reminder stamps the client so their next bill (within 30 days)
+ * is credited to it - see createBill in the app. Best effort: the message
+ * has already gone, so a failure here is logged, not retried.
+ */
+async function recordSent(kind, customerId) {
+  const counter = core.sendCounterFor(kind);
+  if (!counter) return;
+  try {
+    const month = core.istMonthKey();
+    const [y, m] = month.split('-').map(Number);
+    const writes = [
+      db.collection('monthlyStats').doc(month).set({
+        // Same first-of-month as the app writes (IST midnight).
+        month: core.istMidnight({ y, m, d: 1 }),
+        wa: { [counter]: FieldValue.increment(1) },
+      }, { merge: true }),
+    ];
+    if (kind === 'reminder' && customerId) {
+      writes.push(db.collection('customers').doc(customerId).update({
+        lastReminderAt: FieldValue.serverTimestamp(),
+        // The app's client list only re-reads clients whose updatedAt moved.
+        updatedAt: FieldValue.serverTimestamp(),
+      }));
+    }
+    await Promise.all(writes);
+  } catch (err) {
+    logger.warn(`Could not record WhatsApp ${kind} in Reports`, { error: err.message });
   }
 }
 
@@ -144,6 +179,7 @@ exports.whatsappBillReceipt = onDocumentCreated(
     if (!bill || !bill.customerId) return;
     const settings = await getSettings();
     if (settings.whatsappEnabled !== true) return;
+    if (!core.taskSettings(settings).bill) return;
 
     const customer = messageableCustomer(await db.collection('customers').doc(bill.customerId).get());
     if (!customer) return;
@@ -180,6 +216,8 @@ async function runDailyMessages(now = new Date()) {
   if (settings.whatsappEnabled !== true) return { disabled: true };
   const salonName = settings.salonName || 'our salon';
   const today = core.istDate(now);
+  // The owner's per-message switches and timing (the app's WhatsApp page).
+  const tasks = core.taskSettings(settings, REMINDER_DAYS.value());
   const counts = { birthdays: 0, reminders: 0, failed: 0, skipped: 0, alreadySent: 0 };
 
   const tally = (result, key) => {
@@ -188,14 +226,20 @@ async function runDailyMessages(now = new Date()) {
     else if (result === 'duplicate') counts.alreadySent += 1;
   };
 
-  // Birthdays: an equality match on the "MM-DD" the app stores, so no index needed.
-  const birthdaySnap = await db.collection('customers')
-    .where('birthday', 'in', core.birthdayKeysFor(today))
-    .get();
+  // Birthdays: an equality match on the "MM-DD" the app stores, so no index
+  // needed. With "the day before" chosen, today greets tomorrow's birthdays.
+  const birthdayDay = core.birthdayDayFor(today, tasks.birthdayDaysBefore);
+  const birthdaySnap = tasks.birthday
+    ? await db.collection('customers')
+      .where('birthday', 'in', core.birthdayKeysFor(birthdayDay))
+      .get()
+    : { docs: [] };
   for (const doc of birthdaySnap.docs) {
     const customer = messageableCustomer(doc);
     if (!customer) { counts.skipped += 1; continue; }
-    tally(await sendOnce(`birthday_${customer.id}_${today.y}`, {
+    // Keyed on the birthday's year, so switching between "on the day" and
+    // "the day before" can't wish anyone twice.
+    tally(await sendOnce(`birthday_${customer.id}_${birthdayDay.y}`, {
       kind: 'birthday',
       customerId: customer.id,
       customerName: customer.name,
@@ -205,20 +249,35 @@ async function runDailyMessages(now = new Date()) {
     }), 'birthdays');
   }
 
-  // Reminders: clients whose last visit was exactly N days ago today. One
-  // range filter on one field, which Firestore indexes automatically.
-  const days = REMINDER_DAYS.value();
-  const { start, end } = core.reminderWindow(today, days);
-  const reminderSnap = await db.collection('customers')
-    .where('lastVisitAt', '>=', start)
-    .where('lastVisitAt', '<', end)
-    .get();
-  for (const doc of reminderSnap.docs) {
+  // Reminders, two ways:
+  //  - a client whose last bill had a service with its own gap carries the
+  //    date it's due (reminderDueOn, set by the app's createBill; the
+  //    earliest gap on the bill wins) - an equality match, no index needed;
+  //  - everyone else: last visit exactly the salon's general N days ago, one
+  //    range filter on one field, which Firestore indexes automatically.
+  //    Clients with their own date are left out of this one.
+  const { start, end } = core.reminderWindow(today, tasks.reminderDays);
+  const [dueSnap, generalSnap] = tasks.reminder
+    ? await Promise.all([
+      db.collection('customers').where('reminderDueOn', '==', core.dayKey(today)).get(),
+      db.collection('customers')
+        .where('lastVisitAt', '>=', start)
+        .where('lastVisitAt', '<', end)
+        .get(),
+    ])
+    : [{ docs: [] }, { docs: [] }];
+  const reminderDocs = [
+    ...dueSnap.docs,
+    ...generalSnap.docs.filter((d) => !d.data().reminderDueOn),
+  ];
+  for (const doc of reminderDocs) {
     const customer = messageableCustomer(doc);
     if (!customer) { counts.skipped += 1; continue; }
+    const lastVisit = doc.data().lastVisitAt?.toDate?.();
+    if (!lastVisit) { counts.skipped += 1; continue; }
     // Keyed on the visit being followed up, so a client is reminded once
-    // per lapse however many times this runs.
-    const visitDay = start.toISOString().slice(0, 10);
+    // per lapse however many times this runs, and by whichever path.
+    const visitDay = core.visitKey(lastVisit);
     tally(await sendOnce(`reminder_${customer.id}_${visitDay}`, {
       kind: 'reminder',
       customerId: customer.id,

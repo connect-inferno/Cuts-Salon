@@ -88,6 +88,7 @@ Customer customerFromFS(FSCustomer c) => Customer(
       totalSpent: c.totalSpent,
       outstandingBalance: c.outstandingBalance,
       lastVisitAt: c.lastVisitAt,
+      lastReminderAt: c.lastReminderAt,
       archived: c.archived,
       createdById: c.createdById,
       createdByName: c.createdByName,
@@ -103,6 +104,7 @@ SalonService serviceFromFS(FSService s) => SalonService(
       price: s.price,
       categoryId: s.categoryId,
       categoryName: s.categoryName,
+      reminderDays: s.reminderDays,
     );
 
 InventoryItem inventoryFromFS(FSInventoryItem i) => InventoryItem(
@@ -220,6 +222,11 @@ SalonSettings settingsFromFS(FSSettings s, {bool whatsappReady = false}) => Salo
       dailyRevenueTarget: s.dailyRevenueTarget,
       whatsappEnabled: s.whatsappEnabled,
       whatsappReady: whatsappReady,
+      whatsappBillOn: s.whatsappBillOn,
+      whatsappBirthdayOn: s.whatsappBirthdayOn,
+      whatsappBirthdayDaysBefore: s.whatsappBirthdayDaysBefore,
+      whatsappReminderOn: s.whatsappReminderOn,
+      whatsappReminderDays: s.whatsappReminderDays,
       paymentQrUrl: s.paymentQrUrl,
       reviewQrUrl: s.reviewQrUrl,
     );

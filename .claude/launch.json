@@ -15,6 +15,23 @@
       "port": 5173
     },
     {
+      "name": "flutter-web-lan",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": [
+        "run",
+        "-d",
+        "web-server",
+        "--release",
+        "--web-port=5175",
+        "--web-hostname=0.0.0.0",
+        "--web-tls-cert-path=.dev-tls/cert.pem",
+        "--web-tls-cert-key-path=.dev-tls/key.pem"
+      ],
+      "url": "https://localhost:5175",
+      "cwd": "mobile",
+      "port": 5175
+    },
+    {
       "name": "flutter-web-verify",
       "runtimeExecutable": "flutter",
       "runtimeArgs": [
@@ -37,6 +54,20 @@
       ],
       "cwd": "operator-dashboard",
       "port": 5180
+    },
+    {
+      "name": "website",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5190",
+        "--strictPort"
+      ],
+      "cwd": "website",
+      "port": 5190
     }
   ]
 }

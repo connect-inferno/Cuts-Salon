@@ -16,6 +16,7 @@ import 'attendance_qr.dart';
 import 'birthday.dart';
 import 'salary_provider.dart';
 import 'models.dart';
+import 'whatsapp_tasks.dart';
 
 export 'app_data.dart';
 
@@ -472,9 +473,73 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     return created;
   }
 
-  /// Birthday and WhatsApp consent are the only customer fields editable
-  /// after creation - they're what the WhatsApp messages run on, and both
-  /// are often only learnt on a later visit.
+  /// Edit client: their details, not their history. Visits, spend, dues and
+  /// who added them stay as they are; past bills keep the name they were
+  /// billed under (each bill has its own copy). Owner only, like adding.
+  Future<Customer> updateCustomer(
+    String id, {
+    required String name,
+    required String phone,
+    String? email,
+    String? gender,
+    String? birthday,
+    required bool whatsappOptIn,
+  }) async {
+    _requireOwner();
+    final current = state.value;
+    final match = current?.customers.where((c) => c.id == id) ?? const Iterable<Customer>.empty();
+    if (match.isEmpty) throw Exception('Client not found');
+    final existing = match.first;
+    final trimmedName = name.trim();
+    final trimmedPhone = phone.trim();
+    if (trimmedName.isEmpty) throw Exception('Name is required');
+    if (trimmedPhone.isEmpty) throw Exception('Phone number is required');
+    _checkBirthday(birthday);
+    if (trimmedPhone != existing.phone && await _fs.isCustomerPhoneTaken(trimmedPhone)) {
+      throw Exception('Another client already has this phone number');
+    }
+    final cleanEmail = (email ?? '').trim().isEmpty ? null : email!.trim();
+    await _fs.updateCustomer(id, {
+      'name': trimmedName,
+      'phone': trimmedPhone,
+      'email': cleanEmail,
+      'gender': gender,
+      'birthday': birthday,
+      'whatsappOptIn': whatsappOptIn,
+    });
+    final updated = Customer(
+      id: existing.id,
+      name: trimmedName,
+      phone: trimmedPhone,
+      email: cleanEmail,
+      gender: gender,
+      notes: existing.notes,
+      isVip: existing.isVip,
+      branchId: existing.branchId,
+      createdAt: existing.createdAt,
+      visitCount: existing.visitCount,
+      totalSpent: existing.totalSpent,
+      outstandingBalance: existing.outstandingBalance,
+      lastVisitAt: existing.lastVisitAt,
+      lastReminderAt: existing.lastReminderAt,
+      archived: existing.archived,
+      createdById: existing.createdById,
+      createdByName: existing.createdByName,
+      birthday: birthday,
+      whatsappOptIn: whatsappOptIn,
+    );
+    // Re-read after the await - see the note in archiveCustomer.
+    final latest = state.value;
+    if (latest != null) {
+      state = AsyncData(latest.copyWith(customers: [
+        for (final c in latest.customers) c.id == id ? updated : c,
+      ]));
+    }
+    return updated;
+  }
+
+  /// Birthday and WhatsApp consent on their own - the quick dialog on the
+  /// Birthdays page. Edit client (updateCustomer) covers everything else.
   Future<void> updateCustomerWhatsApp(
     String id, {
     required String? birthday,
@@ -615,8 +680,9 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
 
   /// Renames or reprices a service. Only future bills see the change: every
   /// bill line keeps its own copy of the name and price it was rung at.
-  Future<void> updateService(String id, {required String name, required double price}) async {
+  Future<void> updateService(String id, {required String name, required double price, int? reminderDays}) async {
     _requireOwner();
+    _checkReminderDays(reminderDays);
     final current = state.value;
     final match = current?.services.where((s) => s.id == id) ?? const Iterable<SalonService>.empty();
     if (match.isEmpty) throw Exception('Service not found');
@@ -627,20 +693,28 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     if (trimmed != existing.name && await _fs.isServiceNameTaken(trimmed)) {
       throw Exception('A service with this name already exists');
     }
-    await _fs.updateService(id, {'name': trimmed, 'price': price});
+    await _fs.updateService(id, {'name': trimmed, 'price': price, 'reminderDays': reminderDays});
     // Re-read after the await - see addService.
     final latest = state.value;
     if (latest == null) return;
     state = AsyncData(latest.copyWith(services: [
       for (final s in latest.services)
         s.id == id
-            ? SalonService(id: s.id, name: trimmed, price: price, categoryId: s.categoryId, categoryName: s.categoryName)
+            ? SalonService(
+                id: s.id,
+                name: trimmed,
+                price: price,
+                categoryId: s.categoryId,
+                categoryName: s.categoryName,
+                reminderDays: reminderDays,
+              )
             : s,
     ]));
   }
 
-  Future<void> addService({required String name, required double price, required String categoryId}) async {
+  Future<void> addService({required String name, required double price, required String categoryId, int? reminderDays}) async {
     _requireOwner();
+    _checkReminderDays(reminderDays);
     final current = state.value;
     final categoryMatch = current?.categories.where((c) => c.id == categoryId) ?? const Iterable.empty();
     if (categoryMatch.isEmpty) throw Exception('Service category not found');
@@ -648,7 +722,14 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       throw Exception('A service with this name already exists');
     }
     final categoryName = categoryMatch.first.name;
-    final createdFS = await _fs.createService(FSService(id: '', name: name, price: price, categoryId: categoryId, categoryName: categoryName));
+    final createdFS = await _fs.createService(FSService(
+      id: '',
+      name: name,
+      price: price,
+      categoryId: categoryId,
+      categoryName: categoryName,
+      reminderDays: reminderDays,
+    ));
     final created = serviceFromFS(createdFS);
     // Re-read rather than patching the pre-await `current`: anything that
     // landed while the write was in flight (a bill, a clock-in, a refresh)
@@ -656,6 +737,14 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     // with the stale one plus this service. Same reason as recordPayment.
     final latest = state.value;
     if (latest != null) state = AsyncData(latest.copyWith(services: [...latest.services, created]));
+  }
+
+  /// A service's own come-back gap: blank, or the 7-120 days the WhatsApp
+  /// functions accept (whatsapp_core.MIN/MAX_REMINDER_DAYS).
+  void _checkReminderDays(int? days) {
+    if (days != null && (days < 7 || days > 120)) {
+      throw Exception('Reminder days must be between 7 and 120, or left blank');
+    }
   }
 
   Future<void> addInventoryItem({
@@ -816,6 +905,8 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       double catalogPrice;
       String? serviceName;
       String? productName;
+      double unitCost = 0;
+      String? categoryId;
       final quantity = item.quantity ?? 1;
 
       if (item.type == 'SERVICE') {
@@ -823,6 +914,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
         if (match.isEmpty) throw Exception('Service not found');
         catalogPrice = match.first.price;
         serviceName = match.first.name;
+        categoryId = match.first.categoryId.isEmpty ? null : match.first.categoryId;
       } else {
         final match = current.inventory.where((i) => i.id == item.inventoryItemId);
         if (match.isEmpty) throw Exception('Inventory item not found');
@@ -831,6 +923,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
         }
         catalogPrice = match.first.price;
         productName = match.first.name;
+        unitCost = match.first.costPrice;
       }
 
       final unitPrice = item.unitPrice ?? catalogPrice;
@@ -850,8 +943,24 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
         unitPrice: unitPrice,
         discountAmount: item.discountAmount ?? 0,
         commissionPct: item.type == 'SERVICE' ? employee.serviceCommissionPct : employee.productCommissionPct,
+        unitCost: unitCost,
+        categoryId: categoryId,
       ));
     }
+
+    // For Reports: a first ever visit, and a visit within 30 days of the
+    // WhatsApp come-back reminder (the reminder gets the credit).
+    final customer = customerMatch.first;
+    final reminderAt = customer.lastReminderAt;
+    final reminderReturn = reminderAt != null && DateTime.now().difference(reminderAt).inDays <= 30;
+    // The come-back reminder's date when a service on this bill has its own
+    // gap (the earliest wins); null leaves the client on the salon's general
+    // gap. See functions/index.js runDailyMessages.
+    final ownGap = earliestServiceReminderDays([
+      for (final d in drafts)
+        if (d.type == 'SERVICE') ...current.services.where((s) => s.id == d.serviceId),
+    ]);
+    final reminderDueOn = ownGap == null ? null : reminderDueDate(DateTime.now(), ownGap);
 
     final createdFS = await _fs.createBill(
       customerId: customerId,
@@ -866,6 +975,9 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       billDiscountAmount: discountAmount ?? 0,
       items: drafts,
       amountPaidNow: amountPaidNow,
+      firstVisit: customer.visitCount == 0,
+      reminderReturn: reminderReturn,
+      reminderDueOn: reminderDueOn,
     );
     // A bill touches customer stats, stock, commissions and sales targets
     // (see createBill's transaction in salon_firestore.dart) - but the
@@ -984,6 +1096,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
               totalSpent: _round2(c.totalSpent + created.finalAmount),
               outstandingBalance: _round2(c.outstandingBalance + created.amountDue),
               lastVisitAt: created.createdAt ?? DateTime.now(),
+              lastReminderAt: reminderReturn ? null : c.lastReminderAt,
               birthday: c.birthday,
               whatsappOptIn: c.whatsappOptIn,
             ),
@@ -1340,6 +1453,23 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     final uid = ref.read(authControllerProvider).userId;
     if (uid == null) throw Exception('Not signed in');
     return _fs.runWhatsAppRequest(type: type, requestedBy: uid, phone: phone);
+  }
+
+  /// The WhatsApp page's per-message switches and timing. Only these keys,
+  /// and only values the functions accept (whatsapp_core.taskSettings), so
+  /// the page can't save something that silently behaves differently.
+  Future<void> updateWhatsAppTasks(Map<String, dynamic> changes) async {
+    const switches = {'whatsappBillOn', 'whatsappBirthdayOn', 'whatsappReminderOn'};
+    for (final e in changes.entries) {
+      final ok = switch (e.key) {
+        final k when switches.contains(k) => e.value is bool,
+        'whatsappBirthdayDaysBefore' => e.value == 0 || e.value == 1,
+        'whatsappReminderDays' => e.value is int && (e.value as int) >= 7 && (e.value as int) <= 120,
+        _ => false,
+      };
+      if (!ok) throw Exception('Not a valid WhatsApp setting: ${e.key} = ${e.value}');
+    }
+    await updateSettings(changes);
   }
 
   // --- Settings ---

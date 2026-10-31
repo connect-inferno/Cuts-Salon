@@ -88,3 +88,55 @@ test('the daily result says what happened, including what was skipped', () => {
   assert.match(all, /Skipped 2 - not ticked/);
   assert.match(all, /Failed: 1/);
 });
+
+test('istMonthKey uses the IST calendar month', () => {
+  // 31 Oct 2026 20:00 UTC is already 1 Nov in India.
+  assert.equal(core.istMonthKey(new Date(Date.UTC(2026, 9, 31, 20, 0))), '2026-11');
+  assert.equal(core.istMonthKey(new Date(Date.UTC(2026, 9, 31, 10, 0))), '2026-10');
+});
+
+test('sendCounterFor counts real sends only', () => {
+  assert.equal(core.sendCounterFor('bill'), 'receipts');
+  assert.equal(core.sendCounterFor('birthday'), 'birthdays');
+  assert.equal(core.sendCounterFor('reminder'), 'reminders');
+  assert.equal(core.sendCounterFor('test'), null);
+});
+
+test('taskSettings keeps the old behaviour when nothing is set', () => {
+  assert.deepEqual(core.taskSettings({}, 21), {
+    bill: true, birthday: true, birthdayDaysBefore: 0, reminder: true, reminderDays: 21,
+  });
+});
+
+test('taskSettings reads the owner switches and clamps the reminder gap', () => {
+  const s = core.taskSettings({
+    whatsappBillOn: false,
+    whatsappBirthdayOn: true,
+    whatsappBirthdayDaysBefore: 1,
+    whatsappReminderOn: false,
+    whatsappReminderDays: 30,
+  });
+  assert.equal(s.bill, false);
+  assert.equal(s.birthdayDaysBefore, 1);
+  assert.equal(s.reminder, false);
+  assert.equal(s.reminderDays, 30);
+  assert.equal(core.taskSettings({ whatsappReminderDays: 0 }).reminderDays, 7);
+  assert.equal(core.taskSettings({ whatsappReminderDays: 9999 }).reminderDays, 120);
+  assert.equal(core.taskSettings({ whatsappReminderDays: 'x' }, 21).reminderDays, 21);
+  assert.equal(core.taskSettings({ whatsappBirthdayDaysBefore: 5 }).birthdayDaysBefore, 0);
+});
+
+test('birthdayDayFor is today, or tomorrow across a month or year end', () => {
+  assert.deepEqual(core.birthdayDayFor({ y: 2026, m: 10, d: 14 }, 0), { y: 2026, m: 10, d: 14 });
+  assert.deepEqual(core.birthdayDayFor({ y: 2026, m: 10, d: 31 }, 1), { y: 2026, m: 11, d: 1 });
+  assert.deepEqual(core.birthdayDayFor({ y: 2026, m: 12, d: 31 }, 1), { y: 2027, m: 1, d: 1 });
+});
+
+test('dayKey and visitKey name days the same way on both reminder paths', () => {
+  assert.equal(core.dayKey({ y: 2026, m: 3, d: 7 }), '2026-03-07');
+  // A visit at 23:00 IST on 10 Oct (17:30 UTC) belongs to 10 Oct ...
+  const visit = new Date('2026-10-10T17:30:00Z');
+  // ... and gets the same key the general path builds from its window.
+  const { start } = core.reminderWindow({ y: 2026, m: 10, d: 31 }, 21);
+  assert.equal(core.visitKey(visit), start.toISOString().slice(0, 10));
+});

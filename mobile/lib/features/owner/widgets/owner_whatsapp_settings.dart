@@ -5,26 +5,71 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../../../data/app_data_provider.dart';
 import '../../../data/support_contact.dart';
 import '../../../theme.dart';
+import '../../../widgets/app_sub_page.dart';
+import '../../../widgets/ds.dart';
 import '../../../widgets/open_link.dart';
+import 'owner_whatsapp_page.dart';
 
-/// Settings > WhatsApp: the owner's on/off switch for automatic messages,
-/// plus two buttons for checking the setup works.
-///
-/// The messages themselves are sent by the Cloud Functions in
-/// functions/index.js from the salon's own WhatsApp Business number; this
-/// card only flips settings/main.whatsappEnabled and files requests for
-/// those functions. A salon whose functions were never deployed can still
-/// flip the switch - nothing is sent, and the test button says why.
-class OwnerWhatsAppCard extends ConsumerStatefulWidget {
+/// Settings > Business: a short pointer to Menu > WhatsApp, where the
+/// owner runs the automatic messages (owner_whatsapp_page.dart). Until
+/// WhatsApp is set up for the salon it's the "contact us" card instead.
+class OwnerWhatsAppCard extends ConsumerWidget {
   const OwnerWhatsAppCard({super.key});
 
   @override
-  ConsumerState<OwnerWhatsAppCard> createState() => _OwnerWhatsAppCardState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(appDataProvider).valueOrNull?.settings;
+    if (settings?.whatsappReady != true) return const WhatsAppNotSetUpCard();
+    final on = settings?.whatsappEnabled ?? false;
+    return DsCard(
+      onTap: () => openAppSubPage(
+        context,
+        title: 'WhatsApp',
+        subtitle: 'Automatic messages to clients',
+        child: const OwnerWhatsAppPage(),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(color: AppTheme.accentGreenBg, borderRadius: BorderRadius.circular(10)),
+            child: const Icon(PhosphorIconsFill.whatsappLogo, size: 19, color: Color(0xFF16A34A)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('WhatsApp messages',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.slateDark)),
+                const SizedBox(height: 2),
+                Text(
+                  on ? 'On. Bill receipts, birthday wishes and reminders - set them up here.' : 'Off. Open to switch on and choose what gets sent.',
+                  style: const TextStyle(fontSize: 12, color: AppTheme.slateLight),
+                ),
+              ],
+            ),
+          ),
+          const Icon(PhosphorIconsRegular.caretRight, size: 15, color: AppTheme.textMuted),
+        ],
+      ),
+    );
+  }
 }
 
-class _OwnerWhatsAppCardState extends ConsumerState<OwnerWhatsAppCard> {
+/// The two setup checks: a test message to the owner's own number, and
+/// running today's birthday and reminder messages now. Both are requests
+/// the Cloud Function answers (see SalonFirestore.runWhatsAppRequest).
+class WhatsAppSetupChecks extends ConsumerStatefulWidget {
+  const WhatsAppSetupChecks({super.key});
+
+  @override
+  ConsumerState<WhatsAppSetupChecks> createState() => _WhatsAppSetupChecksState();
+}
+
+class _WhatsAppSetupChecksState extends ConsumerState<WhatsAppSetupChecks> {
   final _testPhoneController = TextEditingController();
-  bool _savingSwitch = false;
   // Which request is in flight ('test' / 'daily'), so only that button spins.
   String? _running;
   String? _lastResult;
@@ -34,20 +79,6 @@ class _OwnerWhatsAppCardState extends ConsumerState<OwnerWhatsAppCard> {
   void dispose() {
     _testPhoneController.dispose();
     super.dispose();
-  }
-
-  // Saved straight away rather than with the business form above it: it's
-  // a single switch with its own effect, and bundling it into that form's
-  // Save would let an unrelated edit turn messaging on or off.
-  Future<void> _toggle(bool on) async {
-    setState(() => _savingSwitch = true);
-    try {
-      await ref.read(appDataProvider.notifier).updateSettings({'whatsappEnabled': on});
-    } catch (e) {
-      _snack(e.toString(), failed: true);
-    } finally {
-      if (mounted) setState(() => _savingSwitch = false);
-    }
   }
 
   Future<void> _run(String type) async {
@@ -92,87 +123,15 @@ class _OwnerWhatsAppCardState extends ConsumerState<OwnerWhatsAppCard> {
 
   @override
   Widget build(BuildContext context) {
-    final settings = ref.watch(appDataProvider).valueOrNull?.settings;
-    // Not set up for this salon yet: offer to set it up instead of a switch
-    // that would do nothing (see SalonFirestore.isWhatsAppReady).
-    if (settings?.whatsappReady != true) return const _WhatsAppNotSetUpCard();
-    final enabled = settings?.whatsappEnabled ?? false;
-
-    return Container(
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFF1F5F9), width: 1.2),
-        boxShadow: AppTheme.cardShadow,
-      ),
+    return DsCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFDCFCE7),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(PhosphorIconsFill.whatsappLogo, size: 16, color: Color(0xFF16A34A)),
-              ),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'WhatsApp Messages',
-                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF0F172A)),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Sent automatically from your salon\'s WhatsApp Business number, only to clients marked "OK to send WhatsApp messages".',
-                      style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: SwitchListTile(
-              key: const Key('whatsappEnabledSwitch'),
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              value: enabled,
-              onChanged: _savingSwitch ? null : _toggle,
-              title: const Text(
-                'Send automatic WhatsApp messages',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
-              ),
-              subtitle: Text(
-                enabled ? 'On - messages go out as described below.' : 'Off - no WhatsApp messages are sent.',
-                style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
-              ),
-            ),
+          const Text(
+            "Send a test to your own number, or send today's birthday and reminder messages without waiting for 10:00 AM.",
+            style: TextStyle(fontSize: 12.5, height: 1.45, color: AppTheme.slateMedium),
           ),
           const SizedBox(height: 12),
-          _bullet(PhosphorIconsRegular.receipt, 'The bill, right after it is created'),
-          _bullet(PhosphorIconsRegular.cake, 'Birthday wishes, at 10:00 AM on the day'),
-          _bullet(PhosphorIconsRegular.clockCounterClockwise, 'A "come back" reminder 21 days after the last visit'),
-          const Divider(height: 28, color: Color(0xFFF1F5F9)),
-          const Text(
-            'CHECK THE SETUP',
-            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.6, color: Color(0xFF64748B)),
-          ),
-          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
@@ -238,17 +197,6 @@ class _OwnerWhatsAppCardState extends ConsumerState<OwnerWhatsAppCard> {
     );
   }
 
-  Widget _bullet(IconData icon, String text) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 3),
-        child: Row(
-          children: [
-            Icon(icon, size: 15, color: const Color(0xFF64748B)),
-            const SizedBox(width: 8),
-            Expanded(child: Text(text, style: const TextStyle(fontSize: 12, color: Color(0xFF334155)))),
-          ],
-        ),
-      );
-
   Widget _actionButton({required String type, required String label, required IconData icon}) {
     final busy = _running == type;
     return OutlinedButton.icon(
@@ -272,8 +220,8 @@ class _OwnerWhatsAppCardState extends ConsumerState<OwnerWhatsAppCard> {
 
 /// Shown in place of the WhatsApp switch until this salon's WhatsApp has
 /// been set up by the Stylux team: what it does, and how to ask for it.
-class _WhatsAppNotSetUpCard extends StatelessWidget {
-  const _WhatsAppNotSetUpCard();
+class WhatsAppNotSetUpCard extends StatelessWidget {
+  const WhatsAppNotSetUpCard({super.key});
 
   void _open(BuildContext context, String url) {
     if (!openLink(url)) {

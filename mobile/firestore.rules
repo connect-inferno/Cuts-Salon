@@ -213,6 +213,17 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Per-month totals for Reports (data/insights.dart): the same kind of
+    // derived figure as dailyStats, added to by createBill's transaction,
+    // plus a one-time `pre` backfill and the `_meta` doc saying it ran.
+    // Owner-only like dailyStats - it carries per-staff takings. The
+    // WhatsApp functions add their send counts with the Admin SDK, which
+    // these rules don't apply to.
+    match /monthlyStats/{month} {
+      allow read, create, update: if isOwner();
+      allow delete: if false;
+    }
+
     // Collection-group read for the same bill items. A collectionGroup()
     // query is evaluated against this wildcard path, NOT the nested
     // bills/{billId}/items rule above, so without this the batched fetch in

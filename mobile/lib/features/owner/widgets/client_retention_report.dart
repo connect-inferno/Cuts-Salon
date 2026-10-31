@@ -198,12 +198,17 @@ class ClientRetentionReport extends StatefulWidget {
   /// Opens a client's page when their row is tapped.
   final void Function(Customer)? onOpenClient;
 
+  /// Just the three follow-up groups and their list - Reports' Clients
+  /// section shows its own summary above it.
+  final bool compact;
+
   const ClientRetentionReport({
     super.key,
     required this.customers,
     required this.now,
     this.salonName,
     this.onOpenClient,
+    this.compact = false,
   });
 
   @override
@@ -228,8 +233,10 @@ class _ClientRetentionReportState extends State<ClientRetentionReport> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _overviewCard(s),
-        const SizedBox(height: 14),
+        if (!widget.compact) ...[
+          _overviewCard(s),
+          const SizedBox(height: 14),
+        ],
         Row(
           children: [
             for (final b in followUpBands) ...[
@@ -240,10 +247,12 @@ class _ClientRetentionReportState extends State<ClientRetentionReport> {
         ),
         const SizedBox(height: 14),
         _followUpList(selected),
-        const SizedBox(height: 14),
-        _repeatRateCard(s),
-        const SizedBox(height: 14),
-        _ladderCard(s),
+        if (!widget.compact) ...[
+          const SizedBox(height: 14),
+          _repeatRateCard(s),
+          const SizedBox(height: 14),
+          _ladderCard(s),
+        ],
       ],
     );
   }

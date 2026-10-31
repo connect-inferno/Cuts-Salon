@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import '../data/attendance_shift.dart';
 import '../data/bill_math.dart';
+import '../data/insights.dart' show RollupLine, billRollupFields, nestRollupFields, monthKey;
 import 'firestore_models.dart';
 
 double _round2(num n) => (n * 100).round() / 100;
@@ -421,6 +422,15 @@ class SalonFirestore {
     return answer['result'] as String? ?? 'Done';
   }
 
+  /// The newest whatsappLog entries (owner-only), optionally one kind's -
+  /// that query needs the (kind, createdAt) index in firestore.indexes.json.
+  Future<List<(String, Map<String, dynamic>)>> listWhatsAppLog({String? kind, int limit = 30}) async {
+    Query<Map<String, dynamic>> q = db.collection('whatsappLog');
+    if (kind != null) q = q.where('kind', isEqualTo: kind);
+    final snap = await q.orderBy('createdAt', descending: true).limit(limit).get();
+    return [for (final d in snap.docs) (d.id, d.data())];
+  }
+
   // Mirrors customer.service.ts's per-salon phone-uniqueness check.
   Future<bool> isCustomerPhoneTaken(String phone) async {
     final snap = await db.collection('customers').where('phone', isEqualTo: phone).limit(1).get();
@@ -526,6 +536,16 @@ class SalonFirestore {
     /// paying entirely later. Clamped to the computed total below, since the
     /// caller can't know finalAmount until the tax maths runs in here.
     double? amountPaidNow,
+    /// The client's first ever bill - counted as a new client in the rollups.
+    bool firstVisit = false,
+    /// The WhatsApp come-back reminder brought them in (see
+    /// Customer.lastReminderAt). Counted, and the stamp cleared, so the next
+    /// visit isn't credited to the same reminder.
+    bool reminderReturn = false,
+    /// "YYYY-MM-DD" the come-back reminder is due, from this bill's
+    /// services' own gaps; null = the salon's general gap (and clears any
+    /// date an earlier bill left).
+    String? reminderDueOn,
   }) async {
     if (items.isEmpty) throw Exception('A bill must have at least one item');
     final billRef = db.collection('bills').doc();
@@ -571,6 +591,11 @@ class SalonFirestore {
       // retries. firestore.rules only lets it go up by exactly one.
       final counterRef = db.collection('counters').doc('invoices');
       final counterSnap = await tx.get(counterRef);
+      // The month's rollup is read only to learn whether it exists yet: the
+      // first live write stamps liveSince, which is where Reports' one-time
+      // backfill of older bills stops (see backfillMonthlyStats).
+      final monthRef = db.collection('monthlyStats').doc(monthKey(now));
+      final monthSnap = await tx.get(monthRef);
       final invoiceSeq = ((counterSnap.data()?['last'] as num?)?.toInt() ?? 0) + 1;
       final freshTargets = <String, DocumentSnapshot<Map<String, dynamic>>>{};
       for (final docs in targetDocsByEmployee.values) {
@@ -632,6 +657,48 @@ class SalonFirestore {
       );
       tx.set(billRef, bill.toFirestore(isCreate: true));
 
+      // What this bill adds to the analytics rollups - same numbers for the
+      // day doc and the month doc, so Reports can chart a year from ~13
+      // documents. See billRollupFields in data/insights.dart.
+      final rollupLines = [
+        for (final item in items)
+          RollupLine(
+            type: item.type,
+            employeeId: item.employeeId,
+            net: _round2(item.unitPrice * item.quantity - item.discountAmount),
+            quantity: item.quantity,
+            unitCost: item.unitCost,
+            categoryId: item.categoryId,
+            serviceId: item.type == 'SERVICE' ? item.serviceId : null,
+            commission: _round2(_round2(item.unitPrice * item.quantity - item.discountAmount) * (item.commissionPct / 100)),
+          ),
+      ];
+      Map<String, num> rollup({required bool monthly}) => billRollupFields(
+            at: now,
+            finalAmount: finalAmount,
+            discount: discountAmount,
+            tax: taxAmount,
+            branchId: branchId,
+            lines: rollupLines,
+            firstVisit: firstVisit,
+            reminderReturn: reminderReturn,
+            monthly: monthly,
+          );
+      dynamic inc(num v) => FieldValue.increment(v);
+      final dayExtras = rollup(monthly: false)
+        // The day doc has always counted these two itself, below.
+        ..remove('sales')
+        ..remove('billCount');
+      tx.set(
+        monthRef,
+        {
+          ...nestRollupFields(rollup(monthly: true), inc),
+          if (!monthSnap.exists) 'month': Timestamp.fromDate(DateTime(now.year, now.month, 1)),
+          if (!monthSnap.exists || monthSnap.data()?['liveSince'] == null) 'liveSince': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
       // Roll this bill into its day's totals, so the dashboard can read ~37
       // small docs instead of every bill raised in the last five weeks. See
       // dailyStatsDocId and getDashboardSummary.
@@ -655,6 +722,7 @@ class SalonFirestore {
           // arrayUnion, so a client billed twice in a day is still one
           // visitor - the figure is "distinct clients", not "bills".
           'customerIds': FieldValue.arrayUnion([customerId]),
+          ...nestRollupFields(dayExtras, inc),
         },
         SetOptions(merge: true),
       );
@@ -670,6 +738,8 @@ class SalonFirestore {
         'totalSpent': FieldValue.increment(finalAmount),
         if (amountDue > 0) 'outstandingBalance': FieldValue.increment(amountDue),
         'lastVisitAt': FieldValue.serverTimestamp(),
+        if (reminderReturn) 'lastReminderAt': FieldValue.delete(),
+        'reminderDueOn': reminderDueOn ?? FieldValue.delete(),
       }));
 
       for (final item in items) {
@@ -1821,6 +1891,89 @@ class SalonFirestore {
     return FSPaymentRequest.fromFirestore(await ref.get());
   }
 
+  // --- Analytics rollups (Reports) ---
+
+  /// Month rollups from [from] on - one doc per month, so a year is ~13
+  /// reads. Docs without a `month` (the `_meta` doc) drop out of the order.
+  Future<Map<String, Map<String, dynamic>>> listMonthlyStats(DateTime from) async {
+    final snap = await db
+        .collection('monthlyStats')
+        .where('month', isGreaterThanOrEqualTo: Timestamp.fromDate(from))
+        .get();
+    return {for (final d in snap.docs) d.id: d.data()};
+  }
+
+  /// Whether Reports' one-time history backfill has run (one read).
+  Future<bool> monthlyBackfillDone() async {
+    final snap = await db.collection('monthlyStats').doc('_meta').get();
+    return snap.exists && snap.data()?['backfilledAt'] != null;
+  }
+
+  /// Day rollups from [from] on (the last-30-days chart): at most ~30 reads.
+  Future<Map<String, Map<String, dynamic>>> listDailyStatsSince(DateTime from) async {
+    final snap = await db
+        .collection('dailyStats')
+        .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(from))
+        .get();
+    return {for (final d in snap.docs) d.id: d.data()};
+  }
+
+  /// Every bill raised in [from, to) with its items - the one-time history
+  /// backfill only. Costs one read per bill and per item, once.
+  Future<List<(FSBill, List<FSBillItem>)>> listBillsWithItemsBetween(DateTime from, DateTime to) async {
+    final billsSnap = await db
+        .collection('bills')
+        .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(from))
+        .where('createdAt', isLessThan: Timestamp.fromDate(to))
+        .get();
+    final bills = billsSnap.docs.map(FSBill.fromFirestore).toList();
+    final byBill = <String, List<FSBillItem>>{};
+    try {
+      final itemsSnap = await db
+          .collectionGroup('items')
+          .where('billCreatedAt', isGreaterThanOrEqualTo: Timestamp.fromDate(from.subtract(const Duration(days: 1))))
+          .where('billCreatedAt', isLessThan: Timestamp.fromDate(to.add(const Duration(days: 1))))
+          .get();
+      for (final doc in itemsSnap.docs) {
+        final billId = doc.reference.parent.parent?.id;
+        if (billId == null) continue;
+        (byBill[billId] ??= []).add(FSBillItem.fromFirestore(doc));
+      }
+    } catch (e) {
+      // Without the group query the totals still come out right; only the
+      // service/product/staff split is missing for those months.
+      debugPrint('[Stylux] backfill items query unavailable: $e');
+    }
+    return [for (final b in bills) (b, byBill[b.id] ?? const <FSBillItem>[])];
+  }
+
+  /// Saves backfilled month totals into each month doc's own `pre` field
+  /// (replaced wholesale, so running it twice is harmless), then marks the
+  /// backfill done.
+  Future<void> saveMonthlyBackfill(Map<String, Map<String, num>> byMonth, DateTime cutoff) async {
+    var batch = db.batch();
+    var ops = 0;
+    for (final e in byMonth.entries) {
+      final parts = e.key.split('-');
+      final month = DateTime(int.parse(parts[0]), int.parse(parts[1]), 1);
+      batch.set(
+        db.collection('monthlyStats').doc(e.key),
+        {'month': Timestamp.fromDate(month), 'pre': nestRollupFields(e.value, (v) => v)},
+        SetOptions(mergeFields: ['month', 'pre']),
+      );
+      if (++ops == 400) {
+        await batch.commit();
+        batch = db.batch();
+        ops = 0;
+      }
+    }
+    batch.set(db.collection('monthlyStats').doc('_meta'), {
+      'backfilledAt': FieldValue.serverTimestamp(),
+      'cutoff': Timestamp.fromDate(cutoff),
+    });
+    await batch.commit();
+  }
+
   // --- Expenses ---
 
   Future<List<FSExpense>> listExpenses({int limit = 500}) async {
@@ -1900,6 +2053,10 @@ class BillItemDraft {
   final double unitPrice;
   final double discountAmount;
   final double commissionPct;
+  /// Product cost price per unit, for the margin figures in Reports.
+  final double unitCost;
+  /// The service's category, for Reports' category split.
+  final String? categoryId;
 
   BillItemDraft({
     required this.type,
@@ -1913,5 +2070,7 @@ class BillItemDraft {
     required this.unitPrice,
     this.discountAmount = 0,
     required this.commissionPct,
+    this.unitCost = 0,
+    this.categoryId,
   });
 }
