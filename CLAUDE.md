@@ -329,13 +329,23 @@ A second, unrelated collection in the same directory project (see above): `salon
 - The app is a Flutter web build on Vercel (`mobile/vercel.json` + `mobile/build.sh`). There is no server to deploy or keep alive — Firestore and Firebase Auth are managed services.
 - **Rules and indexes do NOT ship with the app.** Vercel auto-deploys the Flutter build on every push to `main`; `firestore.rules` and `firestore.indexes.json` only reach Firebase when someone runs the deploy below by hand. So a push can leave the app expecting rules that production doesn't have yet — the repo looks right, production 403s.
 
-  After any change to `firestore.rules` or `firestore.indexes.json`, from `mobile/`:
+  After any change to `firestore.rules` or `firestore.indexes.json`, from the repo root:
 
   ```bash
-  firebase deploy --only firestore:rules,firestore:indexes --project cuts-salon
-  firebase deploy --only firestore:rules,firestore:indexes --project instyle-salon
-  firebase deploy --only firestore:rules,firestore:indexes --project test-salon-ee06a
+  scripts/deploy-salons.sh rules
   ```
 
-  Repeat for every provisioned salon (see Onboarding a new salon). The deploy replaces the live ruleset wholesale, so any edit made directly in the Firebase Console is overwritten — change rules in the repo, never in the Console.
+  It runs the rules emulator tests, deploys to the test salon first, asks before the first real salon, goes through every salon in `salon_directory.dart` (so a new salon can't be forgotten) and stops at the first failure. `--dry-run` prints the commands without deploying; `scripts/deploy-salons.sh rules test-salon-ee06a` deploys to the test salon alone. Functions: `scripts/deploy-salons.sh functions` (only salons with a `functions/.env.<salonId>`). The deploy replaces the live ruleset wholesale, so any edit made directly in the Firebase Console is overwritten — change rules in the repo, never in the Console.
 - **How this fails when it is missed:** Firestore denies the read and the client logs `permission-denied` / HTTP 403 on `runQuery`/`runAggregationQuery`. Call sites that degrade gracefully (e.g. `countPendingPaymentRequests` in `salon_firestore.dart`, which catches and returns 0) swallow it, so nothing visibly breaks — a badge just silently reads 0. This happened for real: the `paymentRequests` rules landed with the feature on 2026-09-30 but weren't deployed until 2026-10-02, and the owner's pending-settlement badge read 0 the whole time. When one collection 403s in production while an identically-ruled one works, suspect an undeployed ruleset first.
+
+## Releasing (salons are live - follow this every time)
+
+1. **Branch.** Never commit to `main`: it is production, and Vercel deploys every push to it. Work on a branch and open a pull request (the template in `.github/pull_request_template.md` is the checklist).
+2. **CI.** GitHub Actions (`.github/workflows/ci.yml`) runs `flutter analyze` + `flutter test`, the functions tests and the rules emulator tests on every pull request. Make the three jobs required checks on `main` (GitHub > Settings > Branches).
+3. **Staging = the test salon.** Try the change on the branch's Vercel preview link signed in to `test-salon-ee06a` only - a preview build still knows every real salon, so a real login there edits real data. Rules/functions changes go to the test salon first: `scripts/deploy-salons.sh rules test-salon-ee06a`.
+4. **Deploy order** (the thing that has broken production before):
+   - rules that only *allow more* -> `scripts/deploy-salons.sh rules` **before** merging;
+   - rules that *restrict* -> merge, wait for Vercel to finish, then deploy the rules straight away;
+   - functions -> after the rules, `scripts/deploy-salons.sh functions`.
+5. **Merge** (outside salon hours if the change is risky). Vercel deploys the app.
+6. **Rollback:** app - Vercel > Deployments > previous one > "Promote to production"; rules - check out the previous commit's `mobile/firestore.rules` and deploy it with the script (the Console also keeps a ruleset history); functions - redeploy the previous commit. Data migrations must be safe to re-run and never destructive (see `moveLegacyPay`).
