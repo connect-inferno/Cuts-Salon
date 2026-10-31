@@ -1,0 +1,77 @@
+# Runs every check on each pull request and on main, so nothing reaches the
+# salons (Vercel deploys main automatically) without passing them. Make it a
+# required check: GitHub > Settings > Branches > main > "Require status
+# checks to pass" and pick the three jobs below.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: App (analyze + tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          # Same version the app is built and tested with locally.
+          flutter-version: 3.41.7
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      # Infos are style hints; warnings and errors fail the build.
+      - run: flutter analyze --no-fatal-infos
+      - run: flutter test
+
+  functions:
+    name: Cloud Functions tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile/functions
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/functions/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  rules:
+    name: Firestore rules (emulator)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile/rules-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/rules-test/package-lock.json
+      - name: Cache the Firestore emulator
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}
+      - run: npm install -g firebase-tools
+      - run: npm ci
+      # A demo project on the local emulator - never a real salon.
+      - run: npm test
