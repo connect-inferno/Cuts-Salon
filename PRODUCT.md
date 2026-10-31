@@ -30,7 +30,9 @@ Each salon gets its own isolated Firebase project, so one salon's data, logins a
 ## Capabilities and Constraints
 
 - No trusted server: Firestore Security Rules are the access boundary (see CLAUDE.md).
-- Rules and Cloud Functions are deployed by hand, per salon; the app deploys on push to main.
+- Real salons use the app every day, so releases are careful by design: every change goes through a pull request; three automatic checks (app analyze + tests, Cloud Functions tests, Firestore rules tests) must pass before anything merges into `main`, which is protected; and `main` deploys the app to every salon through Vercel.
+- Rules and Cloud Functions don't ship with the app. They go to the salons with `scripts/deploy-salons.sh` (test salon first, then the real salons), in the order CLAUDE.md's "Releasing" section sets out.
+- The test salon (`test-salon-ee06a`) is the staging environment: changes are tried there before any real salon sees them.
 - Reports read monthly/daily rollup documents, never raw bills.
 - Deletes are closed: clients, services and staff are archived/removed, never deleted.
 

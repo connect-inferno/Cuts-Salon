@@ -280,6 +280,15 @@ until then their staff can still technically read coworkers' pay on the
 roster docs. Check by looking in the Console that `employees/*` docs no
 longer have `baseSalary`.
 
+**Reports rollups + WhatsApp page (`attendance` branch) - rules and
+indexes deployed to all three salons on 2026-10-31** with
+`scripts/deploy-salons.sh rules` (112 rules tests passed first): the
+owner-only `monthlyStats` rule and the `whatsappLog (kind, createdAt)`
+index. Additive, so the app already on Vercel keeps working; the app that
+reads them can merge any time after. Functions with the per-message
+settings and per-service reminders are on `test-salon-ee06a`, the only
+WhatsApp salon.
+
 ## Onboarding a new salon
 
 **Current status: three provisioned projects - `cuts-salon`, `instyle-salon`
@@ -341,7 +350,14 @@ A second, unrelated collection in the same directory project (see above): `salon
 ## Releasing (salons are live - follow this every time)
 
 1. **Branch.** Never commit to `main`: it is production, and Vercel deploys every push to it. Work on a branch and open a pull request (the template in `.github/pull_request_template.md` is the checklist).
-2. **CI.** GitHub Actions (`.github/workflows/ci.yml`) runs `flutter analyze` + `flutter test`, the functions tests and the rules emulator tests on every pull request. Make the three jobs required checks on `main` (GitHub > Settings > Branches).
+2. **CI.** GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`, as three jobs - all three must be green to merge:
+   - **App (analyze + tests)** - `flutter analyze --no-fatal-infos` (errors and *warnings*, e.g. an unused import, fail the job; style infos don't) then `flutter test`, Flutter 3.41.7.
+   - **Cloud Functions tests** - `npm test` in `mobile/functions/` (Node 22).
+   - **Firestore rules (emulator)** - `npm test` in `mobile/rules-test/` against the local emulator on a demo project (Java 21), never a real salon.
+
+   Run the same thing locally before pushing, from `mobile/`: `flutter analyze --no-fatal-infos && flutter test`, then `(cd functions && npm test)` and `(cd rules-test && npm test)`.
+
+   **`main` is protected** by the GitHub ruleset "Protect main" (Settings > Rules > Rulesets, active since 2026-10-31): changes only through a pull request (0 approvals required - a solo developer can't approve their own PR), the three checks above must pass, no force pushes, no deleting `main`, no bypass list. If a check name changes in `ci.yml`, update the ruleset's required checks too or every PR waits forever. The GitHub CLI (`gh`) isn't installed on the dev machine, so PRs are opened from the compare link: `https://github.com/connect-inferno/Cuts-Salon/compare/main...<branch>?expand=1`.
 3. **Staging = the test salon.** Try the change on the branch's Vercel preview link signed in to `test-salon-ee06a` only - a preview build still knows every real salon, so a real login there edits real data. Rules/functions changes go to the test salon first: `scripts/deploy-salons.sh rules test-salon-ee06a`.
 4. **Deploy order** (the thing that has broken production before):
    - rules that only *allow more* -> `scripts/deploy-salons.sh rules` **before** merging;
