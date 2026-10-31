@@ -21,7 +21,6 @@ import '../../widgets/app_sub_page.dart';
 import '../../data/models.dart';
 import '../../widgets/liquid_nav_bar.dart';
 import '../../widgets/pull_to_refresh.dart';
-import '../../router.dart' show pushAppRoute;
 
 const double kOwnerMobileBreakpoint = 900;
 
