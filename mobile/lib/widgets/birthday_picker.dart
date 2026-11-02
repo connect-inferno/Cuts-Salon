@@ -130,11 +130,26 @@ class _BirthdayPickerState extends State<BirthdayPicker> {
 }
 
 /// The consent checkbox that goes with it - one wording everywhere it's asked.
+///
+/// [recordedAt]/[recordedBy]: when an existing client's agreement was saved
+/// and who saved it (Customer.whatsappConsentAt), shown under the tick as
+/// the salon's record of consent. Leave null for a new client.
 class WhatsAppOptInTile extends StatelessWidget {
   final bool value;
   final ValueChanged<bool> onChanged;
+  final DateTime? recordedAt;
+  final String? recordedBy;
 
-  const WhatsAppOptInTile({super.key, required this.value, required this.onChanged});
+  const WhatsAppOptInTile({super.key, required this.value, required this.onChanged, this.recordedAt, this.recordedBy});
+
+  static const _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  String? get _recordedLine {
+    final at = recordedAt;
+    if (!value || at == null) return null;
+    final by = (recordedBy ?? '').trim();
+    return 'Agreed ${at.day} ${_months[at.month - 1]} ${at.year}${by.isEmpty ? '' : ' · recorded by $by'}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -150,9 +165,12 @@ class WhatsAppOptInTile extends StatelessWidget {
         'OK to send WhatsApp messages',
         style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.slateDark),
       ),
-      subtitle: const Text(
-        'Bill after each visit, birthday wishes and visit reminders. Ask the client first.',
-        style: TextStyle(fontSize: 11, color: AppTheme.slateLight),
+      subtitle: Text(
+        [
+          'Bill after each visit, birthday wishes and visit reminders. Ask the client first.',
+          if (_recordedLine != null) _recordedLine!,
+        ].join('\n'),
+        style: const TextStyle(fontSize: 11, color: AppTheme.slateLight),
       ),
     );
   }

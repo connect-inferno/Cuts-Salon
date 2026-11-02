@@ -63,6 +63,12 @@ async function seed() {
     await setDoc(doc(db, 'dailyStats/2026-10-01'), { revenue: 500 });
     await setDoc(doc(db, 'monthlyStats/2026-10'), { sales: 500 });
     await setDoc(doc(db, 'customers/cu1'), { name: 'Client', phone: '9999999999' });
+    // cuGone: erased (eraseCustomer's first step done), bills and log not yet scrubbed.
+    await setDoc(doc(db, 'customers/cuGone'), { name: 'Removed client', phone: '', erasedAt: Timestamp.now() });
+    await setDoc(doc(db, 'bills/b3'), { customerId: 'cuGone', customerName: 'Old Name', finalAmount: 700 });
+    await setDoc(doc(db, 'bills/b4'), { customerId: 'cu1', customerName: 'Client', finalAmount: 400 });
+    await setDoc(doc(db, 'whatsappLog/wl1'), { kind: 'receipt', customerId: 'cuGone', customerName: 'Old Name', to: '919999999999', status: 'sent' });
+    await setDoc(doc(db, 'whatsappLog/wl2'), { kind: 'receipt', customerId: 'cu1', customerName: 'Client', to: '919999999998', status: 'sent' });
     await setDoc(doc(db, 'expenses/e1'), { title: 'Rent', amount: 1000 });
     await setDoc(doc(db, 'discountRequests/d1'), { status: 'PENDING' });
   });
@@ -131,6 +137,7 @@ console.log('Active employee (emp1)');
   await t('cannot file a negative payment request', assertFails(setDoc(doc(db, 'paymentRequests/new2'), { requestedBy: 'emp1', status: 'PENDING', amount: -5, billId: 'b1' })));
   await t('can read bills (dues list)', assertSucceeds(getDocs(collection(db, 'bills'))));
   await t('cannot create a bill', assertFails(setDoc(doc(db, 'bills/fake'), { customerId: 'cu1', finalAmount: 1 })));
+  await t("cannot scrub an erased client's bill", assertFails(updateDoc(doc(db, 'bills/b3'), { customerName: 'Removed client' })));
   await t('cannot record a payment directly', assertFails(setDoc(doc(db, 'bills/b1/payments/p1'), { amount: 500, method: 'CASH' })));
   await t('cannot change stock', assertFails(updateDoc(doc(db, 'inventoryItems/i1'), { stockCount: 0 })));
   await t('cannot bump the invoice counter', assertFails(updateDoc(doc(db, 'counters/invoices'), { last: 6 })));
@@ -228,6 +235,20 @@ console.log('Owner');
   await t('can read old discount requests', assertSucceeds(getDoc(doc(db, 'discountRequests/d1'))));
   await t('can file a WhatsApp test request', assertSucceeds(setDoc(doc(db, 'whatsappRequests/w1'), { type: 'test', status: 'pending', requestedBy: 'owner1' })));
   await t('cannot write the WhatsApp set-up flag', assertFails(setDoc(doc(db, 'whatsappSetup/status'), { ready: true })));
+  // Erasing a client (SalonFirestore.eraseCustomer).
+  await t('can erase a client', assertSucceeds(updateDoc(doc(db, 'customers/cu2'), {
+    name: 'Removed client', phone: '', whatsappOptIn: false, archived: true, erasedAt: serverTimestamp(), erasedBy: 'owner1',
+  })));
+  await t('cannot change an amount while scrubbing a bill', assertFails(updateDoc(doc(db, 'bills/b3'), { customerName: 'Removed client', finalAmount: 1 })));
+  await t("cannot put another name on an erased client's bill", assertFails(updateDoc(doc(db, 'bills/b3'), { customerName: 'Someone' })));
+  await t("cannot scrub the name off a client's bill before erasing them", assertFails(updateDoc(doc(db, 'bills/b4'), { customerName: 'Removed client' })));
+  await t("can scrub an erased client's name off their bill", assertSucceeds(updateDoc(doc(db, 'bills/b3'), { customerName: 'Removed client' })));
+  await t('still cannot edit that bill otherwise', assertFails(updateDoc(doc(db, 'bills/b3'), { finalAmount: 1 })));
+  await t("cannot change a WhatsApp log's status", assertFails(updateDoc(doc(db, 'whatsappLog/wl1'), { status: 'failed' })));
+  await t("cannot blank a log entry of a client who isn't erased", assertFails(updateDoc(doc(db, 'whatsappLog/wl2'), { customerName: 'Removed client', to: '' })));
+  await t("can blank an erased client's WhatsApp log entry", assertSucceeds(updateDoc(doc(db, 'whatsappLog/wl1'), { customerName: 'Removed client', to: '' })));
+  await t('cannot write a WhatsApp log entry', assertFails(setDoc(doc(db, 'whatsappLog/fake'), { kind: 'birthday', status: 'sent' })));
+  await t('cannot delete a WhatsApp log entry', assertFails(deleteDoc(doc(db, 'whatsappLog/wl1'))));
 }
 
 console.log('Deactivated employee 2 (just deactivated by owner)');

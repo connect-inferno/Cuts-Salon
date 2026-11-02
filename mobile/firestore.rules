@@ -44,6 +44,17 @@ service cloud.firestore {
     // a non-owner to their own employeeId. The app already filters staff
     // queries by their own id (loadAppData's selfId), so this only refuses
     // what an edited client could ask for - a coworker's pay.
+    // Erasing a client (SalonFirestore.eraseCustomer) marks customers/{id}
+    // with erasedAt first, then scrubs the copies of their name elsewhere.
+    // Must match kErasedClientName in lib/data/models.dart.
+    function erasedClientName() {
+      return 'Removed client';
+    }
+
+    function isErasedClient(customerId) {
+      return get(/databases/$(database)/documents/customers/$(customerId)).data.get('erasedAt', null) != null;
+    }
+
     function isOwnerOrSubject(subjectUid) {
       return isOwner() || (isActiveEmployee() && request.auth.uid == subjectUid);
     }
@@ -171,7 +182,17 @@ service cloud.firestore {
     match /bills/{billId} {
       allow read: if isActiveEmployee();
       allow create: if isOwner();
-      allow update, delete: if false;
+      // The one exception to "bills never change": when the owner erases a
+      // client (DPDP right to erasure - SalonFirestore.eraseCustomer), the
+      // copy of their name on each bill becomes 'Removed client'. Nothing
+      // else on the bill may change, the name can only become that exact
+      // text, and only for a client already marked erased - so amounts,
+      // dates and invoice numbers stay as billed.
+      allow update: if isOwner()
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['customerName'])
+                    && request.resource.data.customerName == erasedClientName()
+                    && isErasedClient(resource.data.customerId);
+      allow delete: if false;
 
       match /items/{itemId} {
         allow read: if isActiveEmployee();
@@ -491,9 +512,18 @@ service cloud.firestore {
     // whatsappLog is the record of every message the function sent or tried
     // to send. The owner may read it; nobody writes it from the app, since a
     // fake "already sent" entry would silently suppress a real message.
+    // The exception is erasing a client: the owner may blank the client's
+    // name and phone number on their own log entries, and nothing else, so
+    // the status and log key that stop a repeat send are untouched.
     match /whatsappLog/{logId} {
       allow read: if isOwner();
-      allow write: if false;
+      allow update: if isOwner()
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['customerName', 'to'])
+                    && request.resource.data.customerName == erasedClientName()
+                    && request.resource.data.to == ''
+                    && resource.data.customerId is string
+                    && isErasedClient(resource.data.customerId);
+      allow create, delete: if false;
     }
 
     // whatsappSetup/status { ready: true } marks a salon whose WhatsApp has

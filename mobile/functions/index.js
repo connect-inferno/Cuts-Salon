@@ -237,9 +237,8 @@ async function runDailyMessages(now = new Date()) {
   for (const doc of birthdaySnap.docs) {
     const customer = messageableCustomer(doc);
     if (!customer) { counts.skipped += 1; continue; }
-    // Keyed on the birthday's year, so switching between "on the day" and
-    // "the day before" can't wish anyone twice.
-    tally(await sendOnce(`birthday_${customer.id}_${birthdayDay.y}`, {
+    // Once per birthday date - see core.birthdayLogKey.
+    tally(await sendOnce(core.birthdayLogKey(customer.id, birthdayDay), {
       kind: 'birthday',
       customerId: customer.id,
       customerName: customer.name,

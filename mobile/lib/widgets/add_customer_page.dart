@@ -437,6 +437,8 @@ class _AddCustomerPageState extends ConsumerState<AddCustomerPage> {
           WhatsAppOptInTile(
             value: _whatsappOptIn,
             onChanged: (v) => setState(() => _whatsappOptIn = v),
+            recordedAt: widget.existing?.whatsappConsentAt,
+            recordedBy: widget.existing?.whatsappConsentByName,
           ),
         ],
       ),

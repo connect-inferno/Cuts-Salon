@@ -132,6 +132,15 @@ test('birthdayDayFor is today, or tomorrow across a month or year end', () => {
   assert.deepEqual(core.birthdayDayFor({ y: 2026, m: 12, d: 31 }, 1), { y: 2027, m: 1, d: 1 });
 });
 
+test('birthdayLogKey is per birthday date, the same whether wished on the day or the day before', () => {
+  const onTheDay = core.birthdayLogKey('c1', core.birthdayDayFor({ y: 2026, m: 11, d: 1 }, 0));
+  const dayBefore = core.birthdayLogKey('c1', core.birthdayDayFor({ y: 2026, m: 10, d: 31 }, 1));
+  assert.equal(onTheDay, 'birthday_c1_2026-11-01');
+  assert.equal(dayBefore, onTheDay);
+  // A corrected birthday is a different date, so it is wished again.
+  assert.notEqual(core.birthdayLogKey('c1', { y: 2026, m: 10, d: 15 }), onTheDay);
+});
+
 test('dayKey and visitKey name days the same way on both reminder paths', () => {
   assert.equal(core.dayKey({ y: 2026, m: 3, d: 7 }), '2026-03-07');
   // A visit at 23:00 IST on 10 Oct (17:30 UTC) belongs to 10 Oct ...

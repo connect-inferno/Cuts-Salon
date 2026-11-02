@@ -95,6 +95,12 @@ template wording and troubleshooting: `mobile/functions/whatsapp.md`.
   general N-days rule skips clients that carry a `reminderDueOn`. Both use
   the same `reminder_{customerId}_{visitDay}` log key, so nobody gets two.
   A changed gap applies from the next bill.
+- **Birthday wishes are logged per birthday date**
+  (`birthday_{customerId}_{YYYY-MM-DD}`, `core.birthdayLogKey`), so a
+  corrected birthday - or one set to today to try the message - is still
+  wished on the real date. Until 2026-11-02 the key was per year
+  (`birthday_{customerId}_{YYYY}`), which silently skipped those; the fix
+  is deployed to `test-salon-ee06a` (2026-11-02).
 - Unit tests for the pure helpers: `cd mobile/functions && npm test`.
 - First functions deploy to a new project often fails for two functions
   with an Eventarc permission error - wait 3-5 minutes and deploy again.
@@ -206,6 +212,22 @@ fills in ~10 days, so anything summed from them under-reports.
   `AppData`, so billing, the menu and stock alerts never offer them, while
   every bill line keeps its own copy of name and price. Name/SKU uniqueness
   checks ignore archived entries so a removed name can be reused.
+- **Erasing a client** (DPDP right to erasure): Clients tab > Archived
+  filter > bin icon on an archived client
+  (`AppDataNotifier.eraseCustomer` -> `SalonFirestore.eraseCustomer`). The
+  customer doc keeps its id and visit/spend totals but loses name, phone,
+  email, gender, birthday, notes and consent, and gets `erasedAt`; then the
+  name on their bills, payment requests and `whatsappLog` entries becomes
+  `kErasedClientName` ("Removed client", also hard-coded in
+  `firestore.rules`); `erasureDone: true` marks the end, and a half-done
+  erase shows "Finish erasing". Bills stay immutable except that one
+  field, and only once the client has `erasedAt`. Devices that cached the
+  bills earlier still hold the old name in their cache, so `loadAppData`
+  shows erased clients' bills as "Removed client" regardless.
+- **WhatsApp consent is recorded:** ticking the box stamps
+  `whatsappConsentAt` / `whatsappConsentBy` / `whatsappConsentByName` on the
+  customer (shown under the tick), unticking stamps `whatsappOptOutAt`
+  (`SalonFirestore.consentChanges`). Ticks from before this have no stamp.
 - **A salon fresh from Add Salon has no branch.** Billing and hiring both
   need one, so `AppDataNotifier.build()` creates a "Main Branch" the first
   time an owner opens such a salon (owner-only; rules forbid anyone else).
@@ -288,6 +310,15 @@ index. Additive, so the app already on Vercel keeps working; the app that
 reads them can merge any time after. Functions with the per-message
 settings and per-service reminders are on `test-salon-ee06a`, the only
 WhatsApp salon.
+
+**Client erasure (`attendance` branch) - rules deployed to
+`test-salon-ee06a` only (2026-11-02); `cuts-salon` and `instyle-salon` NOT
+yet.** Allows the owner to change a bill's `customerName` and a
+`whatsappLog` entry's `customerName`/`to` for an erased client only.
+Additive, so deploy to the real salons with `scripts/deploy-salons.sh
+rules` before merging; until then "Erase" there fails at the bills step
+(the client record itself is already erased, and "Finish erasing"
+completes it once the rules are live).
 
 ## Onboarding a new salon
 

@@ -5,6 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 import '../data/attendance_shift.dart';
 import '../data/bill_math.dart';
 import '../data/insights.dart' show RollupLine, billRollupFields, nestRollupFields, monthKey;
+import '../data/models.dart' show kErasedClientName;
 import 'firestore_models.dart';
 
 double _round2(num n) => (n * 100).round() / 100;
@@ -384,6 +385,78 @@ class SalonFirestore {
 
   Future<void> updateCustomer(String id, Map<String, dynamic> changes) =>
       db.collection('customers').doc(id).update(customerTouch(changes));
+
+  /// The consent stamps that go with a change to whatsappOptIn, to merge
+  /// into that update: ticking records when and by whom (the salon's proof
+  /// the client agreed), unticking records when they withdrew. Empty when
+  /// the tick didn't change.
+  static Map<String, dynamic> consentChanges({
+    required bool was,
+    required bool now,
+    required String? byId,
+    required String? byName,
+  }) {
+    if (was == now) return const {};
+    if (now) {
+      return {
+        'whatsappConsentAt': FieldValue.serverTimestamp(),
+        'whatsappConsentBy': byId,
+        'whatsappConsentByName': byName,
+        'whatsappOptOutAt': FieldValue.delete(),
+      };
+    }
+    return {'whatsappOptOutAt': FieldValue.serverTimestamp()};
+  }
+
+  /// Erases a client's personal details for good - their right to erasure
+  /// under the DPDP Act. Customers are never deleted (rules), so the record
+  /// stays with its visit and spend totals, and every bill keeps its
+  /// amounts for the salon's tax records; only what identifies the person
+  /// goes, here and in the copies of their name on bills, payment requests
+  /// and the WhatsApp log.
+  ///
+  /// The client record goes first: the rules only let a bill's name be
+  /// scrubbed once its client carries erasedAt. erasureDone is set last, so
+  /// if anything in between fails, running this again finishes the job.
+  Future<void> eraseCustomer(String id, {required String byId}) async {
+    await updateCustomer(id, {
+      'name': kErasedClientName,
+      'phone': '',
+      'email': null,
+      'gender': null,
+      'notes': null,
+      'birthday': null,
+      'isVip': false,
+      'archived': true,
+      'whatsappOptIn': false,
+      'whatsappConsentAt': FieldValue.delete(),
+      'whatsappConsentBy': FieldValue.delete(),
+      'whatsappConsentByName': FieldValue.delete(),
+      'whatsappOptOutAt': FieldValue.delete(),
+      'reminderDueOn': FieldValue.delete(),
+      'lastReminderAt': FieldValue.delete(),
+      'erasedAt': FieldValue.serverTimestamp(),
+      'erasedBy': byId,
+    });
+
+    Future<void> scrub(String collection, Map<String, dynamic> changes) async {
+      final snap = await db.collection(collection).where('customerId', isEqualTo: id).get();
+      // One batch holds at most 500 writes.
+      for (var i = 0; i < snap.docs.length; i += 400) {
+        final batch = db.batch();
+        for (final doc in snap.docs.skip(i).take(400)) {
+          batch.update(doc.reference, changes);
+        }
+        await batch.commit();
+      }
+    }
+
+    await scrub('bills', {'customerName': kErasedClientName});
+    await scrub('paymentRequests', {'customerName': kErasedClientName});
+    await scrub('whatsappLog', {'customerName': kErasedClientName, 'to': ''});
+
+    await updateCustomer(id, {'erasureDone': true});
+  }
 
   // --- WhatsApp ---
 

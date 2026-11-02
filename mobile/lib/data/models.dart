@@ -110,6 +110,12 @@ class EmployeeProfile {
       );
 }
 
+/// What an erased client's name becomes - on their record, their bills,
+/// payment requests and WhatsApp log. firestore.rules lets a bill's
+/// customerName be changed to exactly this and nothing else, so the two
+/// must match.
+const kErasedClientName = 'Removed client';
+
 class Customer {
   final String id;
   final String name;
@@ -143,6 +149,19 @@ class Customer {
   /// "MM-DD", no year - see FSCustomer.birthday.
   final String? birthday;
   final bool whatsappOptIn;
+  /// When the current WhatsApp agreement was recorded and by whom - the
+  /// salon's proof of consent (DPDP Act, Meta's opt-in rule). Null for ticks
+  /// recorded before this was kept.
+  final DateTime? whatsappConsentAt;
+  final String? whatsappConsentByName;
+  /// Set when the owner erased this client's personal details (see
+  /// AppDataNotifier.eraseCustomer). [erasureDone] turns true once their
+  /// bills and logs were scrubbed too; until then the archive offers to
+  /// finish the job.
+  final DateTime? erasedAt;
+  final bool erasureDone;
+
+  bool get erased => erasedAt != null;
 
   Customer({
     required this.id,
@@ -164,6 +183,10 @@ class Customer {
     this.createdByName,
     this.birthday,
     this.whatsappOptIn = false,
+    this.whatsappConsentAt,
+    this.whatsappConsentByName,
+    this.erasedAt,
+    this.erasureDone = false,
   });
 
   factory Customer.fromJson(Map<String, dynamic> json) => Customer(
