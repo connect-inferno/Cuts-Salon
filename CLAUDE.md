@@ -318,6 +318,15 @@ and a `whatsappLog` entry's `customerName`/`to` for an erased client only.
 Additive, so the app already on Vercel keeps working; the app that uses
 it can merge any time after.
 
+**Payment request shape (`attendance` branch) - rules deployed to all
+three salons on 2026-11-02** (131 rules tests passed first). A staff
+`paymentRequests` create must carry only the fields
+`FSPaymentRequest.toFirestore` writes, short text (note <= 500 chars),
+an existing `billId`, a server `createdAt` and an amount under 1 crore.
+Restrictive, but the app on `main` already writes exactly that shape, so
+it was safe to deploy before merging. Adding a field to payment requests
+now needs this rule changed first.
+
 ## Onboarding a new salon
 
 **Current status: three provisioned projects - `cuts-salon`, `instyle-salon`

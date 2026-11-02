@@ -55,6 +55,12 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/customers/$(customerId)).data.get('erasedAt', null) != null;
     }
 
+    // A field that may be missing or null, or else must be text no longer
+    // than [max] characters.
+    function optionalText(data, key, max) {
+      return !(key in data) || data[key] == null || (data[key] is string && data[key].size() <= max);
+    }
+
     function isOwnerOrSubject(subjectUid) {
       return isOwner() || (isActiveEmployee() && request.auth.uid == subjectUid);
     }
@@ -480,11 +486,29 @@ service cloud.firestore {
     // shows a negative or junk "collection".
     match /paymentRequests/{requestId} {
       allow read: if isOwnerOrSubject(resource.data.requestedBy);
+      //
+      // Staff write these from their own phones, so the shape is pinned too:
+      // only the fields the app writes (FSPaymentRequest.toFirestore), text
+      // of a sensible length, for a bill that exists, at the server's time -
+      // so an edited client can't stuff the owner's inbox with junk fields,
+      // megabyte notes or requests against invented bills.
       allow create: if isActiveEmployee()
+                    && request.resource.data.keys().hasOnly(['billId', 'customerId', 'customerName', 'invoiceNumber',
+                         'amount', 'method', 'requestedBy', 'requestedByName', 'note', 'status', 'createdAt'])
                     && request.resource.data.status == 'PENDING'
                     && request.resource.data.requestedBy == request.auth.uid
                     && request.resource.data.amount is number
-                    && request.resource.data.amount > 0;
+                    && request.resource.data.amount > 0
+                    && request.resource.data.amount < 10000000
+                    && request.resource.data.billId is string
+                    && exists(/databases/$(database)/documents/bills/$(request.resource.data.billId))
+                    && optionalText(request.resource.data, 'customerId', 100)
+                    && optionalText(request.resource.data, 'customerName', 100)
+                    && optionalText(request.resource.data, 'invoiceNumber', 30)
+                    && optionalText(request.resource.data, 'method', 20)
+                    && optionalText(request.resource.data, 'requestedByName', 100)
+                    && optionalText(request.resource.data, 'note', 500)
+                    && (!('createdAt' in request.resource.data) || request.resource.data.createdAt == request.time);
       allow update: if isOwner();
       allow delete: if false;
     }

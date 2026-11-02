@@ -135,6 +135,18 @@ console.log('Active employee (emp1)');
   await t('cannot read everyone\'s payment requests', assertFails(getDocs(collection(db, 'paymentRequests'))));
   await t('can file a payment request', assertSucceeds(setDoc(doc(db, 'paymentRequests/new1'), { requestedBy: 'emp1', status: 'PENDING', amount: 250, billId: 'b1' })));
   await t('cannot file a negative payment request', assertFails(setDoc(doc(db, 'paymentRequests/new2'), { requestedBy: 'emp1', status: 'PENDING', amount: -5, billId: 'b1' })));
+  // The shape the app writes (FSPaymentRequest.toFirestore).
+  const req = (extra) => ({
+    billId: 'b1', customerId: 'cu1', customerName: 'Client', invoiceNumber: 'INV-0001', amount: 250, method: 'CASH',
+    requestedBy: 'emp1', requestedByName: 'emp1', note: null, status: 'PENDING', createdAt: serverTimestamp(), ...extra,
+  });
+  await t('can file a payment request the way the app does', assertSucceeds(setDoc(doc(db, 'paymentRequests/new3'), req({ note: 'Paid at the counter' }))));
+  await t('cannot add extra fields to a payment request', assertFails(setDoc(doc(db, 'paymentRequests/new4'), req({ approvedBy: 'owner1' }))));
+  await t('cannot file a payment request with a huge note', assertFails(setDoc(doc(db, 'paymentRequests/new5'), req({ note: 'x'.repeat(501) }))));
+  await t('cannot file a payment request with a non-text name', assertFails(setDoc(doc(db, 'paymentRequests/new6'), req({ customerName: { evil: true } }))));
+  await t('cannot file a payment request for a bill that does not exist', assertFails(setDoc(doc(db, 'paymentRequests/new7'), req({ billId: 'nope' }))));
+  await t('cannot backdate a payment request', assertFails(setDoc(doc(db, 'paymentRequests/new8'), req({ createdAt: Timestamp.fromDate(new Date(2020, 0, 1)) }))));
+  await t('cannot file an absurd amount', assertFails(setDoc(doc(db, 'paymentRequests/new9'), req({ amount: 99999999 }))));
   await t('can read bills (dues list)', assertSucceeds(getDocs(collection(db, 'bills'))));
   await t('cannot create a bill', assertFails(setDoc(doc(db, 'bills/fake'), { customerId: 'cu1', finalAmount: 1 })));
   await t("cannot scrub an erased client's bill", assertFails(updateDoc(doc(db, 'bills/b3'), { customerName: 'Removed client' })));

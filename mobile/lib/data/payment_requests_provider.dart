@@ -68,6 +68,9 @@ class PaymentRequestsNotifier extends AutoDisposeAsyncNotifier<List<PaymentReque
     final fs = _fs;
     if (fs == null) throw Exception('Not ready yet - try again in a moment');
     if (amount <= 0) throw Exception('Enter an amount greater than zero');
+    // Same cap as the paymentRequests rule, so a long note gets this message
+    // instead of a bare permission error.
+    if ((note ?? '').length > 500) throw Exception('Keep the note under 500 characters');
 
     final auth = ref.read(authControllerProvider);
     // The requester's name is resolved from the already-loaded snapshot, so
