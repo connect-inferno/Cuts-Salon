@@ -16,11 +16,14 @@ import 'attendance_qr.dart';
 import 'birthday.dart';
 import 'salary_provider.dart';
 import 'models.dart';
+import 'phone.dart';
 import 'whatsapp_tasks.dart';
 
 export 'app_data.dart';
 
 double _round2(num n) => (n * 100).round() / 100;
+
+const _kPhoneHint = 'Enter a 10-digit mobile number, like 98765 43210';
 
 class AppDataNotifier extends AsyncNotifier<AppData> {
   /// Live subscriptions, torn down whenever build() reruns.
@@ -445,6 +448,9 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   }) async {
     _requireOwner();
     _checkBirthday(birthday);
+    final mobile = indianMobile(phone);
+    if (mobile == null) throw Exception(_kPhoneHint);
+    phone = mobile;
     if (await _fs.isCustomerPhoneTaken(phone)) {
       throw Exception('A customer with this phone number already exists');
     }
@@ -491,9 +497,16 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     if (match.isEmpty) throw Exception('Client not found');
     final existing = match.first;
     final trimmedName = name.trim();
-    final trimmedPhone = phone.trim();
+    var trimmedPhone = phone.trim();
     if (trimmedName.isEmpty) throw Exception('Name is required');
     if (trimmedPhone.isEmpty) throw Exception('Phone number is required');
+    // Checked only when the number changes, so a client saved before this
+    // check with an odd number can still have their other details edited.
+    if (trimmedPhone != existing.phone) {
+      final mobile = indianMobile(trimmedPhone);
+      if (mobile == null) throw Exception(_kPhoneHint);
+      trimmedPhone = mobile;
+    }
     _checkBirthday(birthday);
     if (trimmedPhone != existing.phone && await _fs.isCustomerPhoneTaken(trimmedPhone)) {
       throw Exception('Another client already has this phone number');

@@ -26,11 +26,23 @@ enum CsvExportResult {
 /// contains a comma, a quote or a newline. Client names carry commas often
 /// enough ("Sharma, A.") that skipping this silently shifts every later
 /// column in the row.
+///
+/// Text starting with = + - @ (or a tab/carriage return) is something Excel
+/// and Sheets would run as a formula - a client named
+/// `=HYPERLINK("http://...")` becomes a live link in the owner's report
+/// (CSV/formula injection). Such text gets a leading ' so it opens as plain
+/// text, per OWASP's advice. Plain numbers ("-5.00") are left alone so the
+/// amount columns still add up.
 String csvField(Object? value) {
   final text = value?.toString() ?? '';
+  if (text.startsWith(RegExp(r'[=+\-@\t\r]')) && !_plainNumber.hasMatch(text)) {
+    return '"\'${text.replaceAll('"', '""')}"';
+  }
   if (!text.contains(RegExp(r'[",\n\r]'))) return text;
   return '"${text.replaceAll('"', '""')}"';
 }
+
+final _plainNumber = RegExp(r'^[-+]?\d+(\.\d+)?$');
 
 /// Joins rows into a CSV document. \r\n because Excel on Windows is the most
 /// likely thing to open this, and it is the ending every other consumer also
