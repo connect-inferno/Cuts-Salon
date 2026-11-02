@@ -192,6 +192,17 @@ function birthdayDayFor(today, daysBefore) {
   return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() };
 }
 
+/**
+ * The whatsappLog id for one client's birthday wish. Keyed on the birthday
+ * date being wished (not the send day), so switching between "on the day"
+ * and "the day before" can't wish anyone twice. It used to be keyed on the
+ * year alone, which meant a client whose birthday was corrected after a
+ * wish - or set to today to try the message - got nothing on the real date.
+ */
+function birthdayLogKey(customerId, birthdayDay) {
+  return `birthday_${customerId}_${dayKey(birthdayDay)}`;
+}
+
 /** The monthlyStats `wa` counter a send of this kind adds to, or null (test sends). */
 function sendCounterFor(kind) {
   return { bill: 'receipts', birthday: 'birthdays', reminder: 'reminders' }[kind] ?? null;
@@ -205,6 +216,7 @@ module.exports = {
   dayKey,
   visitKey,
   birthdayDayFor,
+  birthdayLogKey,
   MIN_REMINDER_DAYS,
   MAX_REMINDER_DAYS,
   dailyResultText,

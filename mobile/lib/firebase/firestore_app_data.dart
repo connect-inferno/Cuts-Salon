@@ -94,6 +94,10 @@ Customer customerFromFS(FSCustomer c) => Customer(
       createdByName: c.createdByName,
       birthday: c.birthday,
       whatsappOptIn: c.whatsappOptIn,
+      whatsappConsentAt: c.whatsappConsentAt,
+      whatsappConsentByName: c.whatsappConsentByName,
+      erasedAt: c.erasedAt,
+      erasureDone: c.erasureDone,
     );
 
 ServiceCategory categoryFromFS(FSServiceCategory c) => ServiceCategory(id: c.id, name: c.name);
@@ -136,11 +140,16 @@ BillItem billItemFromFS(FSBillItem i) => BillItem(
 // status defaults to COMPLETED - FS bills have no status field since no
 // refund flow exists in either UI yet, matching Bill.fromJson's own
 // fallback for a missing status.
-Bill billFromFS(FSBill b, {required List<FSBillItem> items, List<FSPayment> payments = const []}) => Bill(
+//
+// [erased]: the bill's client has been erased. Their bills on the server
+// already say kErasedClientName, but listBills() trusts this device's cache
+// for bills it has seen before (bills never change otherwise), so a copy
+// cached before the erase would still show the old name.
+Bill billFromFS(FSBill b, {required List<FSBillItem> items, List<FSPayment> payments = const [], bool erased = false}) => Bill(
       id: b.id,
       invoiceNumber: b.invoiceNumber,
       customerId: b.customerId,
-      customerName: b.customerName,
+      customerName: erased ? kErasedClientName : b.customerName,
       branchId: b.branchId,
       subTotal: b.subTotal,
       discountAmount: b.discountAmount,
@@ -330,12 +339,14 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
   final dashboardJson = await dashboardFuture;
   final dashboard = dashboardJson == null ? null : DashboardSummary.fromJson(dashboardJson);
 
+  final erasedClientIds = {for (final c in customersFS) if (c.erasedAt != null) c.id};
   final bills = <Bill>[
     for (var i = 0; i < billsFS.length; i++)
       billFromFS(
         billsFS[i],
         items: billItemsByBill[billsFS[i].id] ?? const [],
         payments: paymentsByBill[billsFS[i].id] ?? const [],
+        erased: erasedClientIds.contains(billsFS[i].customerId),
       ),
   ];
 

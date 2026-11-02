@@ -314,7 +314,7 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                   // staff check before calling or billing someone, which
                   // used to take opening each client's page.
                   Text(
-                    '${cust.phone} · ${_lastVisitLabel(cust, now)}',
+                    '${cust.erased ? 'Details erased' : cust.phone} · ${_lastVisitLabel(cust, now)}',
                     style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, color: Color(0xFF64748B)),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -332,7 +332,27 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
               const Icon(PhosphorIconsFill.star, size: 13, color: Color(0xFFD97706)),
               const SizedBox(width: 10),
             ],
-            if (archived)
+            // An erased client is gone for good - nothing to restore. One
+            // whose erase stopped partway offers to finish it.
+            if (archived && cust.erasureDone)
+              const SizedBox.shrink()
+            else if (archived && cust.erased)
+              TextButton(
+                onPressed: () => _confirmEraseCustomer(context, ref, cust),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppTheme.accentRed,
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+                child: const Text('Finish erasing', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
+              )
+            else if (archived) ...[
+              IconButton(
+                icon: const Icon(PhosphorIconsRegular.trash, size: 17, color: AppTheme.accentRed),
+                tooltip: 'Erase details',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => _confirmEraseCustomer(context, ref, cust),
+              ),
               TextButton.icon(
                 onPressed: () => _confirmUnarchiveCustomer(context, ref, cust),
                 icon: const Icon(PhosphorIconsRegular.arrowCounterClockwise, size: 15),
@@ -342,8 +362,8 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                   visualDensity: VisualDensity.compact,
                   padding: const EdgeInsets.symmetric(horizontal: 10),
                 ),
-              )
-            else ...[
+              ),
+            ] else ...[
               IconButton(
                 icon: const Icon(PhosphorIconsBold.dotsThree, size: 18, color: Color(0xFF94A3B8)),
                 tooltip: 'Options',
@@ -441,6 +461,59 @@ class _OwnerCustomersTabState extends State<OwnerCustomersTab> with _CustomerDet
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('${cust.name} restored.'), backgroundColor: AppTheme.accentGreen),
+                  );
+                }
+              } catch (e) {
+                setDialogState(() => submitting = false);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(e.toString()), backgroundColor: AppTheme.accentRed),
+                  );
+                }
+              }
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// A client asked to be forgotten (DPDP Act) - see
+  /// AppDataNotifier.eraseCustomer. Irreversible, so the dialog spells out
+  /// what goes and what the salon keeps.
+  void _confirmEraseCustomer(BuildContext context, WidgetRef ref, Customer cust) {
+    final finishing = cust.erased;
+    bool submitting = false;
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AppDialog(
+          icon: PhosphorIconsRegular.trash,
+          iconColor: AppTheme.accentRed,
+          iconBackground: const Color(0xFFFEE2E2),
+          title: finishing ? 'Finish erasing?' : 'Erase ${cust.name}\'s details?',
+          subtitle: finishing ? null : 'Use this when a client asks you to delete their information.',
+          child: Text(
+            finishing
+                ? 'Erasing stopped partway last time. This removes the client\'s name from the rest of their bills and messages.'
+                : 'Their name, phone number, email, gender, birthday, notes and WhatsApp consent are removed for good, '
+                    'and their bills and messages will say "$kErasedClientName".\n\n'
+                    'Bill amounts and dates are kept for your accounts and GST. This cannot be undone.',
+            style: const TextStyle(fontSize: 12.5, color: AppTheme.slateMedium, height: 1.4),
+          ),
+          actions: AppDialogActions(
+            submitLabel: finishing ? 'Finish' : 'Erase',
+            submitColor: AppTheme.accentRed,
+            submitting: submitting,
+            onCancel: () => Navigator.pop(ctx),
+            onSubmit: () async {
+              setDialogState(() => submitting = true);
+              try {
+                await ref.read(appDataProvider.notifier).eraseCustomer(cust.id);
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Client details erased.'), backgroundColor: AppTheme.accentGreen),
                   );
                 }
               } catch (e) {
@@ -1030,7 +1103,12 @@ void showClientBirthdayDialog(BuildContext context, WidgetRef ref, Customer cust
           children: [
             BirthdayPicker(initial: birthday, onChanged: (b) => birthday = b),
             const SizedBox(height: 8),
-            WhatsAppOptInTile(value: optIn, onChanged: (v) => setDialogState(() => optIn = v)),
+            WhatsAppOptInTile(
+              value: optIn,
+              onChanged: (v) => setDialogState(() => optIn = v),
+              recordedAt: cust.whatsappConsentAt,
+              recordedBy: cust.whatsappConsentByName,
+            ),
           ],
         ),
         actions: AppDialogActions(

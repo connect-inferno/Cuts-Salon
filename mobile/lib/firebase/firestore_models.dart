@@ -261,6 +261,15 @@ class FSCustomer {
   /// The client agreed to WhatsApp messages (bill, birthday, reminders).
   /// Meta's rules and Indian data law both need this before messaging them.
   final bool whatsappOptIn;
+  /// Proof of that agreement: when it was recorded and by whom
+  /// (whatsappConsentBy holds the uid). Written whenever the tick goes on;
+  /// turning it off stamps whatsappOptOutAt instead.
+  final DateTime? whatsappConsentAt;
+  final String? whatsappConsentByName;
+  /// Personal details erased (see SalonFirestore.eraseCustomer). The rules
+  /// read erasedAt before letting a bill's name be scrubbed.
+  final DateTime? erasedAt;
+  final bool erasureDone;
 
   FSCustomer({
     required this.id,
@@ -282,6 +291,10 @@ class FSCustomer {
     this.createdByName,
     this.birthday,
     this.whatsappOptIn = false,
+    this.whatsappConsentAt,
+    this.whatsappConsentByName,
+    this.erasedAt,
+    this.erasureDone = false,
   });
 
   factory FSCustomer.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -306,6 +319,10 @@ class FSCustomer {
       createdByName: d['createdByName'],
       birthday: d['birthday'],
       whatsappOptIn: d['whatsappOptIn'] ?? false,
+      whatsappConsentAt: _ts(d['whatsappConsentAt']),
+      whatsappConsentByName: d['whatsappConsentByName'],
+      erasedAt: _ts(d['erasedAt']),
+      erasureDone: d['erasureDone'] ?? false,
     );
   }
 
@@ -335,6 +352,11 @@ class FSCustomer {
         // bumps inside createBill) must never rewrite it.
         if (isCreate && createdById != null) 'createdById': createdById,
         if (isCreate && createdByName != null) 'createdByName': createdByName,
+        // A client ticked as agreeing when added: whoever added them recorded
+        // it, now. Later changes go through SalonFirestore.consentChanges.
+        if (isCreate && whatsappOptIn) 'whatsappConsentAt': FieldValue.serverTimestamp(),
+        if (isCreate && whatsappOptIn) 'whatsappConsentBy': createdById,
+        if (isCreate && whatsappOptIn) 'whatsappConsentByName': createdByName,
       };
 }
 

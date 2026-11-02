@@ -33,7 +33,8 @@ for a year.
 - `src/content.js` - tour steps, feature cards, gallery captions, FAQ. Only
   claim what the app really does (check CLAUDE.md).
 - `src/legalText.js` - privacy policy and disclaimer, generated from
-  `mobile/lib/features/legal/legal_pages.dart`. Update both together.
+  `mobile/lib/features/legal/legal_pages.dart` by
+  `node scripts/gen-legal-text.js` (from the repo root). Edit the Dart, then run it.
 - `src/three/Scene.jsx` - the 3D phone, floating cards and lighting.
   `src/three/stage.js` holds the numbers GSAP animates and the scene follows.
 - `src/App.jsx` - page layout and all scroll choreography (`useGSAP`).

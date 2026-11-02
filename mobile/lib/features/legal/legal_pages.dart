@@ -9,11 +9,13 @@ import '../../widgets/app_page_header.dart';
 /// profile pages (see widgets/account_security.dart).
 ///
 /// Plain-language drafts written from what this app actually does - one
-/// Firebase project per salon, WhatsApp only on opt-in, location on clock-in
-/// when the phone allows it. Have them reviewed before relying on them
-/// legally, and update [kLegalEffectiveDate] whenever the text changes.
+/// Firebase project per salon, WhatsApp only on opt-in, clock-in by scanning
+/// the owner's QR (camera only, no location). Have them reviewed before
+/// relying on them legally, and update [kLegalEffectiveDate] whenever the
+/// text changes. website/src/legalText.js is a copy of this text - change
+/// both together.
 
-const kLegalEffectiveDate = '14 October 2026';
+const kLegalEffectiveDate = '2 November 2026';
 
 /// Where people write to about privacy. If this is ever emptied, the pages
 /// point people to their salon owner instead of printing a blank address.
@@ -90,9 +92,13 @@ const privacyPolicySections = [
   ]),
   LegalSection('What is stored', [
     'Owner and staff accounts: name, email address, phone number, role, branch, base salary, commission rates, attendance (clock-in and clock-out times), salary slips and commission earned. Passwords are handled by Google Firebase Authentication - Stylux never sees or stores them.',
-    'Location at clock-in and clock-out: when the phone or browser allows it, the place a shift was started and ended is saved with that day\'s attendance, so the owner can see it. If location is turned off or refused, attendance still works and the record says the location was unavailable.',
-    'Salon clients: name, phone number, and optionally email, birthday (day and month only - no year), whether they agreed to WhatsApp messages, visits, bills, payments and anything still owed.',
-    'Salon business records: services, products and stock, expenses, discounts, branches, and settings such as GST.',
+    'Salon clients: name, phone number, and optionally email, gender, birthday (day and month only - no year) and notes the salon writes; whether they agreed to WhatsApp messages, and when and by whom that was recorded; visits, bills, payments and anything still owed.',
+    'Salon business records: services, products and stock, expenses, discounts, branches, settings such as GST, and the payment and Google review QR images the owner adds.',
+  ]),
+  LegalSection('Camera and location', [
+    'Staff clock in and out by scanning a QR code on the owner\'s screen. The app uses the camera only while that scanner is open, only to read the code - no photo or video is saved or sent anywhere.',
+    'When the owner adds a payment or review QR image, the app opens the phone\'s photo picker for that one image.',
+    'Stylux does not collect your location, contacts or advertising identifiers.',
   ]),
   LegalSection('How it is used', [
     'Only to run the salon: making bills, keeping client history, tracking attendance and stock, and working out pay and commission.',
@@ -101,7 +107,8 @@ const privacyPolicySections = [
   ]),
   LegalSection('Where it is kept', [
     'Every salon has its own separate Google Firebase project (a database and a sign-in system), so one salon\'s data is kept apart from every other salon\'s.',
-    'A small shared directory stores only each person\'s email address and which salon they belong to, so sign-in goes straight to the right salon. It holds no passwords and no salon data.',
+    'A small shared directory stores only each person\'s email address and which salon they belong to, so sign-in goes straight to the right salon. It holds no passwords and no salon records.',
+    'The payment and review QR images are kept in shared Google storage, where anyone with the link can view them - the same as the printed QR at the counter. Do not put anything in them that you would not show a client.',
     'Information travels over encrypted connections (HTTPS) and Google encrypts it where it is stored.',
   ]),
   LegalSection('Who it is shared with', [
@@ -114,11 +121,12 @@ const privacyPolicySections = [
     'When a salon stops using Stylux, it can ask for its data to be deleted, except where it must be kept by law.',
   ]),
   LegalSection('Your choices and rights', [
-    'You can ask to see, correct or delete information about you, and you can withdraw consent - for example, to stop WhatsApp messages. Salon clients should ask their salon, which can update or remove the record. Staff and owners can ask the salon owner or the Stylux team.',
+    'You can ask to see, correct or delete information about you, and you can withdraw consent - for example, to stop WhatsApp messages. Salon clients should ask their salon, which can correct a record, switch off WhatsApp messages, or erase the client\'s personal details from Stylux - their name, phone number, email, birthday and notes, including the name on past bills and messages. Bill amounts and dates are kept, without the personal details, for the salon\'s accounts and tax records. Staff and owners can ask the salon owner or the Stylux team.',
     'Under India\'s Digital Personal Data Protection Act, 2023, you may also raise a complaint with the Data Protection Board of India.',
   ]),
   LegalSection('Security', [
     'Each salon\'s data is isolated, and access rules decide who can read or change each record. Keep your password private and sign out on shared devices. No system can be made perfectly secure, so please tell the salon owner straight away if you think an account has been misused.',
+    'If a security breach affects personal information, Stylux will tell the salon, and where the law requires it, the people affected and the Data Protection Board of India.',
   ]),
   LegalSection('Children', [
     'Owner and staff accounts are for adults. A salon may record a child as a client; in that case the salon should have a parent or guardian\'s agreement.',
@@ -139,8 +147,8 @@ const disclaimerSections = [
   LegalSection('WhatsApp messages', [
     'The salon is responsible for having each client\'s agreement before messages are sent and for following Meta\'s WhatsApp Business rules. Delivery depends on Meta; Stylux is not responsible for messages Meta delays, blocks or charges for.',
   ]),
-  LegalSection('Attendance and location', [
-    'Clock-in times and locations are a record to help the owner, not proof. A phone may report its location inaccurately or not at all.',
+  LegalSection('Attendance', [
+    'Clock-in and clock-out times are a record to help the owner, not proof. Scanning the QR shows the person was at the owner\'s screen when they punched; it cannot show who held the phone.',
   ]),
   LegalSection('Accounts and access', [
     'Keep your password private. The owner decides who gets an account and should remove access for anyone who leaves. Actions taken while signed in to an account are treated as that account\'s.',

@@ -499,6 +499,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       throw Exception('Another client already has this phone number');
     }
     final cleanEmail = (email ?? '').trim().isEmpty ? null : email!.trim();
+    final consent = _consentStamp(was: existing.whatsappOptIn, now: whatsappOptIn);
     await _fs.updateCustomer(id, {
       'name': trimmedName,
       'phone': trimmedPhone,
@@ -506,6 +507,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       'gender': gender,
       'birthday': birthday,
       'whatsappOptIn': whatsappOptIn,
+      ...consent.changes,
     });
     final updated = Customer(
       id: existing.id,
@@ -527,6 +529,8 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       createdByName: existing.createdByName,
       birthday: birthday,
       whatsappOptIn: whatsappOptIn,
+      whatsappConsentAt: consent.changes.isEmpty ? existing.whatsappConsentAt : consent.at,
+      whatsappConsentByName: consent.changes.isEmpty ? existing.whatsappConsentByName : consent.byName,
     );
     // Re-read after the await - see the note in archiveCustomer.
     final latest = state.value;
@@ -547,7 +551,9 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
   }) async {
     _requireOwner();
     _checkBirthday(birthday);
-    await _fs.updateCustomer(id, {'birthday': birthday, 'whatsappOptIn': whatsappOptIn});
+    final before = state.value?.customers.where((c) => c.id == id) ?? const Iterable<Customer>.empty();
+    final consent = _consentStamp(was: before.isEmpty ? false : before.first.whatsappOptIn, now: whatsappOptIn);
+    await _fs.updateCustomer(id, {'birthday': birthday, 'whatsappOptIn': whatsappOptIn, ...consent.changes});
     // Re-read after the await - see the note in archiveCustomer.
     final latest = state.value;
     if (latest == null) return;
@@ -570,13 +576,29 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
             totalSpent: c.totalSpent,
             outstandingBalance: c.outstandingBalance,
             lastVisitAt: c.lastVisitAt,
+            lastReminderAt: c.lastReminderAt,
             archived: c.archived,
             createdById: c.createdById,
             createdByName: c.createdByName,
             birthday: birthday,
             whatsappOptIn: whatsappOptIn,
+            whatsappConsentAt: consent.changes.isEmpty ? c.whatsappConsentAt : consent.at,
+            whatsappConsentByName: consent.changes.isEmpty ? c.whatsappConsentByName : consent.byName,
           ),
     ]));
+  }
+
+  /// The Firestore stamps for a change to a client's WhatsApp tick (see
+  /// SalonFirestore.consentChanges), plus what to show locally until the
+  /// next load brings the server time.
+  ({Map<String, dynamic> changes, DateTime at, String? byName}) _consentStamp({required bool was, required bool now}) {
+    final auth = ref.read(authControllerProvider);
+    final byName = state.value?.employeeById(auth.userId ?? '')?.name ?? auth.name;
+    return (
+      changes: SalonFirestore.consentChanges(was: was, now: now, byId: auth.userId, byName: byName),
+      at: DateTime.now(),
+      byName: byName,
+    );
   }
 
   /// "MM-DD" or nothing - the exact shape functions/index.js matches on, so a
@@ -633,6 +655,23 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       archivedCustomers: latest.archivedCustomers.where((c) => c.id != id).toList(),
       customers: [moved.isEmpty ? match.first : moved.first, ...latest.customers],
     ));
+  }
+
+  /// Erases an archived client's personal details for good (a client asked
+  /// to be forgotten). Only from the archive, so it is always two deliberate
+  /// steps. Also finishes an erase that stopped partway (erased but not
+  /// erasureDone). See SalonFirestore.eraseCustomer for what goes and what
+  /// stays; reloads afterwards so bills in memory show the new name.
+  Future<void> eraseCustomer(String id) async {
+    _requireOwner();
+    final current = state.value;
+    if (current == null) throw Exception('Not ready yet - try again in a moment');
+    final match = current.archivedCustomers.where((c) => c.id == id);
+    if (match.isEmpty) throw Exception('Archive the client first');
+    if (match.first.erasureDone) return;
+    final auth = ref.read(authControllerProvider);
+    await _fs.eraseCustomer(id, byId: auth.userId ?? '');
+    await refresh();
   }
 
   // On-demand, not part of AppData - a customer's full visit history isn't
@@ -1099,6 +1138,8 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
               lastReminderAt: reminderReturn ? null : c.lastReminderAt,
               birthday: c.birthday,
               whatsappOptIn: c.whatsappOptIn,
+              whatsappConsentAt: c.whatsappConsentAt,
+              whatsappConsentByName: c.whatsappConsentByName,
             ),
       ],
       branches: [
@@ -1216,6 +1257,8 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
               archived: c.archived,
               birthday: c.birthday,
               whatsappOptIn: c.whatsappOptIn,
+              whatsappConsentAt: c.whatsappConsentAt,
+              whatsappConsentByName: c.whatsappConsentByName,
             ),
       ],
     ));
