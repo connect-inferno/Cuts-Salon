@@ -311,14 +311,12 @@ reads them can merge any time after. Functions with the per-message
 settings and per-service reminders are on `test-salon-ee06a`, the only
 WhatsApp salon.
 
-**Client erasure (`attendance` branch) - rules deployed to
-`test-salon-ee06a` only (2026-11-02); `cuts-salon` and `instyle-salon` NOT
-yet.** Allows the owner to change a bill's `customerName` and a
-`whatsappLog` entry's `customerName`/`to` for an erased client only.
-Additive, so deploy to the real salons with `scripts/deploy-salons.sh
-rules` before merging; until then "Erase" there fails at the bills step
-(the client record itself is already erased, and "Finish erasing"
-completes it once the rules are live).
+**Client erasure (`attendance` branch) - rules deployed to all three
+salons on 2026-11-02** with `scripts/deploy-salons.sh rules` (124 rules
+tests passed first). Allows the owner to change a bill's `customerName`
+and a `whatsappLog` entry's `customerName`/`to` for an erased client only.
+Additive, so the app already on Vercel keeps working; the app that uses
+it can merge any time after.
 
 ## Onboarding a new salon
 
