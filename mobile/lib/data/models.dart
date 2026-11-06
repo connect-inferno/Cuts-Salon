@@ -1,3 +1,5 @@
+import 'client_package.dart';
+
 // Shared app-facing data shapes, built from Firestore documents (see
 // firebase/firestore_models.dart's `xFromFS` converters). Numeric fields
 // still go through `_num`/`_int` defensively rather than a direct cast.
@@ -231,6 +233,15 @@ class SalonService {
   /// reminder goes - see FSService.reminderDays. Null = the salon's general
   /// gap (SalonSettings.whatsappReminderDays).
   final int? reminderDays;
+  /// Who it's for: kAudienceGents, kAudienceLadies (data/service_menu.dart),
+  /// or null for both.
+  final String? audience;
+  /// The price is settled on the bill, not fixed on the menu: a treatment
+  /// that depends on consultation, or one with several tiers. [price] is then
+  /// the lowest it can be, or 0 if the menu doesn't say.
+  final bool priceVaries;
+  /// The usual prices to offer on the bill, lowest first. Optional.
+  final List<double> priceOptions;
 
   SalonService({
     required this.id,
@@ -239,6 +250,9 @@ class SalonService {
     required this.categoryId,
     this.categoryName,
     this.reminderDays,
+    this.audience,
+    this.priceVaries = false,
+    this.priceOptions = const [],
   });
 
   factory SalonService.fromJson(Map<String, dynamic> json) => SalonService(
@@ -354,6 +368,9 @@ class Bill {
   final List<BillItem> items;
   /// The approved discount request this bill used (see FSBill).
   final String? discountRequestId;
+  /// Prepaid credit spent on this bill. Part of [amountPaid], but no money
+  /// changed hands for it.
+  final double packageAmount;
 
   Bill({
     required this.id,
@@ -372,16 +389,19 @@ class Bill {
     this.createdAt,
     required this.items,
     this.discountRequestId,
+    this.packageAmount = 0,
   });
 
   /// Everything received on this bill, keyed by how it was received: the
   /// counter payment under the bill's own [paymentMethod], each later
-  /// settlement under its own method. Sums to [amountPaid].
+  /// settlement under its own method, package credit under PACKAGE. Sums to
+  /// [amountPaid].
   Map<String, double> get collectedByMethod {
     final later = laterPaymentsByMethod.values.fold(0.0, (s, v) => s + v);
-    final atCounter = amountPaid - later;
+    final atCounter = amountPaid - later - packageAmount;
     final out = <String, double>{};
     if (atCounter > 0.009) out[paymentMethod] = atCounter;
+    if (packageAmount > 0.009) out[kPackageMethod] = packageAmount;
     laterPaymentsByMethod.forEach((method, amount) => out[method] = (out[method] ?? 0) + amount);
     return out;
   }
@@ -633,6 +653,10 @@ class DashboardSummary {
   final int todayBillCount;
   final int todayAttendanceCount;
   final int lowStockItemCount;
+  /// Package credit spent on today's bills: takings with no money behind it.
+  final double todayPackageUsed;
+  /// Money taken for packages today. Already inside the cash and UPI figures.
+  final double todayPackageSold;
 
   DashboardSummary({
     required this.todaySales,
@@ -646,6 +670,8 @@ class DashboardSummary {
     required this.todayBillCount,
     required this.todayAttendanceCount,
     required this.lowStockItemCount,
+    this.todayPackageUsed = 0,
+    this.todayPackageSold = 0,
   });
 
   factory DashboardSummary.fromJson(Map<String, dynamic> json) {
@@ -662,6 +688,8 @@ class DashboardSummary {
       todayBillCount: _int(json['todayBillCount']),
       todayAttendanceCount: _int(json['todayAttendanceCount']),
       lowStockItemCount: _int(json['lowStockItemCount']),
+      todayPackageUsed: _num(json['todayPackageUsed']),
+      todayPackageSold: _num(json['todayPackageSold']),
     );
   }
 
@@ -710,6 +738,8 @@ class SalonSettings {
   /// QR image URLs - see FSSettings.paymentQrUrl / reviewQrUrl.
   final String? paymentQrUrl;
   final String? reviewQrUrl;
+  /// The prepaid packages this salon sells - see FSSettings.packagePlans.
+  final List<PackagePlan> packagePlans;
 
   SalonSettings({
     required this.salonName,
@@ -728,6 +758,7 @@ class SalonSettings {
     this.whatsappReminderDays = 21,
     this.paymentQrUrl,
     this.reviewQrUrl,
+    this.packagePlans = const [],
   });
 
   /// The rate that actually applies to a bill. Every caller should use this
@@ -787,8 +818,13 @@ String paymentMethodLabel(String method) => switch (method) {
       'UPI' => 'UPI',
       'CARD' => 'Card',
       'PENDING' => 'Pay later',
+      kPackageMethod => 'Package',
       _ => method,
     };
+
+/// A bill settled wholly from prepaid credit, and the key that credit has in
+/// [Bill.collectedByMethod]. Never counted as money received.
+const String kPackageMethod = 'PACKAGE';
 
 /// How a stored expense category code (RENT, UTILITIES, ...) reads on screen.
 String expenseCategoryLabel(String category) => switch (category) {

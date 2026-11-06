@@ -5,7 +5,9 @@ import 'package:firebase_core/firebase_core.dart';
 import '../data/attendance_shift.dart';
 import '../data/bill_math.dart';
 import '../data/insights.dart' show RollupLine, billRollupFields, nestRollupFields, monthKey;
-import '../data/models.dart' show kErasedClientName;
+import '../data/models.dart' show ServiceCategory, kErasedClientName;
+import '../data/client_package.dart';
+import '../data/service_menu.dart' show MenuEntry, audiencesOverlap;
 import 'firestore_models.dart';
 
 double _round2(num n) => (n * 100).round() / 100;
@@ -541,7 +543,45 @@ class SalonFirestore {
       price: service.price,
       categoryId: service.categoryId,
       categoryName: service.categoryName,
+      reminderDays: service.reminderDays,
+      audience: service.audience,
+      priceVaries: service.priceVaries,
+      priceOptions: service.priceOptions,
     );
+  }
+
+  /// A whole menu in a few batched writes, creating any category it needs
+  /// first. Nothing is read back: the caller reloads once afterwards.
+  Future<void> createMenuServices(List<MenuEntry> entries, List<ServiceCategory> existing) async {
+    final ids = {for (final c in existing) c.name.toLowerCase(): c.id};
+    final writes = <void Function(WriteBatch)>[];
+    for (final e in entries) {
+      final key = e.category.toLowerCase();
+      if (!ids.containsKey(key)) {
+        final ref = db.collection('serviceCategories').doc();
+        ids[key] = ref.id;
+        writes.add((b) => b.set(ref, {'name': e.category}));
+      }
+      final service = FSService(
+        id: '',
+        name: e.name,
+        price: e.price,
+        categoryId: ids[key]!,
+        categoryName: e.category,
+        audience: e.audience,
+        priceVaries: e.priceVaries,
+        priceOptions: e.priceOptions,
+      );
+      writes.add((b) => b.set(db.collection('services').doc(), service.toFirestore()));
+    }
+    // One batch holds at most 500 writes.
+    for (var i = 0; i < writes.length; i += 400) {
+      final batch = db.batch();
+      for (final write in writes.skip(i).take(400)) {
+        write(batch);
+      }
+      await batch.commit();
+    }
   }
 
   Future<void> updateService(String id, Map<String, dynamic> changes) =>
@@ -550,9 +590,18 @@ class SalonFirestore {
   // Mirrors service.service.ts's per-salon name-uniqueness check.
   // A removed (archived) service doesn't hold on to its name - a salon that
   // takes "Haircut" off the menu must be able to add a new "Haircut" later.
-  Future<bool> isServiceNameTaken(String name) async {
+  // A name is only taken inside one category and for the same clients: the
+  // menu has a "Regular" clean up, manicure and pedicure, and a Gents and a
+  // Ladies "Frizz hair" at different prices.
+  Future<bool> isServiceNameTaken(String name, {required String categoryId, String? audience, String? exceptId}) async {
     final snap = await db.collection('services').where('name', isEqualTo: name).get();
-    return snap.docs.any((d) => d.data()['archived'] != true);
+    return snap.docs.any((d) {
+      final data = d.data();
+      return d.id != exceptId &&
+          data['archived'] != true &&
+          data['categoryId'] == categoryId &&
+          audiencesOverlap(data['audience'] as String?, audience);
+    });
   }
 
   Future<List<FSInventoryItem>> listInventory() async {
@@ -619,6 +668,10 @@ class SalonFirestore {
     /// services' own gaps; null = the salon's general gap (and clears any
     /// date an earlier bill left).
     String? reminderDueOn,
+    /// Prepaid credit to spend, and the packages to spend it from, in order.
+    /// Re-read inside the transaction, so two tills can't spend one balance.
+    double packageCredit = 0,
+    List<String> packageIds = const [],
   }) async {
     if (items.isEmpty) throw Exception('A bill must have at least one item');
     final billRef = db.collection('bills').doc();
@@ -676,6 +729,13 @@ class SalonFirestore {
           freshTargets[d.reference.path] = await tx.get(d.reference);
         }
       }
+      final packages = <ClientPackage>[];
+      for (final id in packageIds) {
+        final snap = await tx.get(db.collection('clientPackages').doc(id));
+        if (!snap.exists) continue;
+        final package = clientPackageFromDoc(snap);
+        if (package.isUsableAt(now)) packages.add(package);
+      }
 
       // ---- COMPUTE ----
       double subTotal = 0;
@@ -703,10 +763,21 @@ class SalonFirestore {
       // the random document id (INV-L5ARGFGK), which no salon could quote
       // or file. Bills from before this keep their old numbers.
       final invoiceNumber = 'INV-${invoiceSeq.toString().padLeft(4, '0')}';
-      final amountPaid = _round2(
-        amountPaidNow == null ? finalAmount : amountPaidNow.clamp(0, finalAmount),
+      final credit = _round2(packageCredit.clamp(0, finalAmount));
+      final packageDraws = drawFromPackages(packages, credit);
+      final drawn = _round2(packageDraws.values.fold(0.0, (s, v) => s + v));
+      if (drawn < credit - 0.009) {
+        throw Exception('This client\'s package balance has changed. Check it and try again.');
+      }
+      final packageBonus = packageBonusOf(packageDraws, packages);
+      // Money handed over at the counter; the credit covers the rest.
+      final owedAfterCredit = _round2(finalAmount - credit);
+      final tillPaid = _round2(
+        amountPaidNow == null ? owedAfterCredit : amountPaidNow.clamp(0, owedAfterCredit),
       );
+      final amountPaid = _round2(credit + tillPaid);
       final amountDue = _round2(finalAmount - amountPaid);
+      final billMethod = credit > 0 && owedAfterCredit <= 0.009 ? 'PACKAGE' : paymentMethod;
 
       // ---- WRITES ----
       if (counterSnap.exists) {
@@ -724,11 +795,18 @@ class SalonFirestore {
         discountAmount: discountAmount,
         taxAmount: taxAmount,
         finalAmount: finalAmount,
-        paymentMethod: paymentMethod,
+        paymentMethod: billMethod,
         amountPaid: amountPaid,
         createdBy: createdBy,
+        packageAmount: credit,
+        packageDraws: packageDraws,
       );
       tx.set(billRef, bill.toFirestore(isCreate: true));
+      for (final p in packages) {
+        final draw = packageDraws[p.id];
+        if (draw == null) continue;
+        tx.update(db.collection('clientPackages').doc(p.id), {'balance': _round2(p.balance - draw)});
+      }
 
       // What this bill adds to the analytics rollups - same numbers for the
       // day doc and the month doc, so Reports can chart a year from ~13
@@ -756,6 +834,8 @@ class SalonFirestore {
             firstVisit: firstVisit,
             reminderReturn: reminderReturn,
             monthly: monthly,
+            packageUsed: credit,
+            packageBonus: packageBonus,
           );
       dynamic inc(num v) => FieldValue.increment(v);
       final dayExtras = rollup(monthly: false)
@@ -791,7 +871,7 @@ class SalonFirestore {
           // actually collected, which is what the pre-rollup query did.
           // A PENDING bill lands in no bucket, by design - see
           // getDashboardSummary's note on billed vs received.
-          if (_isTillMethod(paymentMethod)) 'collected_$paymentMethod': FieldValue.increment(amountPaid),
+          if (_isTillMethod(billMethod)) 'collected_$billMethod': FieldValue.increment(tillPaid),
           // arrayUnion, so a client billed twice in a day is still one
           // visitor - the figure is "distinct clients", not "bills".
           'customerIds': FieldValue.arrayUnion([customerId]),
@@ -900,8 +980,99 @@ class SalonFirestore {
         commissions: createdCommissions,
         stockDeltas: stockDeltas,
         updatedTargets: updatedTargets,
+        packageDraws: packageDraws,
       );
     });
+  }
+
+  // --- Packages ---
+
+  static ClientPackage clientPackageFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final d = doc.data() ?? const <String, dynamic>{};
+    final expires = d['expiresAt'];
+    final sold = d['soldAt'];
+    return ClientPackage(
+      id: doc.id,
+      customerId: d['customerId'] as String? ?? '',
+      paidAmount: _double(d['paidAmount']),
+      creditValue: _double(d['creditValue']),
+      balance: _double(d['balance']),
+      paymentMethod: d['paymentMethod'] as String? ?? 'CASH',
+      soldAt: sold is Timestamp ? sold.toDate() : null,
+      expiresAt: expires is Timestamp ? expires.toDate() : DateTime.fromMillisecondsSinceEpoch(0),
+    );
+  }
+
+  /// Packages with credit left. A spent package has nothing to show, so the
+  /// list stays the size of what's live rather than growing for ever.
+  ///
+  /// A refusal comes back empty rather than failing: this runs inside the
+  /// sign-in load, and a salon whose rules haven't reached it yet must still
+  /// open. New Bill just won't offer any credit there.
+  Future<List<ClientPackage>> listClientPackages() async {
+    try {
+      final snap = await db.collection('clientPackages').where('balance', isGreaterThan: 0).get();
+      return snap.docs.map(clientPackageFromDoc).toList();
+    } on FirebaseException catch (e) {
+      debugPrint('[Stylux] could not read clientPackages: ${e.code}');
+      return const [];
+    }
+  }
+
+  /// One atomic write: the package, and the money under its method in the
+  /// day's and month's rollups. Selling bills nothing, so `sales` stays put.
+  Future<ClientPackage> sellPackage({
+    required String customerId,
+    required String branchId,
+    required PackagePlan plan,
+    required String paymentMethod,
+    required String soldBy,
+  }) async {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final expiresAt = addMonths(now, plan.months);
+    final ref = db.collection('clientPackages').doc();
+    final batch = db.batch();
+    batch.set(ref, {
+      'customerId': customerId,
+      'branchId': branchId,
+      'paidAmount': plan.pay,
+      'creditValue': plan.worth,
+      'balance': plan.worth,
+      'paymentMethod': paymentMethod,
+      'months': plan.months,
+      'soldBy': soldBy,
+      'soldAt': FieldValue.serverTimestamp(),
+      'expiresAt': Timestamp.fromDate(expiresAt),
+    });
+    batch.set(
+      db.collection('dailyStats').doc(dailyStatsDocId(todayStart)),
+      {
+        'date': Timestamp.fromDate(todayStart),
+        'packageSales': FieldValue.increment(plan.pay),
+        if (_isTillMethod(paymentMethod)) 'collected_$paymentMethod': FieldValue.increment(plan.pay),
+      },
+      SetOptions(merge: true),
+    );
+    batch.set(
+      db.collection('monthlyStats').doc(monthKey(now)),
+      {
+        'month': Timestamp.fromDate(DateTime(now.year, now.month, 1)),
+        'packageSales': FieldValue.increment(plan.pay),
+      },
+      SetOptions(merge: true),
+    );
+    await batch.commit();
+    return ClientPackage(
+      id: ref.id,
+      customerId: customerId,
+      paidAmount: plan.pay,
+      creditValue: plan.worth,
+      balance: plan.worth,
+      paymentMethod: paymentMethod,
+      soldAt: now,
+      expiresAt: expiresAt,
+    );
   }
 
   // Capped, not the whole history - a salon running for a year+ can have
@@ -1723,7 +1894,7 @@ class SalonFirestore {
     // todaySales above stays on finalAmount: that's revenue booked, which is
     // a different question from cash received.
     double sumByMethod(String method) => _round2(
-          todayBills.where((b) => b.paymentMethod == method).fold(0.0, (s, b) => s + b.amountPaid) +
+          todayBills.where((b) => b.paymentMethod == method).fold(0.0, (s, b) => s + b.amountPaid - b.packageAmount) +
               todayBills
                   .expand((b) => todayPayments[b.id] ?? const <FSPayment>[])
                   .where((p) => p.method == method)
@@ -1748,6 +1919,7 @@ class SalonFirestore {
       'todayBillCount': todayBills.length,
       'todayAttendanceCount': todayAttendanceCount,
       'lowStockItemCount': lowStockItemCount,
+      'todayPackageUsed': _round2(todayBills.fold(0.0, (s, b) => s + b.packageAmount)),
     };
   }
 
@@ -1803,6 +1975,8 @@ class SalonFirestore {
       'todayBillCount': (today['billCount'] as num?)?.toInt() ?? 0,
       'todayAttendanceCount': todayAttendanceCount,
       'lowStockItemCount': lowStockItemCount,
+      'todayPackageUsed': _round2(_double(today['packageUsed'])),
+      'todayPackageSold': _round2(_double(today['packageSales'])),
     };
   }
 
@@ -1855,6 +2029,8 @@ class SalonFirestore {
         'todayOutstanding': _round2(_double(d['outstanding']).clamp(0, double.infinity)),
         'todayCustomersCount': (d['customerIds'] as List<dynamic>?)?.length ?? 0,
         'todayBillCount': (d['billCount'] as num?)?.toInt() ?? 0,
+        'todayPackageUsed': _round2(_double(d['packageUsed'])),
+        'todayPackageSold': _round2(_double(d['packageSales'])),
       };
     });
   }
@@ -2101,12 +2277,16 @@ class FSCreatedBill {
   /// progress (and ACHIEVED status, where it tipped over).
   final Map<String, FSSalesTarget> updatedTargets;
 
+  /// clientPackages id -> credit this bill took from it.
+  final Map<String, double> packageDraws;
+
   const FSCreatedBill({
     required this.bill,
     required this.items,
     required this.commissions,
     required this.stockDeltas,
     required this.updatedTargets,
+    this.packageDraws = const {},
   });
 }
 

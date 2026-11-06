@@ -30,12 +30,17 @@ class BillHistoryView extends StatefulWidget {
   /// formatting a bill differently.
   final String? onlyEmployeeId;
 
+  /// When set, only this branch's bills are listed and counted. Null is every
+  /// branch.
+  final String? branchId;
+
   const BillHistoryView({
     super.key,
     required this.state,
     this.onOpenCustomer,
     this.onOpenReports,
     this.onlyEmployeeId,
+    this.branchId,
   });
 
   @override
@@ -134,9 +139,11 @@ class _BillHistoryViewState extends State<BillHistoryView> {
 
   /// Every bill this view is allowed to show, before search and filters.
   List<Bill> get _scopedBills {
+    final branch = widget.branchId;
+    final bills = branch == null ? widget.state.bills : widget.state.bills.where((b) => b.branchId == branch).toList();
     final id = widget.onlyEmployeeId;
-    if (id == null) return widget.state.bills;
-    return widget.state.bills
+    if (id == null) return bills;
+    return bills
         .where((b) => b.items.any((i) => i.employeeId == id))
         .toList();
   }
@@ -199,6 +206,9 @@ class _BillHistoryViewState extends State<BillHistoryView> {
             todayUpi += amount;
           case 'CARD':
             todayCard += amount;
+          case kPackageMethod:
+            // Credit bought earlier, not money in the till today.
+            break;
           default:
             // CASH, and anything taken at the counter on a PENDING bill
             // (no method recorded for it), which was always shown as cash.
@@ -280,7 +290,9 @@ class _BillHistoryViewState extends State<BillHistoryView> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Collected today', style: TextStyle(fontSize: 12.5, color: AppTheme.slateLight)),
+                      // On bills, not Home's whole-day figure: a package sale
+                      // is money in but isn't a bill, so it isn't counted here.
+                      const Text('Collected on bills today', style: TextStyle(fontSize: 12.5, color: AppTheme.slateLight)),
                       const SizedBox(height: 2),
                       Text(
                         _rupees(total),

@@ -1,3 +1,4 @@
+import 'client_package.dart';
 import 'models.dart';
 
 // Split out of app_data_provider.dart so both the REST provider and
@@ -51,6 +52,9 @@ class AppData {
   final List<AttendanceRecord> attendance;
   final DashboardSummary? dashboard;
   final SalonSettings? settings;
+  /// Packages with credit left, expired ones included. Owner only: staff
+  /// don't bill, so they've no use for a client's balance.
+  final List<ClientPackage> clientPackages;
 
   AppData({
     required this.branches,
@@ -67,6 +71,7 @@ class AppData {
     required this.attendance,
     required this.dashboard,
     required this.settings,
+    this.clientPackages = const [],
   });
 
   // Resolves a name for display without an extra network round trip -
@@ -136,6 +141,7 @@ class AppData {
     List<AttendanceRecord>? attendance,
     DashboardSummary? dashboard,
     SalonSettings? settings,
+    List<ClientPackage>? clientPackages,
   }) {
     return AppData(
       branches: branches ?? this.branches,
@@ -152,6 +158,7 @@ class AppData {
       attendance: attendance ?? this.attendance,
       dashboard: dashboard ?? this.dashboard,
       settings: settings ?? this.settings,
+      clientPackages: clientPackages ?? this.clientPackages,
     );
   }
 }

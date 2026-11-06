@@ -1,9 +1,12 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../theme.dart';
 import '../../../data/app_data_provider.dart';
 import '../../../data/bill_math.dart';
+import '../../../data/client_package.dart';
 import '../../../data/expenses_provider.dart';
 import '../../../data/models.dart';
 import '../../../data/client_search.dart';
@@ -14,11 +17,17 @@ import '../../../widgets/app_dialog.dart';
 import '../../../widgets/app_page_header.dart';
 import '../../../widgets/bill_history_view.dart';
 import '../../../widgets/add_customer_page.dart';
+import '../../../router.dart';
 import '../../../widgets/app_sub_page.dart';
+import 'owner_packages_page.dart' show packageDate;
 import 'owner_reports_page.dart';
+import 'service_picker_page.dart';
 import '../../../data/money.dart';
+import '../../../data/service_menu.dart';
 
 T? _firstOrNull<T>(Iterable<T> items) => items.isEmpty ? null : items.first;
+
+const String _kAllBranches = 'All branches';
 
 
 /// Day only. An expense is logged against a date (stored as midnight), not
@@ -51,10 +60,18 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
   String? _selectedCustomerId;
   String? _selectedEmployeeId;
   String? _selectedBranchId;
+  // The branch History is showing; null = all of them. Separate from the
+  // bill's branch so browsing the past can't change where a new bill goes.
+  String? _historyBranchId;
   final Set<String> _selectedServiceIds = {};
   final Map<String, int> _selectedProductQuantities = {};
-  final _serviceSearchController = TextEditingController();
-  final _productSearchController = TextEditingController();
+  // Which side of the menu the pick screen opens on: Gents, Ladies, or null
+  // for all.
+  String? _serviceAudience;
+  // What each price-varies service on this bill is being charged.
+  final Map<String, double> _servicePrices = {};
+  // Spend the client's package credit on this bill, when they have some.
+  bool _usePackage = true;
   double _discountPercent = 0.0;
   String _paymentMethod = 'UPI';
   // Set only when _paymentMethod == 'PENDING': how much the client is
@@ -63,11 +80,6 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
   final _partPaymentController = TextEditingController();
   // Method used for the portion collected up front on a PENDING bill.
   String _partPaymentMethod = 'CASH';
-  // Products & Retail is a disclosure: collapsed by default so the catalog
-  // doesn't push the payment/total section off-screen. Purely local UI
-  // state - the list itself comes from the already-loaded AppData snapshot,
-  // so expanding it costs no Firestore read.
-  bool _productsExpanded = false;
   bool _submitting = false;
 
   @override
@@ -93,108 +105,74 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
 
   @override
   void dispose() {
-    _serviceSearchController.dispose();
-    _productSearchController.dispose();
     _partPaymentController.dispose();
     super.dispose();
   }
 
-  void _showAddCustomServiceDialog(
-    BuildContext context,
-    WidgetRef ref,
-    AppData state,
-  ) {
-    final nameCtrl = TextEditingController();
-    final priceCtrl = TextEditingController();
-    bool isAdding = false;
-
-    showDialog(
-      context: context,
-      builder:
-          (ctx) => StatefulBuilder(
-            builder:
-                (context, setDlgState) => AppDialog(
-                  icon: PhosphorIconsRegular.scissors,
-                  title: 'Add Custom Service',
-                  subtitle: 'Create a custom one-off or catalog service.',
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextField(
-                        controller: nameCtrl,
-                        decoration: appDialogFieldDecoration(
-                          label: 'Service Name *',
-                          icon: PhosphorIconsRegular.sparkle,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: priceCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: appDialogFieldDecoration(
-                          label: 'Price (₹) *',
-                          icon: PhosphorIconsRegular.currencyInr,
-                        ),
-                      ),
-                    ],
-                  ),
-                  actions: AppDialogActions(
-                    submitLabel: 'Add Service',
-                    submitting: isAdding,
-                    onCancel: () => Navigator.pop(ctx),
-                    onSubmit: () async {
-                      final name = nameCtrl.text.trim();
-                      final price =
-                          double.tryParse(priceCtrl.text.trim()) ?? 0.0;
-                      if (name.isEmpty || price <= 0) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Please enter a valid service name and price.',
-                            ),
-                            backgroundColor: AppTheme.accentRed,
-                          ),
-                        );
-                        return;
-                      }
-                      setDlgState(() => isAdding = true);
-                      try {
-                        final catId =
-                            state.categories.isNotEmpty
-                                ? state.categories.first.id
-                                : 'default';
-                        await ref
-                            .read(appDataProvider.notifier)
-                            .addService(
-                              name: name,
-                              price: price,
-                              categoryId: catId,
-                            );
-                        // Also select this new service automatically once loaded
-                        if (ctx.mounted) Navigator.pop(ctx);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Custom service "$name" added!'),
-                              backgroundColor: AppTheme.accentGreen,
-                            ),
-                          );
-                        }
-                      } catch (e) {
-                        setDlgState(() => isAdding = false);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(e.toString()),
-                              backgroundColor: AppTheme.accentRed,
-                            ),
-                          );
-                        }
-                      }
-                    },
-                  ),
-                ),
+  /// The branch in the header: which one this bill is for on New Bill, and
+  /// which to show on History. Only a salon with several branches has a
+  /// choice.
+  Widget? _buildBranchButton(BuildContext context, AppData state) {
+    if (state.branches.length < 2) return null;
+    final history = _section == _BillingSection.history;
+    final selected = state.branches.where((b) => b.id == (history ? _historyBranchId : _selectedBranchId));
+    final label = selected.isNotEmpty
+        ? selected.first.name
+        : (history ? _kAllBranches : state.branches.first.name);
+    return Tooltip(
+      message: history ? 'Show bills from' : 'Branch for this bill',
+      child: InkWell(
+        onTap: () async {
+          if (history) {
+            final names = {for (final b in state.branches) b.id: b.name};
+            final picked = await showSearchablePicker<String>(
+              context: context,
+              title: 'Show bills from',
+              items: [_kAllBranches, ...names.keys],
+              labelOf: (id) => names[id] ?? _kAllBranches,
+              searchHint: 'Search branches',
+            );
+            if (picked != null) setState(() => _historyBranchId = names.containsKey(picked) ? picked : null);
+            return;
+          }
+          final branch = await showSearchablePicker<Branch>(
+            context: context,
+            title: 'Bill from which branch?',
+            items: state.branches,
+            labelOf: (b) => b.name,
+            subtitleOf: (b) => b.address ?? '',
+            searchHint: 'Search branches',
+          );
+          if (branch != null) setState(() => _selectedBranchId = branch.id);
+        },
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppTheme.bgSurface,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppTheme.borderSubtle),
           ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(PhosphorIconsRegular.storefront, size: 15, color: AppTheme.primaryBlue),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.slateDark),
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(PhosphorIconsBold.caretDown, size: 11, color: AppTheme.slateLight),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -223,6 +201,10 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
   /// it was saved and only reappeared, partially, on three other pages. The
   /// segmented control keeps both jobs in the one place people look.
   Widget _buildShell(BuildContext context, WidgetRef ref, AppData state) {
+    // Set here, not in _buildBody: the header's branch button needs it too.
+    _selectedBranchId ??=
+        state.branches.isNotEmpty ? state.branches.first.id : null;
+
     final now = DateTime.now();
     final billedToday =
         state.bills.where((b) {
@@ -244,6 +226,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                     ? '$billedToday bill${billedToday == 1 ? '' : 's'} today'
                     : 'No bills yet today',
             showDivider: false,
+            trailing: _buildBranchButton(context, state),
             actions: [
               // The bell, like every tab: discount and payment requests
               // used to live behind a "Billing settings" gear here, next to
@@ -267,6 +250,8 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                 _section == _BillingSection.history
                     ? BillHistoryView(
                         state: state,
+                        // A branch that has since gone falls back to all.
+                        branchId: state.branches.any((b) => b.id == _historyBranchId) ? _historyBranchId : null,
                         onOpenReports: () => openAppSubPage(
                           context,
                           title: 'Reports',
@@ -370,9 +355,6 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
   }
 
   Widget _buildBody(BuildContext context, WidgetRef ref, AppData state) {
-    _selectedBranchId ??=
-        state.branches.isNotEmpty ? state.branches.first.id : null;
-
     final selectedCustomer =
         _selectedCustomerId == null
             ? null
@@ -395,7 +377,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
     double subtotal = 0.0;
     for (final id in _selectedServiceIds) {
       final svc = state.services.where((s) => s.id == id);
-      if (svc.isNotEmpty) subtotal += svc.first.price;
+      if (svc.isNotEmpty) subtotal += _servicePrices[id] ?? svc.first.price;
     }
     for (final entry in _selectedProductQuantities.entries) {
       final prod = state.inventory.where((p) => p.id == entry.key);
@@ -412,1286 +394,655 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
     final discountAmount = totals.discount;
     final taxAmount = totals.tax;
     final totalAmount = totals.total;
+    final availableCredit = usableCredit(state.clientPackages, _selectedCustomerId, DateTime.now());
+    final packageCredit = _usePackage ? math.min(availableCredit, totalAmount) : 0.0;
+    final toPayNow = totalAmount - packageCredit;
+    // Pay later splits what's left: what's handed over today, and what's owed.
+    final payLater = _paymentMethod == 'PENDING' && toPayNow > 0;
+    final typedNow = double.tryParse(_partPaymentController.text.trim()) ?? 0;
+    final payingNow = payLater ? typedNow.clamp(0, toPayNow).toDouble() : toPayNow;
+    final owedLater = toPayNow - payingNow;
+    final hasItems = _selectedServiceIds.isNotEmpty || _selectedProductQuantities.isNotEmpty;
 
     final isMobile = MediaQuery.of(context).size.width < 768;
 
     return Container(
-      color: const Color(0xFFF8F9FC),
+      color: AppTheme.bgSurface,
       child: Column(
         children: [
-          // 2. Scrollable Content Area
           Expanded(
-            child: Center(
+            // topCenter: this only caps the width on a laptop. A plain Center
+            // would also float a short bill down the page.
+            child: Align(
+              alignment: Alignment.topCenter,
               child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: isMobile ? double.infinity : 680,
-                ),
+                constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 680),
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // Branch Selector if salon has multiple branches
-                      if (state.branches.length > 1) ...[
-                        Row(
-                          children: [
-                            const Text(
-                              'Branch:',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF64748B),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: DropdownButton<String>(
-                                value: _selectedBranchId,
-                                isExpanded: true,
-                                underline: const SizedBox(),
-                                items:
-                                    state.branches
-                                        .map(
-                                          (b) => DropdownMenuItem(
-                                            value: b.id,
-                                            child: Text(
-                                              b.name,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w700,
-                                                color: Color(0xFF1E3A5F),
-                                              ),
-                                            ),
-                                          ),
-                                        )
-                                        .toList(),
-                                onChanged:
-                                    (val) =>
-                                        setState(() => _selectedBranchId = val),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                      ],
-
-                      // Customer Selection Card
-                      InkWell(
-                        onTap: () async {
-                          final customer = await showSearchablePicker<Customer>(
-                            context: context,
-                            title: 'Choose a client',
-                            items: state.customers,
-                            labelOf: (c) => c.name,
-                            subtitleOf:
-                                (c) =>
-                                    '${c.phone}${c.isVip ? ' • VIP Gold' : ''}',
-                            // A walk-in who isn't on file yet shouldn't mean
-                            // abandoning a half-built bill to go and add them.
-                            createLabel: 'Add a new client',
-                            searchHint: 'Name or mobile number',
-                            matches: customerMatchesQuery,
-                            onCreate:
-                                (ctx) => openAppSubPage<Customer>(
-                                  ctx,
-                                  title: 'Add client',
-                                  subtitle:
-                                      'Save their details to start tracking visits',
-                                  child: AddCustomerPage(
-                                    branches: state.branches,
-                                  ),
-                                ),
-                          );
-                          if (customer != null)
-                            setState(() => _selectedCustomerId = customer.id);
-                        },
-                        borderRadius: BorderRadius.circular(16),
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                            boxShadow: AppTheme.cardShadow,
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 44,
-                                height: 44,
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFEEF2F7),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: const Icon(
-                                  PhosphorIconsFill.user,
-                                  color: Color(0xFF1E3A5F),
-                                  size: 22,
-                                ),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'CLIENT',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w700,
-                                        color: Color(0xFF64748B),
-                                        letterSpacing: 0.8,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      selectedCustomer != null
-                                          ? selectedCustomer.name
-                                          : 'Choose a client',
-                                      style: TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w700,
-                                        color:
-                                            selectedCustomer != null
-                                                ? const Color(0xFF0F172A)
-                                                : const Color(0xFF94A3B8),
-                                        letterSpacing: -0.2,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      selectedCustomer != null
-                                          ? '${selectedCustomer.phone}${selectedCustomer.isVip ? ' • VIP Gold' : ''}'
-                                          : 'Search, or add someone new',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color:
-                                            selectedCustomer != null
-                                                ? const Color(0xFF64748B)
-                                                : const Color(0xFF94A3B8),
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const Icon(
-                                PhosphorIconsBold.caretRight,
-                                color: Color(0xFF94A3B8),
-                                size: 16,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-
-                      // Attending Stylist Card
-                      InkWell(
-                        onTap: () async {
-                          final employee =
-                              await showSearchablePicker<EmployeeProfile>(
-                                context: context,
-                                title: 'Who did the service?',
-                                items: billableStaff,
-                                labelOf: (e) => e.name,
-                                subtitleOf:
-                                    (e) =>
-                                        e.roleTitle.isNotEmpty
-                                            ? e.roleTitle
-                                            : 'Stylist',
-                              );
-                          if (employee != null)
-                            setState(() => _selectedEmployeeId = employee.id);
-                        },
-                        borderRadius: BorderRadius.circular(16),
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                            boxShadow: AppTheme.cardShadow,
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 44,
-                                height: 44,
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFEF3C7),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: const Icon(
-                                  PhosphorIconsFill.scissors,
-                                  color: Color(0xFFD97706),
-                                  size: 22,
-                                ),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'DONE BY',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w700,
-                                        color: Color(0xFF64748B),
-                                        letterSpacing: 0.8,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      selectedEmployee != null
-                                          ? selectedEmployee.name
-                                          : 'Choose who did it',
-                                      style: TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w700,
-                                        color:
-                                            selectedEmployee != null
-                                                ? const Color(0xFF0F172A)
-                                                : const Color(0xFF94A3B8),
-                                        letterSpacing: -0.2,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      selectedEmployee != null
-                                          ? (selectedEmployee
-                                                  .roleTitle
-                                                  .isNotEmpty
-                                              ? selectedEmployee.roleTitle
-                                              : 'Senior Creative Director')
-                                          : 'Tap to assign team member',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color:
-                                            selectedEmployee != null
-                                                ? const Color(0xFF64748B)
-                                                : const Color(0xFF94A3B8),
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const Icon(
-                                PhosphorIconsBold.caretDown,
-                                color: Color(0xFF94A3B8),
-                                size: 16,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Services Section
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Services',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF0F172A),
-                              letterSpacing: -0.2,
-                            ),
-                          ),
-                          InkWell(
-                            onTap:
-                                () => _showAddCustomServiceDialog(
-                                  context,
-                                  ref,
-                                  state,
-                                ),
-                            borderRadius: BorderRadius.circular(8),
-                            child: const Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 4,
-                              ),
-                              child: Text(
-                                '+ New service',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF1E3A5F),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      if (state.services.isEmpty)
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                          ),
-                          child: const Center(
-                            child: Text(
-                              'No services yet. Add your menu under Menu > Services, or tap + New service.',
-                              style: TextStyle(
-                                color: Color(0xFF64748B),
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        )
-                      else
-                        ...state.services.map((svc) {
-                          final isChecked = _selectedServiceIds.contains(
-                            svc.id,
-                          );
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            child: InkWell(
-                              onTap: () {
-                                setState(() {
-                                  if (isChecked) {
-                                    _selectedServiceIds.remove(svc.id);
-                                  } else {
-                                    _selectedServiceIds.add(svc.id);
-                                  }
-                                });
-                              },
-                              borderRadius: BorderRadius.circular(14),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 12,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(
-                                    color:
-                                        isChecked
-                                            ? const Color(0xFF1E3A5F)
-                                            : const Color(0xFFE2E8F0),
-                                    width: isChecked ? 1.5 : 1,
-                                  ),
-                                  boxShadow:
-                                      isChecked
-                                          ? [
-                                            BoxShadow(
-                                              color: const Color(
-                                                0xFF4F46E5,
-                                              ).withValues(alpha: 0.06),
-                                              blurRadius: 8,
-                                              offset: const Offset(0, 2),
-                                            ),
-                                          ]
-                                          : null,
-                                ),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            svc.name,
-                                            style: const TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w700,
-                                              color: Color(0xFF0F172A),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 3),
-                                          Text(
-                                            svc.categoryName != null
-                                                ? '${svc.categoryName} • ${formatInr(svc.price)}'
-                                                : formatInr(svc.price),
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w600,
-                                              color: Color(0xFF64748B),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Container(
-                                      width: 22,
-                                      height: 22,
-                                      decoration: BoxDecoration(
-                                        color:
-                                            isChecked
-                                                ? const Color(0xFF1E3A5F)
-                                                : Colors.transparent,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color:
-                                              isChecked
-                                                  ? const Color(0xFF1E3A5F)
-                                                  : const Color(0xFFCBD5E1),
-                                          width: 1.6,
-                                        ),
-                                      ),
-                                      child:
-                                          isChecked
-                                              ? const Icon(
-                                                PhosphorIconsBold.check,
-                                                color: Colors.white,
-                                                size: 13,
-                                              )
-                                              : null,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        }),
-                      const SizedBox(height: 20),
-
-                      // Products & Retail Section - a collapsed disclosure.
-                      // The whole catalog is only built when it's open; the
-                      // header keeps showing how many lines are already on
-                      // the bill so nothing added is silently hidden.
-                      InkWell(
-                        onTap:
-                            () => setState(
-                              () => _productsExpanded = !_productsExpanded,
-                            ),
-                        borderRadius: BorderRadius.circular(10),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Row(
-                            children: [
-                              const Text(
-                                'Products',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF0F172A),
-                                  letterSpacing: -0.2,
-                                ),
-                              ),
-                              if (_selectedProductQuantities.isNotEmpty) ...[
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 3,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFEEF2F7),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: const Color(0xFFC3D0E2),
-                                    ),
-                                  ),
-                                  child: Text(
-                                    '${_selectedProductQuantities.length} added',
-                                    style: const TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w700,
-                                      color: Color(0xFF1E3A5F),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                              const Spacer(),
-
-                              AnimatedRotation(
-                                turns: _productsExpanded ? 0.5 : 0,
-                                duration: const Duration(milliseconds: 180),
-                                curve: Curves.easeOut,
-                                child: const Icon(
-                                  PhosphorIconsBold.caretDown,
-                                  size: 15,
-                                  color: Color(0xFF64748B),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      if (!_productsExpanded)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: Text(
-                            state.inventory.isEmpty
-                                ? 'No products currently registered in catalog.'
-                                : 'Tap to browse ${state.inventory.length} product${state.inventory.length == 1 ? '' : 's'}',
-                            style: const TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF94A3B8),
-                            ),
-                          ),
-                        ),
-                      if (_productsExpanded) ...[
-                        const SizedBox(height: 10),
-                        if (state.inventory.isEmpty)
-                          Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: const Color(0xFFE2E8F0),
-                              ),
-                            ),
-                            child: const Center(
-                              child: Text(
-                                'No products currently registered in catalog.',
-                                style: TextStyle(
-                                  color: Color(0xFF64748B),
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                          )
-                        else
-                          ...state.inventory.map((prod) {
-                            final qty =
-                                _selectedProductQuantities[prod.id] ?? 0;
-                            final isLow = prod.stockCount <= 5;
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 8),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 10,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color:
-                                      qty > 0
-                                          ? const Color(0xFF1E3A5F)
-                                          : const Color(0xFFE2E8F0),
-                                  width: qty > 0 ? 1.5 : 1,
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 38,
-                                    height: 38,
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFEEF2F7),
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: const Icon(
-                                      PhosphorIconsFill.drop,
-                                      color: Color(0xFF1E3A5F),
-                                      size: 20,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          prod.name,
-                                          style: const TextStyle(
-                                            fontSize: 13.5,
-                                            fontWeight: FontWeight.w700,
-                                            color: Color(0xFF0F172A),
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        const SizedBox(height: 3),
-                                        Row(
-                                          children: [
-                                            Text(
-                                              formatInr(prod.price),
-                                              style: const TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w700,
-                                                color: Color(0xFF0F172A),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 6,
-                                                    vertical: 2,
-                                                  ),
-                                              decoration: BoxDecoration(
-                                                color:
-                                                    isLow
-                                                        ? const Color(
-                                                          0xFFFEF3C7,
-                                                        )
-                                                        : const Color(
-                                                          0xFFDCFCE7,
-                                                        ),
-                                                borderRadius:
-                                                    BorderRadius.circular(6),
-                                              ),
-                                              child: Text(
-                                                isLow
-                                                    ? '${prod.stockCount} LEFT'
-                                                    : '${prod.stockCount} IN STOCK',
-                                                style: TextStyle(
-                                                  fontSize: 9.5,
-                                                  fontWeight: FontWeight.w700,
-                                                  color:
-                                                      isLow
-                                                          ? const Color(
-                                                            0xFFD97706,
-                                                          )
-                                                          : const Color(
-                                                            0xFF16A34A,
-                                                          ),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  if (qty == 0)
-                                    InkWell(
-                                      onTap: () {
-                                        if (prod.stockCount > 0) {
-                                          setState(
-                                            () =>
-                                                _selectedProductQuantities[prod
-                                                        .id] =
-                                                    1,
-                                          );
-                                        }
-                                      },
-                                      borderRadius: BorderRadius.circular(20),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 14,
-                                          vertical: 6,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFF8FAFC),
-                                          borderRadius: BorderRadius.circular(
-                                            20,
-                                          ),
-                                          border: Border.all(
-                                            color: const Color(0xFFCBD5E1),
-                                          ),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: const [
-                                            Icon(
-                                              PhosphorIconsBold.plus,
-                                              size: 12,
-                                              color: Color(0xFF334155),
-                                            ),
-                                            SizedBox(width: 4),
-                                            Text(
-                                              'Add',
-                                              style: TextStyle(
-                                                fontSize: 11.5,
-                                                fontWeight: FontWeight.w700,
-                                                color: Color(0xFF334155),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    )
-                                  else
-                                    Container(
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFEEF2F7),
-                                        borderRadius: BorderRadius.circular(20),
-                                        border: Border.all(
-                                          color: const Color(0xFFC3D0E2),
-                                        ),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          IconButton(
-                                            icon: const Icon(
-                                              PhosphorIconsBold.minus,
-                                              size: 14,
-                                              color: Color(0xFF1E3A5F),
-                                            ),
-                                            visualDensity:
-                                                VisualDensity.compact,
-                                            padding: const EdgeInsets.all(4),
-                                            constraints: const BoxConstraints(
-                                              minWidth: 28,
-                                              minHeight: 28,
-                                            ),
-                                            onPressed: () {
-                                              setState(() {
-                                                if (qty <= 1) {
-                                                  _selectedProductQuantities
-                                                      .remove(prod.id);
-                                                } else {
-                                                  _selectedProductQuantities[prod
-                                                          .id] =
-                                                      qty - 1;
-                                                }
-                                              });
-                                            },
-                                          ),
-                                          Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 6,
-                                            ),
-                                            child: Text(
-                                              '$qty',
-                                              style: const TextStyle(
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w700,
-                                                color: Color(0xFF1E3A5F),
-                                              ),
-                                            ),
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(
-                                              PhosphorIconsBold.plus,
-                                              size: 14,
-                                              color: Color(0xFF1E3A5F),
-                                            ),
-                                            visualDensity:
-                                                VisualDensity.compact,
-                                            padding: const EdgeInsets.all(4),
-                                            constraints: const BoxConstraints(
-                                              minWidth: 28,
-                                              minHeight: 28,
-                                            ),
-                                            onPressed:
-                                                qty >= prod.stockCount
-                                                    ? null
-                                                    : () {
-                                                      setState(
-                                                        () =>
-                                                            _selectedProductQuantities[prod
-                                                                    .id] =
-                                                                qty + 1,
-                                                      );
-                                                    },
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            );
-                          }),
-                      ],
-                      const SizedBox(height: 20),
-
-                      // Discount Applied Card
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: const [
-                                    Icon(
-                                      PhosphorIconsBold.tag,
-                                      size: 16,
-                                      color: Color(0xFF1E3A5F),
-                                    ),
-                                    SizedBox(width: 8),
-                                    Text(
-                                      'Discount',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w700,
-                                        color: Color(0xFF0F172A),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color:
-                                        _discountPercent > 0
-                                            ? const Color(0xFFDCFCE7)
-                                            : const Color(0xFFF1F5F9),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(
-                                    _discountPercent > 0
-                                        ? '${_discountPercent.toStringAsFixed(0)}% VIP Salon Promo'
-                                        : 'None',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w700,
-                                      color:
-                                          _discountPercent > 0
-                                              ? const Color(0xFF16A34A)
-                                              : const Color(0xFF64748B),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                const Text(
-                                  '0%',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF94A3B8),
-                                  ),
-                                ),
-                                Expanded(
-                                  child: SliderTheme(
-                                    data: SliderTheme.of(context).copyWith(
-                                      activeTrackColor: const Color(0xFF1E3A5F),
-                                      inactiveTrackColor: const Color(
-                                        0xFFE2E8F0,
-                                      ),
-                                      thumbColor: const Color(0xFF1E3A5F),
-                                      overlayColor: const Color(
-                                        0xFF4F46E5,
-                                      ).withValues(alpha: 0.12),
-                                      trackHeight: 6,
-                                      thumbShape: const RoundSliderThumbShape(
-                                        enabledThumbRadius: 10,
-                                      ),
-                                    ),
-                                    child: Slider(
-                                      value: _discountPercent,
-                                      min: 0,
-                                      max: 25,
-                                      divisions: 25,
-                                      onChanged:
-                                          (val) => setState(
-                                            () => _discountPercent = val,
-                                          ),
-                                    ),
-                                  ),
-                                ),
-                                const Text(
-                                  '25%',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF94A3B8),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (_discountPercent > 0)
-                              Container(
-                                margin: const EdgeInsets.only(top: 4),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 3,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFEEF2F7),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  '${_discountPercent.toStringAsFixed(0)}% (${formatInr(discountAmount)} off)',
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF1E3A5F),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-
-                      // Payment Method Selector
-                      const Text(
-                        'Payment Method',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF0F172A),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        // CARD is no longer offered - the salon does not take
-                        // card payments. Bills already stored with
-                        // paymentMethod 'CARD' keep working everywhere that
-                        // reads them; this only stops new ones being created.
-                        children:
-                            ['UPI', 'CASH', 'PENDING'].map((method) {
-                              final isSel = _paymentMethod == method;
-                              return Expanded(
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 4.0,
-                                  ),
-                                  child: InkWell(
-                                    onTap:
-                                        () => setState(
-                                          () => _paymentMethod = method,
-                                        ),
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 10,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color:
-                                            isSel
-                                                ? (method == 'PENDING'
-                                                    ? const Color(0xFFFFFBEB)
-                                                    : const Color(0xFFEEF2F7))
-                                                : Colors.white,
-                                        border: Border.all(
-                                          color:
-                                              isSel
-                                                  ? (method == 'PENDING'
-                                                      ? const Color(0xFFD97706)
-                                                      : const Color(0xFF1E3A5F))
-                                                  : const Color(0xFFE2E8F0),
-                                          width: isSel ? 1.6 : 1,
-                                        ),
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: Center(
-                                        child: Text(
-                                          paymentMethodLabel(method),
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            color:
-                                                isSel
-                                                    ? (method == 'PENDING'
-                                                        ? const Color(
-                                                          0xFFB45309,
-                                                        )
-                                                        : const Color(
-                                                          0xFF4F46E5,
-                                                        ))
-                                                    : const Color(0xFF64748B),
-                                            fontSize: 11.5,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                      ),
-
-                      // Part-payment box. Only meaningful for PENDING: the
-                      // three real methods always collect the full amount.
-                      if (_paymentMethod == 'PENDING') ...[
+                      _buildWhoCard(context, state, selectedCustomer, selectedEmployee, billableStaff),
+                      if (availableCredit > 0) ...[
                         const SizedBox(height: 12),
-                        _buildPartPaymentBox(totalAmount),
+                        _buildPackageCredit(state, availableCredit, packageCredit),
                       ],
-                      const SizedBox(height: 24),
-
-                      // Bill Summary Breakdown Card
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                      const SizedBox(height: 12),
+                      _buildBillCard(context, state, selectedCustomer),
+                      if (hasItems) ...[
+                        const SizedBox(height: 12),
+                        _buildPaymentCard(toPayNow, discountAmount),
+                        const SizedBox(height: 12),
+                        _buildTotalsCard(
+                          subtotal: subtotal,
+                          discountAmount: discountAmount,
+                          gstRate: gstRate,
+                          taxAmount: taxAmount,
+                          totalAmount: totalAmount,
+                          packageCredit: packageCredit,
+                          payLater: payLater,
+                          payingNow: payingNow,
+                          owedLater: owedLater,
                         ),
-                        child: Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    'Subtotal (${_selectedServiceIds.length} service${_selectedServiceIds.length == 1 ? '' : 's'}'
-                                    '${_selectedProductQuantities.isEmpty ? '' : ' + ${_selectedProductQuantities.length} product${_selectedProductQuantities.length == 1 ? '' : 's'}'})',
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Color(0xFF64748B),
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  formatInr(subtotal),
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF0F172A),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (discountAmount > 0) ...[
-                              const SizedBox(height: 6),
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Text(
-                                        'Discount (${_discountPercent.toStringAsFixed(0)}%) ',
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          color: Color(0xFF64748B),
-                                        ),
-                                      ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 4,
-                                          vertical: 1,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFEEF2F7),
-                                          borderRadius: BorderRadius.circular(
-                                            4,
-                                          ),
-                                        ),
-                                        child: const Text(
-                                          'PROMO',
-                                          style: TextStyle(
-                                            fontSize: 9,
-                                            fontWeight: FontWeight.w700,
-                                            color: Color(0xFF1E3A5F),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  Text(
-                                    '-${formatInr(discountAmount)}',
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                      color: Color(0xFF16A34A),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                            // GST is opt-in - no row at all until the owner
-                            // sets a rate in Settings.
-                            if (gstRate > 0) ...[
-                              const SizedBox(height: 6),
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    'GST (${gstRate.toStringAsFixed(0)}%)',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Color(0xFF64748B),
-                                    ),
-                                  ),
-                                  Text(
-                                    formatInr(taxAmount),
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                      color: Color(0xFF0F172A),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                            const SizedBox(height: 12),
-                            const Divider(height: 1, color: Color(0xFFE2E8F0)),
-                            const SizedBox(height: 12),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      const Text(
-                                        'Total Amount',
-                                        style: TextStyle(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w700,
-                                          color: Color(0xFF0F172A),
-                                          letterSpacing: -0.2,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      // Calling a total "inclusive of taxes"
-                                      // when GST is switched off (or was
-                                      // never configured) is simply untrue on
-                                      // the invoice - the employee-side
-                                      // summary already worded this the
-                                      // honest way.
-                                      Text(
-                                        gstRate > 0
-                                            ? 'Inclusive of all salon taxes'
-                                            : 'No GST applied',
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          color: Color(0xFF94A3B8),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  formatInr(totalAmount),
-                                  style: const TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF1E3A5F),
-                                    letterSpacing: -0.5,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Generate Invoice & Pay Button
-                      Builder(
-                        builder: (context) {
-                          final canSubmit =
-                              (_selectedServiceIds.isNotEmpty ||
-                                  _selectedProductQuantities.isNotEmpty) &&
-                              _selectedCustomerId != null &&
-                              _selectedEmployeeId != null &&
-                              !_submitting;
-
-                          // A greyed-out button alone doesn't say why - name
-                          // the first thing still missing underneath it.
-                          final missing = _selectedCustomerId == null
-                              ? 'Choose a client to create the bill'
-                              : (_selectedServiceIds.isEmpty &&
-                                      _selectedProductQuantities.isEmpty)
-                                  ? 'Add a service or product'
-                                  : _selectedEmployeeId == null
-                                      ? 'Choose who did the service'
-                                      : null;
-
-                          return Column(
-                            children: [
-                          SizedBox(
-                            width: double.infinity,
-                            height: 52,
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color:
-                                    canSubmit
-                                        ? AppTheme.primaryBlue
-                                        : const Color(0xFFE2E8F0),
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: ElevatedButton(
-                                onPressed:
-                                    canSubmit
-                                        ? () => _submit(
-                                          context,
-                                          ref,
-                                          state,
-                                          discountAmount,
-                                        )
-                                        : null,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.transparent,
-                                  shadowColor: Colors.transparent,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                ),
-                                child:
-                                    _submitting
-                                        ? const SizedBox(
-                                          width: 22,
-                                          height: 22,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2.2,
-                                            color: Colors.white,
-                                          ),
-                                        )
-                                        : Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children: const [
-                                            Icon(
-                                              PhosphorIconsBold.receipt,
-                                              color: Colors.white,
-                                              size: 18,
-                                            ),
-                                            SizedBox(width: 8),
-                                            Text(
-                                              'Create bill',
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 14.5,
-                                                fontWeight: FontWeight.w700,
-                                                letterSpacing: -0.2,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                              ),
-                            ),
-                          ),
-                              if (!_submitting && missing != null) ...[
-                                const SizedBox(height: 8),
-                                Text(
-                                  missing,
-                                  style: const TextStyle(
-                                    fontSize: 12.5,
-                                    color: AppTheme.slateLight,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          );
-                        },
-                      ),
-
-                      // Bottom clearance so floating navbar never overlaps
-                      const SizedBox(
-                        height: 88,
-                      ), // clearance for the floating nav bar
+                      ],
                     ],
                   ),
                 ),
               ),
             ),
+          ),
+          _buildDock(context, ref, state, discountAmount, packageCredit, payingNow, owedLater),
+        ],
+      ),
+    );
+  }
+
+  /// Client and who did the work, side by side: the two things every bill
+  /// needs, one tap each.
+  Widget _buildWhoCard(
+    BuildContext context,
+    AppData state,
+    Customer? selectedCustomer,
+    EmployeeProfile? selectedEmployee,
+    List<EmployeeProfile> billableStaff,
+  ) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              flex: 5,
+              child: _whoCell(
+                label: 'Client',
+                value: selectedCustomer?.name ?? 'Choose a client',
+                detail: selectedCustomer != null
+                    ? '${selectedCustomer.phone}${selectedCustomer.isVip ? ' • VIP Gold' : ''}'
+                    : 'Search, or add someone new',
+                missing: selectedCustomer == null,
+                onTap: () async {
+                  final customer = await showSearchablePicker<Customer>(
+                    context: context,
+                    title: 'Choose a client',
+                    items: state.customers,
+                    labelOf: (c) => c.name,
+                    subtitleOf: (c) => '${c.phone}${c.isVip ? ' • VIP Gold' : ''}',
+                    // A walk-in who isn't on file yet shouldn't mean
+                    // abandoning a half-built bill to go and add them.
+                    createLabel: 'Add a new client',
+                    searchHint: 'Name or mobile number',
+                    matches: customerMatchesQuery,
+                    onCreate: (ctx) => openAppSubPage<Customer>(
+                      ctx,
+                      title: 'Add client',
+                      subtitle: 'Save their details to start tracking visits',
+                      child: AddCustomerPage(branches: state.branches),
+                    ),
+                  );
+                  if (customer != null) {
+                    setState(() {
+                      _selectedCustomerId = customer.id;
+                      _serviceAudience = audienceForGender(customer.gender) ?? _serviceAudience;
+                    });
+                  }
+                },
+              ),
+            ),
+            const VerticalDivider(width: 1, thickness: 1, color: AppTheme.borderSubtle),
+            Expanded(
+              flex: 4,
+              child: _whoCell(
+                label: 'Done by',
+                value: selectedEmployee?.name ?? 'Choose who did it',
+                detail: selectedEmployee != null
+                    ? (selectedEmployee.roleTitle.isNotEmpty ? selectedEmployee.roleTitle : 'Stylist')
+                    : 'Tap to assign team member',
+                missing: selectedEmployee == null,
+                onTap: () async {
+                  final employee = await showSearchablePicker<EmployeeProfile>(
+                    context: context,
+                    title: 'Who did the service?',
+                    items: billableStaff,
+                    labelOf: (e) => e.name,
+                    subtitleOf: (e) => e.roleTitle.isNotEmpty ? e.roleTitle : 'Stylist',
+                  );
+                  if (employee != null) setState(() => _selectedEmployeeId = employee.id);
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _whoCell({
+    required String label,
+    required String value,
+    required String detail,
+    required bool missing,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 11, 10, 12),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: AppTheme.slateLight)),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: missing ? AppTheme.primaryBlue : AppTheme.slateDark,
+                    ),
+                  ),
+                  Text(
+                    detail,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: AppTheme.slateLight),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(PhosphorIconsBold.caretRight, size: 13, color: AppTheme.textMuted),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openServicePicker(BuildContext context, Customer? client) {
+    pushAppRoute(
+      context,
+      ServicePickerPage(
+        clientName: client?.name,
+        audience: _serviceAudience,
+        onAudienceChanged: (audience) => setState(() => _serviceAudience = audience),
+        services: _selectedServiceIds,
+        prices: _servicePrices,
+        products: _selectedProductQuantities,
+        onChanged: () => setState(() {}),
+      ),
+    );
+  }
+
+  /// What's on the bill. The whole menu lives on the pick screen, so this
+  /// stays short enough to read at a glance.
+  Widget _buildBillCard(BuildContext context, AppData state, Customer? client) {
+    final services = state.services.where((s) => _selectedServiceIds.contains(s.id)).toList();
+    final products = state.inventory.where((p) => _selectedProductQuantities.containsKey(p.id)).toList();
+    final hasItems = services.isNotEmpty || products.isNotEmpty;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(14, 12, 14, 10),
+            child: Text(
+              'Services',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.slateDark),
+            ),
+          ),
+          for (final svc in services)
+            _billLine(
+              title: svc.name,
+              subtitle: svc.categoryName,
+              amount: _servicePrices[svc.id] ?? svc.price,
+              onRemove: () => setState(() {
+                _selectedServiceIds.remove(svc.id);
+                _servicePrices.remove(svc.id);
+              }),
+              // A price settled on the bill can be settled again.
+              onAmountTap: !svc.priceVaries
+                  ? null
+                  : () async {
+                      final price = await askServicePrice(context, svc);
+                      if (price != null) setState(() => _servicePrices[svc.id] = price);
+                    },
+            ),
+          for (final prod in products)
+            _billLine(
+              title: prod.name,
+              subtitle: '${_selectedProductQuantities[prod.id]} × ${formatInr(prod.price)}',
+              amount: prod.price * _selectedProductQuantities[prod.id]!,
+              onRemove: () => setState(() => _selectedProductQuantities.remove(prod.id)),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+            child: SizedBox(
+              height: 48,
+              child: hasItems
+                  ? OutlinedButton.icon(
+                      onPressed: () => _openServicePicker(context, client),
+                      icon: const Icon(PhosphorIconsBold.plus, size: 16),
+                      label: const Text('Add services'),
+                    )
+                  : ElevatedButton.icon(
+                      onPressed: () => _openServicePicker(context, client),
+                      icon: const Icon(PhosphorIconsBold.plus, size: 16),
+                      label: const Text('Add services'),
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// How the bill adds up, last on the page because everything above it
+  /// changes these figures: the lines, the discount and the payment.
+  Widget _buildTotalsCard({
+    required double subtotal,
+    required double discountAmount,
+    required double gstRate,
+    required double taxAmount,
+    required double totalAmount,
+    required double packageCredit,
+    required bool payLater,
+    required double payingNow,
+    required double owedLater,
+  }) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
+      child: Column(
+        children: [
+          if (discountAmount > 0 || gstRate > 0)
+            _totalLine('Subtotal', formatInr(subtotal)),
+          if (discountAmount > 0)
+            _totalLine('Discount (${_discountPercent.toStringAsFixed(0)}%)', '-${formatInr(discountAmount)}'),
+          // GST is opt-in - no row at all until the owner sets a rate in
+          // Settings.
+          if (gstRate > 0)
+            _totalLine('GST (${gstRate.toStringAsFixed(0)}%)', formatInr(taxAmount)),
+          _totalLine('Total Amount', formatInr(totalAmount), strong: true),
+          // Calling a total "inclusive of taxes" when GST is switched off (or
+          // was never configured) is simply untrue.
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              gstRate > 0 ? 'Inclusive of all salon taxes' : 'No GST applied',
+              style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
+            ),
+          ),
+          if (packageCredit > 0 || payLater) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 6),
+              child: Divider(height: 1, color: AppTheme.borderSubtle),
+            ),
+            if (packageCredit > 0)
+              _totalLine('Paid from package', '-${formatInr(packageCredit)}'),
+            _totalLine('Paying now', formatInr(payingNow), strong: true),
+            if (owedLater > 0)
+              _totalLine('Still owed', formatInr(owedLater), strong: true, color: AppTheme.accentAmber),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _billLine({
+    required String title,
+    String? subtitle,
+    required double amount,
+    required VoidCallback onRemove,
+    VoidCallback? onAmountTap,
+  }) {
+    final value = Text(
+      formatInr(amount),
+      style: TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+        color: onAmountTap == null ? AppTheme.slateDark : AppTheme.primaryBlue,
+        decoration: onAmountTap == null ? null : TextDecoration.underline,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      ),
+    );
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 6, 4, 6),
+      decoration: const BoxDecoration(border: Border(top: BorderSide(color: AppTheme.borderSubtle))),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slateDark)),
+                if (subtitle != null)
+                  Text(subtitle, style: const TextStyle(fontSize: 12, color: AppTheme.slateLight)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (onAmountTap == null)
+            value
+          else
+            InkWell(
+              onTap: onAmountTap,
+              child: Padding(padding: const EdgeInsets.symmetric(vertical: 6), child: value),
+            ),
+          IconButton(
+            tooltip: 'Remove $title',
+            onPressed: onRemove,
+            icon: const Icon(PhosphorIconsRegular.x, size: 15, color: AppTheme.slateLight),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _totalLine(String label, String value, {bool strong = false, Color? color}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: strong ? 14 : 13,
+              fontWeight: strong ? FontWeight.w600 : FontWeight.w400,
+              color: color ?? (strong ? AppTheme.slateDark : AppTheme.slateLight),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: strong ? 15 : 13,
+              fontWeight: FontWeight.w600,
+              color: color ?? AppTheme.slateDark,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// How it's paid and any discount. Only shows once there's something to pay
+  /// for, so a new bill starts as just a client and a button.
+  Widget _buildPaymentCard(double toPayNow, double discountAmount) {
+    final percent = _discountPercent.round();
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (toPayNow > 0) ...[
+            const Text(
+              'Payment Method',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.slateDark),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              // CARD is no longer offered - the salon does not take card
+              // payments. Bills already stored with paymentMethod 'CARD' keep
+              // working everywhere that reads them; this only stops new ones
+              // being created.
+              children: [
+                for (final (i, method) in const ['UPI', 'CASH', 'PENDING'].indexed)
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.only(left: i == 0 ? 0 : 8),
+                      child: _choiceChip(
+                        label: paymentMethodLabel(method),
+                        selected: _paymentMethod == method,
+                        onTap: () => setState(() => _paymentMethod = method),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            // Part-payment box. Only meaningful for PENDING: the other
+            // methods always collect the full amount.
+            if (_paymentMethod == 'PENDING') ...[
+              const SizedBox(height: 12),
+              _buildPartPaymentBox(toPayNow),
+            ],
+            const SizedBox(height: 14),
+          ],
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Discount',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.slateDark),
+                ),
+              ),
+              Text(
+                percent > 0 ? '$percent% (${formatInr(discountAmount)} off)' : 'None',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: percent > 0 ? FontWeight.w600 : FontWeight.w400,
+                  color: percent > 0 ? AppTheme.accentGreen : AppTheme.slateLight,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Any whole percent up to 25: the stepper for the odd figure, the
+          // presets for the usual ones.
+          Row(
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppTheme.borderSubtle),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _stepButton(PhosphorIconsBold.minus, 'Less discount',
+                        percent <= 0 ? null : () => setState(() => _discountPercent = percent - 1.0)),
+                    SizedBox(
+                      width: 38,
+                      child: Text(
+                        '$percent%',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slateDark),
+                      ),
+                    ),
+                    _stepButton(PhosphorIconsBold.plus, 'More discount',
+                        percent >= 25 ? null : () => setState(() => _discountPercent = percent + 1.0)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              for (final preset in const [5, 10, 15, 20])
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: _choiceChip(
+                      label: '$preset%',
+                      selected: percent == preset,
+                      onTap: () => setState(() => _discountPercent = percent == preset ? 0 : preset.toDouble()),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _stepButton(IconData icon, String tooltip, VoidCallback? onTap) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        child: SizedBox(
+          width: 38,
+          height: 40,
+          child: Icon(icon, size: 14, color: onTap == null ? AppTheme.borderStrong : AppTheme.primaryBlue),
+        ),
+      ),
+    );
+  }
+
+  Widget _choiceChip({required String label, required bool selected, required VoidCallback onTap}) {
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          height: 42,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? AppTheme.primaryLight : Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: selected ? AppTheme.primaryBlue : AppTheme.borderSubtle, width: selected ? 1.5 : 1),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: selected ? AppTheme.primaryBlue : AppTheme.slateLight,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// What's left to pay and Create bill, docked so they stay in view.
+  Widget _buildDock(
+    BuildContext context,
+    WidgetRef ref,
+    AppData state,
+    double discountAmount,
+    double packageCredit,
+    double payingNow,
+    double owedLater,
+  ) {
+    final hasItems = _selectedServiceIds.isNotEmpty || _selectedProductQuantities.isNotEmpty;
+    final canSubmit = hasItems && _selectedCustomerId != null && _selectedEmployeeId != null && !_submitting;
+
+    // A greyed-out button alone doesn't say why - name the first thing still
+    // missing.
+    final missing = _selectedCustomerId == null
+        ? 'Choose a client'
+        : !hasItems
+            ? 'Add a service or product'
+            : _selectedEmployeeId == null
+                ? 'Choose who did the service'
+                : null;
+    final count = _selectedServiceIds.length + _selectedProductQuantities.length;
+    final caption = !_submitting && missing != null
+        ? missing
+        : owedLater > 0
+            ? 'Paying now, ${formatInr(owedLater)} owed'
+            : packageCredit > 0
+                ? 'To pay now'
+                : '$count item${count == 1 ? '' : 's'}';
+
+    return Container(
+      color: AppTheme.primaryBlue,
+      // Scaffold.extendBody puts the bottom bar's height here on a phone.
+      padding: EdgeInsets.fromLTRB(16, 10, 12, 10 + MediaQuery.paddingOf(context).bottom),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  caption,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12, color: AppTheme.primarySoft),
+                ),
+                Text(
+                  formatInr(payingNow),
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          ElevatedButton(
+            onPressed: canSubmit ? () => _submit(context, ref, state, discountAmount, packageCredit) : null,
+            style: ButtonStyle(
+              minimumSize: const WidgetStatePropertyAll(Size(128, 46)),
+              padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 16)),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              elevation: const WidgetStatePropertyAll(0),
+              backgroundColor: WidgetStateProperty.resolveWith(
+                (states) => states.contains(WidgetState.disabled) ? AppTheme.primaryDark : Colors.white,
+              ),
+              foregroundColor: WidgetStateProperty.resolveWith(
+                (states) => states.contains(WidgetState.disabled) ? AppTheme.primarySoft : AppTheme.primaryBlue,
+              ),
+            ),
+            child: _submitting
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2.2, color: AppTheme.primaryBlue),
+                  )
+                : const Text('Create bill'),
           ),
         ],
       ),
@@ -1703,6 +1054,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
     WidgetRef ref,
     AppData state,
     double discountAmount,
+    double packageCredit,
   ) async {
     // Clear messages instead of a null-check crash ("Unexpected null value")
     // when a required pick is missing.
@@ -1728,6 +1080,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
             serviceId: id,
             employeeId: _selectedEmployeeId!,
             quantity: 1,
+            unitPrice: _servicePrices[id],
           ),
         ),
         ..._selectedProductQuantities.entries.map(
@@ -1754,6 +1107,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
             items: items,
             // null keeps the ordinary "paid in full" path untouched.
             amountPaidNow: isPending ? typedNow : null,
+            packageCredit: packageCredit,
           );
 
       if (!context.mounted) return;
@@ -1771,11 +1125,7 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
               Text(
-                bill.amountDue > 0
-                    ? 'Total: ${formatInr(bill.finalAmount)}. '
-                        '${bill.amountPaid > 0 ? 'Collected ${formatInr(bill.amountPaid)} via ${paymentMethodLabel(_partPaymentMethod)}. ' : ''}'
-                        '${formatInr(bill.amountDue)} still owed - it is listed in Clients › Dues.'
-                    : 'Total: ${formatInr(bill.finalAmount)} via ${paymentMethodLabel(bill.paymentMethod)}.',
+                _billDoneMessage(bill),
                 style: const TextStyle(
                   fontSize: 14,
                   color: AppTheme.slateMedium,
@@ -1792,6 +1142,9 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                     setState(() {
                       _selectedServiceIds.clear();
                       _selectedProductQuantities.clear();
+                      _servicePrices.clear();
+                      _usePackage = true;
+                      _partPaymentController.clear();
                       _discountPercent = 0.0;
                       // Land on History rather than bouncing to the dashboard:
                       // the bill that was just written is the top row there, so
@@ -1817,6 +1170,58 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+  }
+
+  String _billDoneMessage(Bill bill) {
+    final credit = bill.packageAmount;
+    final till = bill.amountPaid - credit;
+    final parts = [
+      'Total: ${formatInr(bill.finalAmount)}.',
+      if (credit > 0) '${formatInr(credit)} from package credit.',
+      if (till > 0)
+        'Collected ${formatInr(till)} via ${paymentMethodLabel(bill.amountDue > 0 ? _partPaymentMethod : bill.paymentMethod)}.',
+      if (bill.amountDue > 0) '${formatInr(bill.amountDue)} still owed - it is listed in Clients › Dues.',
+    ];
+    return parts.join(' ');
+  }
+
+  /// The client's credit and the switch to spend it. On by default: someone
+  /// who bought a package expects it to be used.
+  Widget _buildPackageCredit(AppData state, double available, double used) {
+    final soonest = usablePackages(state.clientPackages, _selectedCustomerId, DateTime.now()).first;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryLight,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.primarySoft),
+      ),
+      child: Row(
+        children: [
+          const Icon(PhosphorIconsRegular.ticket, size: 20, color: AppTheme.primaryBlue),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${formatInr(available)} package credit',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slateDark),
+                ),
+                Text(
+                  'Expires ${packageDate(soonest.expiresAt)}',
+                  style: const TextStyle(fontSize: 12, color: AppTheme.slateLight),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: _usePackage,
+            onChanged: (value) => setState(() => _usePackage = value),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Shown under the method chips once "PENDING" is picked: how much (if
@@ -1855,13 +1260,18 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
                   color: Color(0xFF92400E),
                 ),
               ),
-              const Spacer(),
-              Text(
-                '${formatInr(due)} will be owed',
-                style: const TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFFB45309),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${formatInr(due)} will be owed',
+                  textAlign: TextAlign.end,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFFB45309),
+                  ),
                 ),
               ),
             ],
@@ -1918,7 +1328,9 @@ class _OwnerBillingTabState extends State<OwnerBillingTab> {
           ),
           if (paidNow > 0) ...[
             const SizedBox(height: 8),
-            Row(
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              runSpacing: 6,
               children: [
                 const Text(
                   'Collected via',
@@ -2209,15 +1621,171 @@ int? _parseReminderDays(String raw) {
   return n;
 }
 
+/// The service forms' "For" row and category field, shared by Add and Edit.
+class _ServiceFiling extends StatelessWidget {
+  final String? audience;
+  final String? category;
+  final ValueChanged<String?> onAudienceChanged;
+  final ValueChanged<String> onCategoryChanged;
+  final List<ServiceCategory> categories;
+
+  const _ServiceFiling({
+    required this.audience,
+    required this.category,
+    required this.onAudienceChanged,
+    required this.onCategoryChanged,
+    required this.categories,
+  });
+
+  Future<String?> _askCategoryName(BuildContext context) {
+    final controller = TextEditingController();
+    void done(BuildContext ctx) {
+      final name = controller.text.trim();
+      if (name.isNotEmpty) Navigator.pop(ctx, name);
+    }
+
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('New category'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          onSubmitted: (_) => done(ctx),
+          decoration: const InputDecoration(labelText: 'Category name'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => done(ctx), child: const Text('Add')),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'For',
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.slateMedium),
+        ),
+        const SizedBox(height: 6),
+        AudienceChoice(
+          value: audience,
+          options: const [(kAudienceGents, 'Gents'), (kAudienceLadies, 'Ladies'), (null, 'Both')],
+          onChanged: onAudienceChanged,
+        ),
+        const SizedBox(height: 12),
+        InkWell(
+          onTap: () async {
+            final picked = await showSearchablePicker<String>(
+              context: context,
+              title: 'Choose a category',
+              items: serviceCategoryChoices(audience, categories.map((c) => c.name)),
+              labelOf: (c) => c,
+              createLabel: 'New category',
+              searchHint: 'Search categories',
+              onCreate: _askCategoryName,
+            );
+            if (picked != null) onCategoryChanged(picked);
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: InputDecorator(
+            isEmpty: category == null,
+            decoration: appDialogFieldDecoration(
+              label: 'Category *',
+              icon: PhosphorIconsRegular.squaresFour,
+            ).copyWith(
+              suffixIcon: const Icon(PhosphorIconsBold.caretDown, size: 13),
+            ),
+            child: Text(
+              category ?? '',
+              style: const TextStyle(fontSize: 14, color: AppTheme.slateDark),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The price, or - for a price settled on the bill - the usual prices if
+/// there are any. Shared by Add and Edit Service.
+class _ServicePriceFields extends StatelessWidget {
+  final bool varies;
+  final ValueChanged<bool> onVariesChanged;
+  final TextEditingController priceController;
+  final TextEditingController optionsController;
+
+  const _ServicePriceFields({
+    required this.varies,
+    required this.onVariesChanged,
+    required this.priceController,
+    required this.optionsController,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (varies)
+          TextField(
+            controller: optionsController,
+            keyboardType: TextInputType.text,
+            decoration: appDialogFieldDecoration(
+              label: 'Usual prices',
+              hint: 'e.g. 2900, 3400, 3900 - or leave blank',
+              icon: PhosphorIconsRegular.currencyInr,
+            ),
+          )
+        else
+          TextField(
+            controller: priceController,
+            keyboardType: TextInputType.number,
+            decoration: appDialogFieldDecoration(
+              label: 'Price (₹) *',
+              icon: PhosphorIconsRegular.currencyInr,
+            ),
+          ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          value: varies,
+          onChanged: onVariesChanged,
+          title: const Text('Price varies', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          subtitle: const Text('Set the price on each bill', style: TextStyle(fontSize: 12)),
+        ),
+      ],
+    );
+  }
+}
+
+/// The category's id, creating it the first time a salon files something
+/// under it. Read fresh: the list a form opened with can be out of date.
+Future<String> _serviceCategoryId(WidgetRef ref, String name) async {
+  final categories = ref.read(appDataProvider).valueOrNull?.categories ?? const <ServiceCategory>[];
+  final existing = categories.where((c) => c.name.toLowerCase() == name.toLowerCase());
+  if (existing.isNotEmpty) return existing.first.id;
+  return (await ref.read(appDataProvider.notifier).addServiceCategory(name)).id;
+}
+
 void showAddServiceDialog(
   BuildContext context,
   WidgetRef ref,
-  List<ServiceCategory> categories,
-) {
+  List<ServiceCategory> categories, {
+  String? audience,
+}) {
   final nameController = TextEditingController();
   final priceController = TextEditingController();
-  final categoryController = TextEditingController();
   final reminderController = TextEditingController();
+  final optionsController = TextEditingController();
+  String? categoryName;
+  String? serviceAudience = audience;
+  bool priceVaries = false;
   bool submitting = false;
 
   showDialog(
@@ -2233,6 +1801,14 @@ void showAddServiceDialog(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    _ServiceFiling(
+                      audience: serviceAudience,
+                      category: categoryName,
+                      categories: categories,
+                      onAudienceChanged: (value) => setDialogState(() => serviceAudience = value),
+                      onCategoryChanged: (value) => setDialogState(() => categoryName = value),
+                    ),
+                    const SizedBox(height: 12),
                     TextField(
                       controller: nameController,
                       decoration: appDialogFieldDecoration(
@@ -2242,50 +1818,13 @@ void showAddServiceDialog(
                       ),
                     ),
                     const SizedBox(height: 12),
-                    TextField(
-                      controller: priceController,
-                      keyboardType: TextInputType.number,
-                      decoration: appDialogFieldDecoration(
-                        label: 'Price (₹) *',
-                        icon: PhosphorIconsRegular.currencyInr,
-                      ),
+                    _ServicePriceFields(
+                      varies: priceVaries,
+                      onVariesChanged: (value) => setDialogState(() => priceVaries = value),
+                      priceController: priceController,
+                      optionsController: optionsController,
                     ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: categoryController,
-                      decoration: appDialogFieldDecoration(
-                        label: 'Category *',
-                        hint: 'e.g. Hair Care',
-                        icon: PhosphorIconsRegular.squaresFour,
-                      ),
-                    ),
-                    if (categories.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children:
-                              categories
-                                  .map(
-                                    (c) => ActionChip(
-                                      visualDensity: VisualDensity.compact,
-                                      label: Text(
-                                        c.name,
-                                        style: const TextStyle(fontSize: 11),
-                                      ),
-                                      onPressed:
-                                          () =>
-                                              categoryController.text =
-                                                  c.name,
-                                    ),
-                                  )
-                                  .toList(),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 4),
                     _serviceReminderField(reminderController, ref),
                   ],
                 ),
@@ -2295,11 +1834,12 @@ void showAddServiceDialog(
                   onCancel: () => Navigator.pop(ctx),
                   onSubmit: () async {
                     final name = nameController.text.trim();
-                    final price = double.tryParse(priceController.text);
-                    final categoryName = categoryController.text.trim();
-                    if (name.isEmpty ||
-                        price == null ||
-                        categoryName.isEmpty) {
+                    final options = priceVaries ? parsePriceOptions(optionsController.text) : const <double>[];
+                    final price = priceVaries
+                        ? (options.isEmpty ? 0.0 : options.first)
+                        : double.tryParse(priceController.text);
+                    final category = categoryName;
+                    if (name.isEmpty || price == null || category == null) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
                           content: Text(
@@ -2313,17 +1853,7 @@ void showAddServiceDialog(
                     setDialogState(() => submitting = true);
                     try {
                       final reminderDays = _parseReminderDays(reminderController.text);
-                      final existing = categories.where(
-                        (c) =>
-                            c.name.toLowerCase() ==
-                            categoryName.toLowerCase(),
-                      );
-                      final categoryId =
-                          existing.isNotEmpty
-                              ? existing.first.id
-                              : (await ref
-                                  .read(appDataProvider.notifier)
-                                  .addServiceCategory(categoryName)).id;
+                      final categoryId = await _serviceCategoryId(ref, category);
                       await ref
                           .read(appDataProvider.notifier)
                           .addService(
@@ -2331,6 +1861,9 @@ void showAddServiceDialog(
                             price: price,
                             categoryId: categoryId,
                             reminderDays: reminderDays,
+                            audience: serviceAudience,
+                            priceVaries: priceVaries,
+                            priceOptions: options,
                           );
                       if (ctx.mounted) Navigator.pop(ctx);
                       if (context.mounted) {
@@ -2346,7 +1879,7 @@ void showAddServiceDialog(
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text(e.toString()),
+                            content: Text(e.toString().replaceFirst('Exception: ', '')),
                             backgroundColor: AppTheme.accentRed,
                           ),
                         );
@@ -2358,6 +1891,9 @@ void showAddServiceDialog(
         ),
   );
 }
+
+const String _kProductsEntry = '__products';
+const String _kLowStockEntry = '__lowStock';
 
 class OwnerInventoryTab extends StatefulWidget {
   final VoidCallback? onOpenNotifications;
@@ -2371,7 +1907,10 @@ class OwnerInventoryTab extends StatefulWidget {
 class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
   final _stockController = TextEditingController();
   final _searchController = TextEditingController();
-  String _activeFilter = 'All'; // 'All', 'Services', 'Products', 'Low Stock'
+  // Which side of the menu is showing: Gents, Ladies, or null for all.
+  String? _audience;
+  // The category open on the right; null opens the first.
+  String? _entry;
 
   @override
   void dispose() {
@@ -2568,6 +2107,12 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
     final nameController = TextEditingController(text: svc.name);
     final priceController = TextEditingController(text: svc.price.toStringAsFixed(0));
     final reminderController = TextEditingController(text: svc.reminderDays?.toString() ?? '');
+    final categories = ref.read(appDataProvider).valueOrNull?.categories ?? const <ServiceCategory>[];
+    final currentCategory = (svc.categoryName ?? '').trim();
+    String? categoryName = currentCategory.isEmpty ? null : currentCategory;
+    String? serviceAudience = svc.audience;
+    final optionsController = TextEditingController(text: svc.priceOptions.map((p) => p.toStringAsFixed(0)).join(', '));
+    bool priceVaries = svc.priceVaries;
     bool submitting = false;
 
     showDialog(
@@ -2582,6 +2127,14 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      _ServiceFiling(
+                        audience: serviceAudience,
+                        category: categoryName,
+                        categories: categories,
+                        onAudienceChanged: (value) => setDialogState(() => serviceAudience = value),
+                        onCategoryChanged: (value) => setDialogState(() => categoryName = value),
+                      ),
+                      const SizedBox(height: 12),
                       TextField(
                         controller: nameController,
                         decoration: appDialogFieldDecoration(
@@ -2590,15 +2143,13 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      TextField(
-                        controller: priceController,
-                        keyboardType: TextInputType.number,
-                        decoration: appDialogFieldDecoration(
-                          label: 'Price (₹) *',
-                          icon: PhosphorIconsRegular.currencyInr,
-                        ),
+                      _ServicePriceFields(
+                        varies: priceVaries,
+                        onVariesChanged: (value) => setDialogState(() => priceVaries = value),
+                        priceController: priceController,
+                        optionsController: optionsController,
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 4),
                       _serviceReminderField(reminderController, ref),
                       const SizedBox(height: 4),
                       _removeButton(
@@ -2624,7 +2175,10 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                     submitting: submitting,
                     onCancel: () => Navigator.pop(ctx),
                     onSubmit: () async {
-                      final price = double.tryParse(priceController.text.trim());
+                      final options = priceVaries ? parsePriceOptions(optionsController.text) : const <double>[];
+                      final price = priceVaries
+                          ? (options.isEmpty ? 0.0 : options.first)
+                          : double.tryParse(priceController.text.trim());
                       if (price == null) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('Enter a valid price'), backgroundColor: AppTheme.accentRed),
@@ -2633,11 +2187,20 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
                       }
                       setDialogState(() => submitting = true);
                       try {
+                        final reminderDays = _parseReminderDays(reminderController.text);
+                        final category = categoryName;
+                        final categoryId = category == null || category == currentCategory
+                            ? null
+                            : await _serviceCategoryId(ref, category);
                         await ref.read(appDataProvider.notifier).updateService(
                               svc.id,
                               name: nameController.text,
                               price: price,
-                              reminderDays: _parseReminderDays(reminderController.text),
+                              reminderDays: reminderDays,
+                              categoryId: categoryId,
+                              audience: serviceAudience,
+                              priceVaries: priceVaries,
+                              priceOptions: options,
                             );
                         if (ctx.mounted) Navigator.pop(ctx);
                         if (context.mounted) {
@@ -2735,87 +2298,6 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
     );
   }
 
-  /// Icon by kind of service, colour by category - so a category reads as
-  /// one colour down the menu instead of every row being the same tile.
-  (Color bg, Color fg, IconData icon) _iconForService(SalonService svc) {
-    final (_, _, icon) = _iconForServiceKind(svc);
-    final (bg, fg) = AppTheme.avatarColorsFor(svc.categoryName ?? svc.name);
-    return (bg, fg, icon);
-  }
-
-  (Color bg, Color fg, IconData icon) _iconForServiceKind(SalonService svc) {
-    final lower = '${svc.name} ${svc.categoryName ?? ''}'.toLowerCase();
-    if (lower.contains('cut') ||
-        lower.contains('hair') ||
-        lower.contains('trim')) {
-      return (
-        const Color(0xFFEEF2F7),
-        const Color(0xFF1E3A5F),
-        PhosphorIconsBold.scissors,
-      );
-    } else if (lower.contains('beard') ||
-        lower.contains('shave') ||
-        lower.contains('groom')) {
-      return (
-        const Color(0xFFFEF3C7),
-        const Color(0xFFD97706),
-        PhosphorIconsBold.userCircle,
-      );
-    } else if (lower.contains('spa') ||
-        lower.contains('wash') ||
-        lower.contains('oil') ||
-        lower.contains('massage')) {
-      return (
-        const Color(0xFFF1F4F8),
-        const Color(0xFF2F4E79),
-        PhosphorIconsBold.drop,
-      );
-    } else if (lower.contains('mani') ||
-        lower.contains('pedi') ||
-        lower.contains('nail')) {
-      return (
-        const Color(0xFFF1F4F8),
-        const Color(0xFF3E5F8A),
-        PhosphorIconsBold.sparkle,
-      );
-    }
-    return (
-      const Color(0xFFF3E8FF),
-      const Color(0xFF9333EA),
-      PhosphorIconsBold.sparkle,
-    );
-  }
-
-  Widget _buildFilterChip(String label, String value) {
-    final isSelected = _activeFilter == value;
-    return InkWell(
-      onTap: () => setState(() => _activeFilter = value),
-      borderRadius: BorderRadius.circular(20),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-        // Light tint when selected - the same chip as Clients, Team and
-        // bill history.
-        decoration: BoxDecoration(
-          color: isSelected ? AppTheme.primaryLight : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color:
-                isSelected ? const Color(0xFFC3D0E2) : const Color(0xFFE2E8F0),
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-            color: isSelected ? AppTheme.primaryBlue : const Color(0xFF475467),
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Consumer(
@@ -2834,481 +2316,273 @@ class _OwnerInventoryTabState extends State<OwnerInventoryTab> {
     );
   }
 
-  // No salon name / bell / avatar row here any more: this page is always
-  // embedded under a header that already carries them, either as a drawer
-  // destination or as the "Services & Pricing" section of Billing's
-  // settings. Drawing its own would show the salon name twice.
+  // Same shape as the Add services screen: Gents or Ladies, categories down
+  // the left, one category on the right. A menu this size can't be one list.
+  //
+  // No salon name / bell / avatar row here: this page is always embedded
+  // under a header that already carries them.
   Widget _buildContent(BuildContext context, WidgetRef ref, AppData state) {
-    final isMobile = MediaQuery.of(context).size.width < 768;
+    final query = _searchController.text.trim().toLowerCase();
+    final shown = state.services.where((s) => audiencesOverlap(s.audience, _audience)).toList();
+    final groups = groupServices(shown);
+    final lowStock = state.inventory.where((p) => p.isLowStock).toList();
 
-    final q = _searchController.text.toLowerCase().trim();
+    // At the top, as on the pick screen: below every category they're lost.
+    final entries = [
+      if (state.inventory.isNotEmpty) const MenuRailEntry(_kProductsEntry, 'Products'),
+      if (lowStock.isNotEmpty) MenuRailEntry(_kLowStockEntry, 'Low stock', count: lowStock.length, warning: true),
+      for (final g in groups) MenuRailEntry(g.name, g.name),
+    ];
+    // Still opens on services: that's what this page is mostly for.
+    final opening = groups.firstOrNull?.name ?? entries.firstOrNull?.id;
+    final current = entries.any((e) => e.id == _entry) ? _entry : opening;
 
-    final filteredServices =
-        state.services.where((s) {
-          if (q.isEmpty) return true;
-          return s.name.toLowerCase().contains(q) ||
-              (s.categoryName?.toLowerCase().contains(q) ?? false);
-        }).toList();
-
-    final filteredProducts =
-        state.inventory.where((p) {
-          if (_activeFilter == 'Low Stock' && !p.isLowStock) return false;
-          if (q.isEmpty) return true;
-          return p.name.toLowerCase().contains(q) ||
-              p.sku.toLowerCase().contains(q) ||
-              p.category.toLowerCase().contains(q);
-        }).toList();
-
-    final showServices = _activeFilter == 'All' || _activeFilter == 'Services';
-    final showProducts =
-        _activeFilter == 'All' ||
-        _activeFilter == 'Products' ||
-        _activeFilter == 'Low Stock';
-
-    return Container(
-      color: const Color(0xFFF8F9FC),
-      // topCenter, not Center: this only caps the content width on desktop.
-      // A plain Center also centres vertically, so as soon as a filter left
-      // the list short - Low Stock with nothing low, say - the whole page
-      // collapsed into the middle of the viewport with the action buttons
-      // floating halfway down.
-      child: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: isMobile ? double.infinity : 680,
-          ),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+    return ColoredBox(
+      color: Colors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // (Add service / Add product moved into the page header's
-                // "Add" button.)
-
-                // 4. Search Bar
-                Container(
-                  height: 46,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                    boxShadow: AppTheme.cardShadow,
-                  ),
-                  child: TextField(
-                    controller: _searchController,
-                    onChanged: (val) => setState(() {}),
-                    decoration: InputDecoration(
-                      hintText: 'Search services or products',
-                      hintStyle: const TextStyle(
-                        fontSize: 13,
-                        color: Color(0xFF94A3B8),
-                      ),
-                      prefixIcon: const Icon(
-                        PhosphorIconsRegular.magnifyingGlass,
-                        color: Color(0xFF94A3B8),
-                        size: 18,
-                      ),
-                      suffixIcon:
-                          _searchController.text.isNotEmpty
-                              ? IconButton(
-                                icon: const Icon(
-                                  PhosphorIconsBold.x,
-                                  size: 14,
-                                  color: Color(0xFF94A3B8),
-                                ),
-                                onPressed: () {
-                                  _searchController.clear();
-                                  setState(() {});
-                                },
-                              )
-                              : null,
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                    ),
+                AudienceChoice(
+                  value: _audience,
+                  options: const [(null, 'All'), (kAudienceGents, 'Gents'), (kAudienceLadies, 'Ladies')],
+                  onChanged: (audience) => setState(() => _audience = audience),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _searchController,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: 'Search services or products',
+                    contentPadding: const EdgeInsets.symmetric(vertical: 11),
+                    prefixIcon: const Icon(PhosphorIconsRegular.magnifyingGlass, size: 18),
+                    suffixIcon: query.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Clear search',
+                            icon: const Icon(PhosphorIconsRegular.x, size: 16),
+                            onPressed: () => setState(_searchController.clear),
+                          ),
                   ),
                 ),
-                const SizedBox(height: 14),
-
-                // 5. Filter Chips Row
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _buildFilterChip('All', 'All'),
-                      const SizedBox(width: 8),
-                      _buildFilterChip(
-                        'Services (${state.services.length})',
-                        'Services',
-                      ),
-                      const SizedBox(width: 8),
-                      _buildFilterChip(
-                        'Products (${state.inventory.length})',
-                        'Products',
-                      ),
-                      const SizedBox(width: 8),
-                      _buildFilterChip('Low Stock', 'Low Stock'),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 18),
-
-                // 6. Card 1: Service Menu
-                if (showServices) ...[
-                  Container(
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                      boxShadow: AppTheme.cardShadow,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Card Header
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: const [
-                                Text(
-                                  'Services',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF0F172A),
-                                    letterSpacing: -0.2,
-                                  ),
-                                ),
-                                SizedBox(height: 2),
-                                Text(
-                                  'What clients can book',
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    color: Color(0xFF64748B),
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            Row(
-                              children: const [
-                                Icon(
-                                  PhosphorIconsBold.arrowsDownUp,
-                                  size: 13,
-                                  color: Color(0xFF1E3A5F),
-                                ),
-                                SizedBox(width: 4),
-                                Text(
-                                  'Reorder',
-                                  style: TextStyle(
-                                    color: Color(0xFF1E3A5F),
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Service List Items
-                        if (filteredServices.isEmpty)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 20.0),
-                            child: Center(
-                              child: Text(
-                                // "matching your search" only when there is
-                                // one - a new salon with an empty menu used
-                                // to be told its (empty) search found nothing.
-                                state.services.isEmpty
-                                    ? 'No services yet - tap + Add Service to build your menu.'
-                                    : 'No services match your search.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: Color(0xFF64748B),
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                          )
-                        else
-                          ...filteredServices.map((svc) {
-                            final (bg, fg, icon) = _iconForService(svc);
-                            return InkWell(
-                              // Tap to change the name or price - there was
-                              // no way to edit a service once added.
-                              onTap: () => _showEditServiceDialog(context, ref, svc),
-                              borderRadius: BorderRadius.circular(12),
-                              child: Padding(
-                              padding: const EdgeInsets.only(bottom: 14.0),
-                              child: Row(
-                                children: [
-                                  // Squircle Icon
-                                  Container(
-                                    width: 42,
-                                    height: 42,
-                                    decoration: BoxDecoration(
-                                      color: bg,
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Center(
-                                      child: Icon(icon, color: fg, size: 20),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  // Title and Category
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          svc.name,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 13.5,
-                                            color: Color(0xFF0F172A),
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          svc.categoryName ?? 'Styling',
-                                          style: const TextStyle(
-                                            fontSize: 11.5,
-                                            color: Color(0xFF64748B),
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  // Price
-                                  Text(
-                                    formatInr(svc.price),
-                                    style: const TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w700,
-                                      color: Color(0xFF1E3A5F),
-                                      letterSpacing: -0.2,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  const Icon(
-                                    PhosphorIconsRegular.pencilSimple,
-                                    size: 14,
-                                    color: Color(0xFF94A3B8),
-                                  ),
-                                ],
-                              ),
-                              ),
-                            );
-                          }),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                ],
-
-                // 7. Card 2: Product Catalog
-                if (showProducts) ...[
-                  Container(
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                      boxShadow: AppTheme.cardShadow,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Card Header
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: const [
-                                Text(
-                                  'Products',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF0F172A),
-                                    letterSpacing: -0.2,
-                                  ),
-                                ),
-                                SizedBox(height: 2),
-                                Text(
-                                  'Sold over the counter',
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    color: Color(0xFF64748B),
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            // (The "Filter Low Stock" button that sat here duplicated the
-                            // Low Stock chip above, so it's gone.)
-                            const SizedBox.shrink(),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Products List
-                        if (filteredProducts.isEmpty)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 20.0),
-                            child: Center(
-                              child: Text(
-                                state.inventory.isEmpty
-                                    ? 'No products yet - tap + Add Product if you sell retail items.'
-                                    : 'No products match this filter.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: Color(0xFF64748B),
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                          )
-                        else
-                          ...filteredProducts.map((prod) {
-                            final isLow = prod.isLowStock;
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 16.0),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 42,
-                                    height: 42,
-                                    margin: const EdgeInsets.only(right: 12),
-                                    decoration: BoxDecoration(
-                                      color: AppTheme.avatarColorsFor(prod.category).$1,
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Icon(
-                                      PhosphorIconsBold.package,
-                                      size: 19,
-                                      color: AppTheme.avatarColorsFor(prod.category).$2,
-                                    ),
-                                  ),
-                                  // Product Info - tap to edit or remove
-                                  Expanded(
-                                    child: InkWell(
-                                    onTap: () => _showEditProductDialog(context, ref, prod),
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          prod.name,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 13.5,
-                                            color: Color(0xFF0F172A),
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          // Price first - it's what staff
-                                          // look for; services already show
-                                          // theirs, products didn't.
-                                          '${formatInr(prod.price)} • ${prod.category}',
-                                          style: const TextStyle(
-                                            fontSize: 11.5,
-                                            color: Color(0xFF64748B),
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        const SizedBox(height: 5),
-                                        // Stock Chip
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 3,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color:
-                                                isLow
-                                                    ? const Color(0xFFFFFBEB)
-                                                    : const Color(0xFFECFDF5),
-                                            borderRadius: BorderRadius.circular(
-                                              8,
-                                            ),
-                                          ),
-                                          child: Text(
-                                            isLow
-                                                ? '${prod.stockCount} units left'
-                                                : '${prod.stockCount} units in stock',
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w700,
-                                              color:
-                                                  isLow
-                                                      ? const Color(0xFFD97706)
-                                                      : const Color(0xFF059669),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  // Update Stock Button
-                                  OutlinedButton(
-                                    onPressed:
-                                        () => _showUpdateStockDialog(
-                                          context,
-                                          ref,
-                                          prod,
-                                        ),
-                                    style: OutlinedButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 8,
-                                      ),
-                                      side: const BorderSide(
-                                        color: Color(0xFFC3D0E2),
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                    ),
-                                    child: const Text(
-                                      'Update stock',
-                                      style: TextStyle(
-                                        color: Color(0xFF1E3A5F),
-                                        fontSize: 11.5,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          }),
-                      ],
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
+          const Divider(height: 1, color: AppTheme.borderSubtle),
+          Expanded(
+            child: query.isNotEmpty
+                ? _buildSearchResults(context, ref, state, shown, query)
+                : entries.isEmpty
+                    ? const _MenuNote('No services yet - tap Add to build your menu.')
+                    : Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SizedBox(
+                            width: 116,
+                            child: MenuRail(
+                              entries: entries,
+                              selected: current!,
+                              onSelected: (id) => setState(() => _entry = id),
+                            ),
+                          ),
+                          const VerticalDivider(width: 1, thickness: 1, color: AppTheme.borderSubtle),
+                          Expanded(child: _buildPane(context, ref, state, current, groups, lowStock)),
+                        ],
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPane(
+    BuildContext context,
+    WidgetRef ref,
+    AppData state,
+    String current,
+    List<ServiceGroup> groups,
+    List<InventoryItem> lowStock,
+  ) {
+    if (current == _kProductsEntry || current == _kLowStockEntry) {
+      final low = current == _kLowStockEntry;
+      final products = low ? lowStock : state.inventory;
+      return ListView(
+        padding: const EdgeInsets.only(bottom: 16),
+        children: [
+          _paneTitle(low ? 'Low stock' : 'Products', '${products.length}'),
+          for (final prod in products) _productRow(context, ref, prod),
+        ],
+      );
+    }
+    final services = groups.firstWhere((g) => g.name == current).services;
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 16),
+      children: [
+        _paneTitle(current, '${services.length}'),
+        for (final svc in services) _serviceRow(context, ref, svc),
+      ],
+    );
+  }
+
+  Widget _buildSearchResults(
+    BuildContext context,
+    WidgetRef ref,
+    AppData state,
+    List<SalonService> shown,
+    String query,
+  ) {
+    final services = shown
+        .where((s) => s.name.toLowerCase().contains(query) || (s.categoryName?.toLowerCase().contains(query) ?? false))
+        .toList();
+    final products = state.inventory
+        .where((p) =>
+            p.name.toLowerCase().contains(query) ||
+            p.sku.toLowerCase().contains(query) ||
+            p.category.toLowerCase().contains(query))
+        .toList();
+    if (services.isEmpty && products.isEmpty) {
+      return _MenuNote('Nothing matches "${_searchController.text.trim()}"');
+    }
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 16),
+      children: [
+        for (final svc in services) _serviceRow(context, ref, svc, showCategory: true),
+        for (final prod in products) _productRow(context, ref, prod),
+      ],
+    );
+  }
+
+  Widget _paneTitle(String title, String count) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.slateDark),
+            ),
+          ),
+          Text(count, style: const TextStyle(fontSize: 13, color: AppTheme.slateLight)),
+        ],
+      ),
+    );
+  }
+
+  /// Tap to change the name, price or category.
+  Widget _serviceRow(BuildContext context, WidgetRef ref, SalonService svc, {bool showCategory = false}) {
+    final detail = [
+      if (showCategory && svc.categoryName != null) svc.categoryName!,
+      if (_audience == null || showCategory) serviceAudienceLabel(svc.audience),
+    ].join(' • ');
+    return InkWell(
+      onTap: () => _showEditServiceDialog(context, ref, svc),
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 56),
+        padding: const EdgeInsets.fromLTRB(14, 9, 10, 9),
+        decoration: const BoxDecoration(border: Border(top: BorderSide(color: AppTheme.borderSubtle))),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    svc.name,
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slateDark),
+                  ),
+                  if (detail.isNotEmpty)
+                    Text(detail, style: const TextStyle(fontSize: 12, color: AppTheme.slateLight)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              servicePriceLabel(svc),
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.slateDark,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(PhosphorIconsRegular.caretRight, size: 14, color: AppTheme.textMuted),
+          ],
         ),
       ),
+    );
+  }
+
+  /// Tap to edit or remove; the button is the everyday job, so it's one tap.
+  Widget _productRow(BuildContext context, WidgetRef ref, InventoryItem prod) {
+    final low = prod.isLowStock;
+    return InkWell(
+      onTap: () => _showEditProductDialog(context, ref, prod),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 9, 10, 9),
+        decoration: const BoxDecoration(border: Border(top: BorderSide(color: AppTheme.borderSubtle))),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    prod.name,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slateDark),
+                  ),
+                  Text(
+                    '${formatInr(prod.price)} • ${prod.category}',
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: AppTheme.slateLight),
+                  ),
+                  Text(
+                    low ? '${prod.stockCount} units left' : '${prod.stockCount} units in stock',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: low ? AppTheme.accentAmber : AppTheme.accentGreen,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton(
+              onPressed: () => _showUpdateStockDialog(context, ref, prod),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                minimumSize: const Size(0, 38),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text('Update stock', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MenuNote extends StatelessWidget {
+  final String text;
+
+  const _MenuNote(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Text(text, textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, color: AppTheme.slateLight)),
     );
   }
 }

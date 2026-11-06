@@ -16,6 +16,8 @@ import 'attendance_qr.dart';
 import 'birthday.dart';
 import 'salary_provider.dart';
 import 'models.dart';
+import 'client_package.dart';
+import 'service_menu.dart';
 import 'phone.dart';
 import 'whatsapp_tasks.dart';
 
@@ -169,7 +171,13 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
 
       final newToday = (today['todaySales'] as num).toDouble();
       final shift = newToday - previous.todaySales;
-      if (shift == 0 && (today['todayBillCount'] as int) == previous.todayBillCount) return;
+      final sold = (today['todayPackageSold'] as num).toDouble();
+      // A package sale moves the money with no bill, so sales alone won't do.
+      if (shift == 0 &&
+          (today['todayBillCount'] as int) == previous.todayBillCount &&
+          sold == previous.todayPackageSold) {
+        return;
+      }
 
       final breakdown = today['todayPaymentBreakdown'] as Map<String, dynamic>;
       state = AsyncData(current.copyWith(
@@ -187,6 +195,8 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
           // load or local mutation established.
           todayAttendanceCount: previous.todayAttendanceCount,
           lowStockItemCount: previous.lowStockItemCount,
+          todayPackageUsed: (today['todayPackageUsed'] as num).toDouble(),
+          todayPackageSold: sold,
         ),
       ));
     }, onError: (Object e) {
@@ -730,9 +740,70 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     return created;
   }
 
-  /// Renames or reprices a service. Only future bills see the change: every
-  /// bill line keeps its own copy of the name and price it was rung at.
-  Future<void> updateService(String id, {required String name, required double price, int? reminderDays}) async {
+  /// Sells [plan] to a client: money in today, credit for them until it
+  /// expires. The sale is its own record, not a bill, because no work was
+  /// done yet - see data/client_package.dart.
+  Future<ClientPackage> sellPackage({
+    required String customerId,
+    required String branchId,
+    required PackagePlan plan,
+    required String paymentMethod,
+  }) async {
+    _requireOwner();
+    final problem = plan.problem;
+    if (problem != null) throw Exception(problem);
+    final sold = await _fs.sellPackage(
+      customerId: customerId,
+      branchId: branchId,
+      plan: plan,
+      paymentMethod: paymentMethod,
+      soldBy: ref.read(authControllerProvider).userId ?? '',
+    );
+    final latest = state.value;
+    if (latest != null) state = AsyncData(latest.copyWith(clientPackages: [sold, ...latest.clientPackages]));
+    return sold;
+  }
+
+  /// Replaces the salon's list of packages on offer. Packages already sold
+  /// keep the terms they were sold on.
+  Future<void> savePackagePlans(List<PackagePlan> plans) async {
+    _requireOwner();
+    for (final plan in plans) {
+      final problem = plan.problem;
+      if (problem != null) throw Exception(problem);
+    }
+    await updateSettings({'packagePlans': [for (final p in plans) p.toMap()]});
+  }
+
+  /// Adds whatever of [menu] the salon doesn't have yet, so it's safe to run
+  /// twice. Returns how many services were added.
+  Future<int> loadSalonMenu(SalonMenu menu) async {
+    _requireOwner();
+    final current = state.value;
+    if (current == null) throw Exception('Not ready yet - try again in a moment');
+    final toAdd = menuEntriesToAdd(menu.services, current.services);
+    if (toAdd.isNotEmpty) await _fs.createMenuServices(toAdd, current.categories);
+    if (menu.packagePlans.isNotEmpty && (current.settings?.packagePlans.isEmpty ?? true)) {
+      await savePackagePlans(menu.packagePlans);
+    }
+    await refresh();
+    return toAdd.length;
+  }
+
+  /// Renames, reprices or re-files a service. Only future bills see the
+  /// change: every bill line keeps its own copy of the name and price it was
+  /// rung at. [audience] is the new value (null = both); [categoryId] null
+  /// leaves the category as it is.
+  Future<void> updateService(
+    String id, {
+    required String name,
+    required double price,
+    int? reminderDays,
+    String? categoryId,
+    String? audience,
+    bool priceVaries = false,
+    List<double> priceOptions = const [],
+  }) async {
     _requireOwner();
     _checkReminderDays(reminderDays);
     final current = state.value;
@@ -740,12 +811,26 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     if (match.isEmpty) throw Exception('Service not found');
     final trimmed = name.trim();
     if (trimmed.isEmpty) throw Exception('Service name is required');
-    if (price <= 0) throw Exception('Enter a price above zero');
+    if (price <= 0 && !priceVaries) throw Exception('Enter a price above zero');
     final existing = match.first;
-    if (trimmed != existing.name && await _fs.isServiceNameTaken(trimmed)) {
-      throw Exception('A service with this name already exists');
+    final newCategoryId = categoryId ?? existing.categoryId;
+    final categoryMatch = current?.categories.where((c) => c.id == newCategoryId) ?? const Iterable<ServiceCategory>.empty();
+    final newCategoryName = categoryMatch.isEmpty ? existing.categoryName : categoryMatch.first.name;
+    final refiled = newCategoryId != existing.categoryId || audience != existing.audience;
+    if ((trimmed != existing.name || refiled) &&
+        await _fs.isServiceNameTaken(trimmed, categoryId: newCategoryId, audience: audience, exceptId: id)) {
+      throw Exception('This category already has a service with this name');
     }
-    await _fs.updateService(id, {'name': trimmed, 'price': price, 'reminderDays': reminderDays});
+    await _fs.updateService(id, {
+      'name': trimmed,
+      'price': price,
+      'reminderDays': reminderDays,
+      'categoryId': newCategoryId,
+      'categoryName': newCategoryName,
+      'audience': audience,
+      'priceVaries': priceVaries,
+      'priceOptions': priceOptions,
+    });
     // Re-read after the await - see addService.
     final latest = state.value;
     if (latest == null) return;
@@ -756,22 +841,33 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
                 id: s.id,
                 name: trimmed,
                 price: price,
-                categoryId: s.categoryId,
-                categoryName: s.categoryName,
+                categoryId: newCategoryId,
+                categoryName: newCategoryName,
                 reminderDays: reminderDays,
+                audience: audience,
+                priceVaries: priceVaries,
+                priceOptions: priceOptions,
               )
             : s,
     ]));
   }
 
-  Future<void> addService({required String name, required double price, required String categoryId, int? reminderDays}) async {
+  Future<void> addService({
+    required String name,
+    required double price,
+    required String categoryId,
+    int? reminderDays,
+    String? audience,
+    bool priceVaries = false,
+    List<double> priceOptions = const [],
+  }) async {
     _requireOwner();
     _checkReminderDays(reminderDays);
     final current = state.value;
     final categoryMatch = current?.categories.where((c) => c.id == categoryId) ?? const Iterable.empty();
     if (categoryMatch.isEmpty) throw Exception('Service category not found');
-    if (await _fs.isServiceNameTaken(name)) {
-      throw Exception('A service with this name already exists');
+    if (await _fs.isServiceNameTaken(name, categoryId: categoryId, audience: audience)) {
+      throw Exception('This category already has a service with this name');
     }
     final categoryName = categoryMatch.first.name;
     final createdFS = await _fs.createService(FSService(
@@ -781,6 +877,9 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       categoryId: categoryId,
       categoryName: categoryName,
       reminderDays: reminderDays,
+      audience: audience,
+      priceVaries: priceVaries,
+      priceOptions: priceOptions,
     ));
     final created = serviceFromFS(createdFS);
     // Re-read rather than patching the pre-await `current`: anything that
@@ -933,7 +1032,10 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
     /// What the client is handing over now. null = the whole bill (the
     /// ordinary case); 0 = paying entirely later. The balance becomes a due
     /// against the customer - see SalonFirestore.recordPayment for settling.
+    /// With [packageCredit] this is what's paid on top of the credit.
     double? amountPaidNow,
+    /// Prepaid credit to spend on this bill, up to its total.
+    double packageCredit = 0,
   }) async {
     _requireOwner();
     final auth = ref.read(authControllerProvider);
@@ -965,7 +1067,7 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
         final match = current.services.where((s) => s.id == item.serviceId);
         if (match.isEmpty) throw Exception('Service not found');
         catalogPrice = match.first.price;
-        serviceName = match.first.name;
+        serviceName = billLineName(match.first, current.services);
         categoryId = match.first.categoryId.isEmpty ? null : match.first.categoryId;
       } else {
         final match = current.inventory.where((i) => i.id == item.inventoryItemId);
@@ -979,7 +1081,12 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       }
 
       final unitPrice = item.unitPrice ?? catalogPrice;
-      if (item.unitPrice != null && item.unitPrice != catalogPrice && (item.priceOverrideReason == null || item.priceOverrideReason!.isEmpty)) {
+      final variesOnBill = item.type == 'SERVICE' &&
+          current.services.any((s) => s.id == item.serviceId && s.priceVaries);
+      if (variesOnBill && unitPrice <= 0) {
+        throw Exception('Enter the price for $serviceName');
+      }
+      if (!variesOnBill && item.unitPrice != null && item.unitPrice != catalogPrice && (item.priceOverrideReason == null || item.priceOverrideReason!.isEmpty)) {
         throw Exception('priceOverrideReason is required to override the catalog price${productName != null ? ' for $productName' : ''}');
       }
 
@@ -1027,6 +1134,11 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
       billDiscountAmount: discountAmount ?? 0,
       items: drafts,
       amountPaidNow: amountPaidNow,
+      packageCredit: packageCredit,
+      packageIds: [
+        if (packageCredit > 0)
+          for (final p in usablePackages(current.clientPackages, customerId, DateTime.now())) p.id,
+      ],
       firstVisit: customer.visitCount == 0,
       reminderReturn: reminderReturn,
       reminderDueOn: reminderDueOn,
@@ -1126,8 +1238,14 @@ class AppDataNotifier extends AsyncNotifier<AppData> {
             todayBillCount: latest.dashboard!.todayBillCount,
             todayAttendanceCount: todayAttendanceCountOf(latest.attendance),
             lowStockItemCount: inventory.where((i) => i.isLowStock).length,
+            todayPackageUsed: latest.dashboard!.todayPackageUsed,
+            todayPackageSold: latest.dashboard!.todayPackageSold,
           );
     state = AsyncData(latest.copyWith(
+      clientPackages: [
+        for (final p in latest.clientPackages)
+          createdFS.packageDraws.containsKey(p.id) ? p.withBalance(p.balance - createdFS.packageDraws[p.id]!) : p,
+      ],
       bills: [created, ...latest.bills],
       customers: [
         for (final c in latest.customers)

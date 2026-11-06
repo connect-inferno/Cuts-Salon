@@ -75,6 +75,10 @@ Map<String, num> billRollupFields({
   required bool firstVisit,
   required bool reminderReturn,
   required bool monthly,
+  /// Prepaid credit spent on this bill, and the part of it the salon was
+  /// never paid for (see packageBonusOf).
+  double packageUsed = 0,
+  double packageBonus = 0,
 }) {
   final out = <String, num>{};
   void add(String key, num v) {
@@ -86,6 +90,8 @@ Map<String, num> billRollupFields({
   add('billCount', 1);
   add('discount', discount);
   add('tax', tax);
+  add('packageUsed', packageUsed);
+  add('packageBonus', packageBonus);
   if (firstVisit) add('newClients', 1);
   if (reminderReturn) {
     add('reminderReturns', 1);
@@ -286,6 +292,7 @@ class RollupStats {
   int get billsWithProduct => this['billsWithProduct'].round();
   int get reminderReturns => this['reminderReturns'].round();
   double get reminderReturnSales => this['reminderReturnSales'];
+  double get packageBonus => this['packageBonus'];
 
   /// Whether this period carries the line-level split (services vs
   /// products, staff, categories). Days and months before the rollups
@@ -642,6 +649,9 @@ class MonthPnl {
   final DateTime month;
   /// Takings without GST - the tax is the government's, not the salon's.
   final double revenue;
+  /// The free part of package credit spent this month: "pay 5,000, get 6,000"
+  /// counts 6,000 in takings against 5,000 received.
+  final double packageBonus;
   final double productCost;
   final double expenses;
   /// Salary slips for the month; when payroll hasn't been run for it yet,
@@ -652,13 +662,14 @@ class MonthPnl {
   const MonthPnl({
     required this.month,
     required this.revenue,
+    this.packageBonus = 0,
     required this.productCost,
     required this.expenses,
     required this.payroll,
     required this.payrollEstimated,
   });
 
-  double get profit => revenue - productCost - expenses - payroll;
+  double get profit => revenue - packageBonus - productCost - expenses - payroll;
   double get marginPct => revenue <= 0 ? 0 : profit / revenue * 100;
 }
 
@@ -680,6 +691,7 @@ List<MonthPnl> computePnl({
         return MonthPnl(
           month: m,
           revenue: _r2(r.sales - r.tax),
+          packageBonus: _r2(r.packageBonus),
           productCost: _r2(r.productCost),
           expenses: _r2(spent),
           payroll: _r2(slips.isEmpty ? r.commission : paid),

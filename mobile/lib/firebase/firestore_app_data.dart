@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../data/app_data.dart';
+import '../data/client_package.dart';
 import '../data/models.dart';
 import '../features/auth/auth_state.dart';
 import 'firestore_models.dart';
@@ -109,6 +110,9 @@ SalonService serviceFromFS(FSService s) => SalonService(
       categoryId: s.categoryId,
       categoryName: s.categoryName,
       reminderDays: s.reminderDays,
+      audience: s.audience,
+      priceVaries: s.priceVaries,
+      priceOptions: s.priceOptions,
     );
 
 InventoryItem inventoryFromFS(FSInventoryItem i) => InventoryItem(
@@ -167,6 +171,7 @@ Bill billFromFS(FSBill b, {required List<FSBillItem> items, List<FSPayment> paym
       createdAt: b.createdAt,
       items: items.map(billItemFromFS).toList(),
       discountRequestId: b.discountRequestId,
+      packageAmount: b.packageAmount,
     );
 
 Expense expenseFromFS(FSExpense e) => Expense(
@@ -238,6 +243,7 @@ SalonSettings settingsFromFS(FSSettings s, {bool whatsappReady = false}) => Salo
       whatsappReminderDays: s.whatsappReminderDays,
       paymentQrUrl: s.paymentQrUrl,
       reviewQrUrl: s.reviewQrUrl,
+      packagePlans: s.packagePlans,
     );
 
 // Assembles one AppData from Firestore, replicating every requester-based
@@ -278,6 +284,8 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
     fs.listPendingCommissions(employeeId: selfId),
     fs.listAttendance(employeeId: selfId),
     fs.isWhatsAppReady(),
+    // Owner only, for the same reason as the pending count above.
+    auth.isOwner ? fs.listClientPackages() : Future.value(const <ClientPackage>[]),
   ]);
 
   final settingsFS = results[0] as FSSettings;
@@ -293,6 +301,7 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
   final commissionsFS = results[10] as List<FSCommissionRecord>;
   final attendanceFS = results[11] as List<FSAttendanceRecord>;
   final whatsappReady = results[12] as bool;
+  final clientPackages = results[13] as List<ClientPackage>;
 
   // Pay still on roster docs (from before employeePay existed, or written
   // by an old cached copy of the app) is readable by every coworker, so the
@@ -396,5 +405,6 @@ Future<AppData> loadAppData(SalonFirestore fs, AuthState auth, {FSSettings? prel
     attendance: attendanceFS.map(attendanceFromFS).toList(),
     dashboard: dashboard,
     settings: settingsFromFS(settingsFS, whatsappReady: whatsappReady),
+    clientPackages: clientPackages,
   );
 }

@@ -93,6 +93,7 @@ class OwnerDashboardTab extends ConsumerWidget {
       todayBillCount: todayBills.length,
       todayAttendanceCount: salonWide.todayAttendanceCount,
       lowStockItemCount: salonWide.lowStockItemCount,
+      todayPackageUsed: todayBills.fold(0.0, (sum, b) => sum + b.packageAmount),
     );
   }
 
@@ -963,6 +964,12 @@ class OwnerDashboardTab extends ConsumerWidget {
             value: _formatCurrency(pending),
             valueColor: pending > 0 ? AppTheme.accentAmber : AppTheme.slateLight,
           ),
+          // Neither of these is more money: credit spent was paid for when it
+          // was sold, and a package sold today is already in Cash or UPI.
+          if (dashboard.todayPackageUsed > 0)
+            DsValueRow(label: 'Paid from packages', value: _formatCurrency(dashboard.todayPackageUsed)),
+          if (dashboard.todayPackageSold > 0)
+            DsValueRow(label: 'Includes packages sold', value: _formatCurrency(dashboard.todayPackageSold)),
         ],
       ),
     );

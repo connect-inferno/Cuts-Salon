@@ -2,7 +2,7 @@
 // SliverPersistentHeader, and a pinned header has to declare its extent
 // before it lays anything out - so _HistoryHeaderDelegate's heights are
 // hard-coded constants rather than measured. That is only safe while the
-// controls inside actually fit. Above it, the one-line "Collected today"
+// controls inside actually fit. Above it, the one-line "Collected on bills today"
 // summary scrolls away with the list.
 //
 // These tests pump the real view at narrow, phone and tablet widths, at rest
@@ -76,7 +76,7 @@ void main() {
     testWidgets('history renders without overflow at ${entry.key}', (tester) async {
       await _pumpAt(tester, entry.value);
 
-      expect(find.text('Collected today'), findsOneWidget);
+      expect(find.text('Collected on bills today'), findsOneWidget);
 
       // The controls must fit inside the header's fixed extent - the header
       // clips rather than throws, so too small a height crops them silently.
@@ -110,7 +110,7 @@ void main() {
     await _pumpAt(tester, phone, data: _appData(billCount: 0));
 
     expect(find.text('No bills yet'), findsOneWidget);
-    expect(find.text('Collected today'), findsOneWidget);
+    expect(find.text('Collected on bills today'), findsOneWidget);
   });
 
   testWidgets("a balance settled by card counts under Card in today's collections", (tester) async {

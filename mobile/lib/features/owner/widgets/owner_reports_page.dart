@@ -10,6 +10,7 @@ import '../../../data/insights.dart';
 import '../../../data/insights_provider.dart';
 import '../../../data/models.dart';
 import '../../../data/money.dart';
+import '../../../data/service_menu.dart';
 import '../../../data/report_summary.dart';
 import '../../../data/salary_provider.dart';
 import '../../../router.dart';
@@ -343,7 +344,7 @@ class _Summary {
         month: cur,
         monthStartDate: month,
       ),
-      services: topServices(cur, {for (final s in state.services) s.id: s.name}),
+      services: topServices(cur, {for (final s in state.services) s.id: billLineName(s, state.services)}),
       retention: computeRetention(state.customers, now),
       owed: state.customers.fold<double>(0, (s, c) => s + c.outstandingBalance),
       stock: computeStockInsights(state.inventory, state.bills, now),
@@ -751,6 +752,7 @@ class _ProfitSection extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               line('Takings', p.revenue, minus: false, note: 'without GST'),
+              if (p.packageBonus > 0) line('Package bonus', p.packageBonus, note: 'free credit clients spent'),
               line('Product cost', p.productCost),
               line('Expenses', p.expenses),
               line('Staff pay', p.payroll, note: p.payrollEstimated ? 'commission so far' : null),

@@ -27,6 +27,7 @@ import 'add_employee_page.dart';
 import 'owner_shift_card.dart';
 import 'attendance_qr_page.dart';
 import 'owner_birthdays_page.dart';
+import 'owner_packages_page.dart';
 import '../../../widgets/ds.dart';
 import 'owner_payroll_view.dart';
 import '../../../data/money.dart';
@@ -1574,6 +1575,8 @@ mixin _CustomerDetailSections<T extends StatefulWidget> on State<T> {
             ],
           ),
           const SizedBox(height: 16),
+
+          ClientPackageStrip(customer: cust),
 
           // Outstanding balance, when there is one. Derived from this
           // client's own unpaid bills rather than the denormalized

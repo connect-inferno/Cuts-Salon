@@ -8,6 +8,7 @@ import 'widgets/owner_dashboard_tab.dart';
 import 'widgets/owner_customers_employees_tab.dart';
 import 'widgets/owner_billing_inventory_expenses_tab.dart';
 import 'widgets/owner_management_tabs.dart';
+import 'widgets/owner_packages_page.dart';
 import 'widgets/owner_payment_requests_view.dart';
 import 'widgets/owner_profile_view.dart';
 import 'widgets/owner_whatsapp_page.dart';
@@ -208,6 +209,23 @@ class _OwnerDashboardState extends ConsumerState<OwnerDashboard> {
                 if (isModal) Navigator.pop(context);
                 _openServices(context);
               },
+            ),
+            AppDrawerItem(
+              icon: PhosphorIconsRegular.ticket,
+              label: 'Packages',
+              onTap: () => go(
+                'Packages',
+                'Prepaid credit for clients',
+                const OwnerPackagesPage(),
+                actions: [
+                  AppPageAction(
+                    icon: PhosphorIconsBold.plus,
+                    label: 'Sell',
+                    tooltip: 'Sell a package',
+                    onTap: () => showSellPackageDialog(context, ref),
+                  ),
+                ],
+              ),
             ),
             AppDrawerItem(
               icon: PhosphorIconsRegular.wallet,
