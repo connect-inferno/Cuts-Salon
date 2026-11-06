@@ -374,11 +374,10 @@ Restrictive, but the app on `main` already writes exactly that shape, so
 it was safe to deploy before merging. Adding a field to payment requests
 now needs this rule changed first.
 
-**Client packages - rules deployed to `test-salon-ee06a` only, 2026-11-06**
-(147 rules tests passed first). Additive: the `clientPackages` rule. Deploy to
-all salons with `scripts/deploy-salons.sh rules` **before** merging the app
-that uses it. Until then a salon's owner would see no credit and a sale would
-be refused, though the app still opens.
+**Client packages - rules deployed to all three salons on 2026-11-06** with
+`scripts/deploy-salons.sh rules` (147 rules tests passed first). Additive: the
+`clientPackages` rule, so the app already on Vercel keeps working;
+the app that uses it can merge any time after.
 
 ## Onboarding a new salon
 
