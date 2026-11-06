@@ -72,6 +72,9 @@ PaymentMix computePaymentMix(List<Bill> bills) {
         case 'UPI':
           upi += amount;
           upiBills++;
+        case kPackageMethod:
+          // Credit bought earlier: the money showed up when it was sold.
+          break;
         default:
           // Taken at the counter on a PENDING bill, and anything a future
           // method might add - counted rather than dropped, so `collected`

@@ -212,6 +212,53 @@ fills in ~10 days, so anything summed from them under-reports.
   `AppData`, so billing, the menu and stock alerts never offer them, while
   every bill line keeps its own copy of name and price. Name/SKU uniqueness
   checks ignore archived entries so a removed name can be reused.
+- **The service menu has two sides and categories.** A service may carry
+  `audience` (`GENTS` / `LADIES`; absent = both, which is what older services
+  read as). `lib/data/service_menu.dart` holds the printed menu's category
+  list (`kServiceMenu`, order = Billing's order), the Add/Edit form's choices
+  and `groupServices`. A salon's own categories come after the menu's. New
+  Bill stays one short screen: "Add services" opens `ServicePickerPage`
+  (`service_picker_page.dart`), with All / Gents / Ladies, search, categories
+  down the left (Popular first, from the loaded bills, then Products) and that
+  category's services on the right. It edits New Bill's own selection, so Done
+  and the back arrow both keep picks. A client's gender picks the side. A
+  service name is unique only within one category and
+  audience, because the menu repeats names ("Regular", "Lotus", "O3+"), so a
+  bill line and Reports use `billLineName`: "Regular (Clean Up)" when a name
+  is shared. `audience` needs no rules change (services are owner-write).
+- **Variable prices:** a service with `priceVaries` has no fixed price: New
+  Bill asks for it when ticked, offering `priceOptions` (the usual prices,
+  optional) or any typed amount, and sends it as the line's `unitPrice`.
+  `price` is then the lowest it can be, or 0 for "on consultation".
+  `createBill` needs no override reason for these; it refuses a zero price.
+- **The ready-made menu:** `assets/menus/cuts.json` is the printed Cuts menu.
+  `AppDataNotifier.loadSalonMenu` adds only what's missing
+  (`menuEntriesToAdd`), so it can be re-run, and sets
+  `settings/main.packagePlans` if the salon has none. It has no button: the
+  owner had the "Load our full menu" option removed on 2026-11-06, after it
+  had loaded the test salon. `cuts-salon` was empty and got the menu on
+  2026-11-06 straight into Firestore, at the owner's request (153 services, 37
+  categories, 3 package plans). Change it now through Menu > Services.
+- **Services page** (Menu > Services, `OwnerInventoryTab`) has the same shape
+  as the pick screen and shares its `MenuRail`: All / Gents / Ladies, search,
+  Products and Low stock, then categories down the left. Rows are plain:
+  name, price, tap to edit.
+- **Prepaid packages** (`lib/data/client_package.dart`,
+  `owner_packages_page.dart`): "pay X, get services worth Y for Z months".
+  The plans on offer are `settings/main.packagePlans`; each sale is a
+  `clientPackages/{id}` doc (owner-only; customerId, no client name, so
+  erasure has nothing to clean). **Takings = work done, Collected = money
+  in:** a sale adds `collected_<method>` and `packageSales` to the rollups but
+  no `sales`; spending adds `sales` with no `collected_`, plus `packageUsed`.
+  So neither counts twice. `bill.packageAmount` is inside `amountPaid`, never
+  money; a bill covered wholly by credit has paymentMethod `PACKAGE`, and
+  `bill.packageDraws` says which package paid. Credit spends soonest-expiring
+  first, inside `createBill`'s transaction. Takings count a package bill at
+  full price, so the free part (`packageBonus`) comes off profit in Reports.
+  Commission stays on the full price. The rules let a balance only go down,
+  and only before `expiresAt`, so expired credit is gone: no field can extend
+  it. `listClientPackages` returns empty on a refusal so a salon without the
+  rule still opens.
 - **Erasing a client** (DPDP right to erasure): Clients tab > Archived
   filter > bin icon on an archived client
   (`AppDataNotifier.eraseCustomer` -> `SalonFirestore.eraseCustomer`). The
@@ -326,6 +373,12 @@ an existing `billId`, a server `createdAt` and an amount under 1 crore.
 Restrictive, but the app on `main` already writes exactly that shape, so
 it was safe to deploy before merging. Adding a field to payment requests
 now needs this rule changed first.
+
+**Client packages - rules deployed to `test-salon-ee06a` only, 2026-11-06**
+(147 rules tests passed first). Additive: the `clientPackages` rule. Deploy to
+all salons with `scripts/deploy-salons.sh rules` **before** merging the app
+that uses it. Until then a salon's owner would see no credit and a sale would
+be refused, though the app still opens.
 
 ## Onboarding a new salon
 

@@ -52,6 +52,10 @@ class AppPageHeader extends StatelessWidget {
   final VoidCallback? onLeadingTap;
   final List<AppPageAction> actions;
 
+  /// A control for the page's scope, before the actions - New Bill's branch
+  /// switch. Kept out of [actions] because it shows a value, not an icon.
+  final Widget? trailing;
+
   /// Draws the hairline under the header. Pages that scroll their own
   /// content under a pinned header want it; pages where the header is the
   /// first item of a scroll view generally don't.
@@ -64,6 +68,7 @@ class AppPageHeader extends StatelessWidget {
     this.leading = AppPageLeading.mark,
     this.onLeadingTap,
     this.actions = const [],
+    this.trailing,
     this.showDivider = true,
   // Normally two (bell + gear). Owner Home carries four - its payment and
   // review QR buttons sit beside them - which still leaves its short title
@@ -119,6 +124,7 @@ class AppPageHeader extends StatelessWidget {
                   ],
                 ),
               ),
+              if (trailing != null) ...[const SizedBox(width: 8), trailing!],
               for (final action in actions) ...[
                 const SizedBox(width: 4),
                 _AppHeaderIconButton(action: action),

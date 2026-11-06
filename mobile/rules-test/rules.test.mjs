@@ -263,6 +263,39 @@ console.log('Owner');
   await t('cannot delete a WhatsApp log entry', assertFails(deleteDoc(doc(db, 'whatsappLog/wl1'))));
 }
 
+console.log('Client packages');
+{
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore();
+    await setDoc(doc(db, 'customers/pk1'), { name: 'Client' });
+    const base = { customerId: 'pk1', paidAmount: 5000, creditValue: 6000, paymentMethod: 'UPI', soldAt: Timestamp.now() };
+    await setDoc(doc(db, 'clientPackages/live'), { ...base, balance: 6000, expiresAt: Timestamp.fromMillis(Date.now() + 86400000) });
+    await setDoc(doc(db, 'clientPackages/old'), { ...base, balance: 6000, expiresAt: Timestamp.fromMillis(Date.now() - 86400000) });
+  });
+  const owner = env.authenticatedContext('owner1').firestore();
+  const staff = env.authenticatedContext('emp1').firestore();
+  const sale = (extra = {}) => ({
+    customerId: 'pk1', branchId: 'br1', paidAmount: 5000, creditValue: 6000, balance: 6000, paymentMethod: 'UPI',
+    months: 6, soldBy: 'owner1', soldAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 86400000), ...extra,
+  });
+  await t('owner can sell a package', assertSucceeds(setDoc(doc(owner, 'clientPackages/s1'), sale())));
+  await t('staff cannot sell a package', assertFails(setDoc(doc(staff, 'clientPackages/s2'), sale())));
+  await t('staff cannot read a client balance', assertFails(getDoc(doc(staff, 'clientPackages/live'))));
+  await t('owner can read a client balance', assertSucceeds(getDoc(doc(owner, 'clientPackages/live'))));
+  await t('a package cannot start above its value', assertFails(setDoc(doc(owner, 'clientPackages/s3'), sale({ balance: 9000 }))));
+  await t('a package cannot be worth less than it cost', assertFails(setDoc(doc(owner, 'clientPackages/s4'), sale({ creditValue: 4000, balance: 4000 }))));
+  await t('a package needs a real client', assertFails(setDoc(doc(owner, 'clientPackages/s5'), sale({ customerId: 'nobody' }))));
+  await t('a package cannot be sold already expired', assertFails(setDoc(doc(owner, 'clientPackages/s6'), sale({ expiresAt: Timestamp.fromMillis(Date.now() - 1000) }))));
+  await t('a package cannot carry extra fields', assertFails(setDoc(doc(owner, 'clientPackages/s7'), sale({ note: 'x' }))));
+  await t('spending lowers the balance', assertSucceeds(updateDoc(doc(owner, 'clientPackages/live'), { balance: 5000 })));
+  await t('a balance cannot go back up', assertFails(updateDoc(doc(owner, 'clientPackages/live'), { balance: 5500 })));
+  await t('a balance cannot go below zero', assertFails(updateDoc(doc(owner, 'clientPackages/live'), { balance: -1 })));
+  await t('an expiry cannot be moved', assertFails(updateDoc(doc(owner, 'clientPackages/live'), { balance: 4000, expiresAt: Timestamp.fromMillis(Date.now() + 999999999) })));
+  await t('expired credit cannot be spent', assertFails(updateDoc(doc(owner, 'clientPackages/old'), { balance: 100 })));
+  await t('staff cannot spend credit', assertFails(updateDoc(doc(staff, 'clientPackages/live'), { balance: 100 })));
+  await t('a package cannot be deleted', assertFails(deleteDoc(doc(owner, 'clientPackages/live'))));
+}
+
 console.log('Deactivated employee 2 (just deactivated by owner)');
 {
   const db = env.authenticatedContext('emp2').firestore();

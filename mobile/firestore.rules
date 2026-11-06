@@ -170,6 +170,31 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Prepaid credit a client has bought (data/client_package.dart). Owner
+    // only: staff don't bill, so a client's balance is none of their work.
+    // Bought credit can't be invented or topped up after the sale: a package
+    // starts at exactly what it was sold for, and afterwards only its balance
+    // can change, only downwards, and only until it expires. Selling more
+    // credit is a new package; no field here can be edited away.
+    match /clientPackages/{packageId} {
+      allow read: if isOwner();
+      allow create: if isOwner()
+                    && request.resource.data.keys().hasOnly(['customerId', 'branchId', 'paidAmount', 'creditValue', 'balance', 'paymentMethod', 'months', 'soldBy', 'soldAt', 'expiresAt'])
+                    && request.resource.data.keys().hasAll(['customerId', 'paidAmount', 'creditValue', 'balance', 'paymentMethod', 'soldAt', 'expiresAt'])
+                    && exists(/databases/$(database)/documents/customers/$(request.resource.data.customerId))
+                    && request.resource.data.paidAmount > 0
+                    && request.resource.data.creditValue >= request.resource.data.paidAmount
+                    && request.resource.data.balance == request.resource.data.creditValue
+                    && request.resource.data.soldAt == request.time
+                    && request.resource.data.expiresAt > request.time;
+      allow update: if isOwner()
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance'])
+                    && request.resource.data.balance >= 0
+                    && request.resource.data.balance < resource.data.balance
+                    && request.time < resource.data.expiresAt;
+      allow delete: if false;
+    }
+
     // Owner-only writes, stock included. Staff used to be allowed to touch
     // stockCount because their bills decremented it; staff no longer bill
     // (CLAUDE.md, "Staff don't bill"), so that carve-out only let a staff

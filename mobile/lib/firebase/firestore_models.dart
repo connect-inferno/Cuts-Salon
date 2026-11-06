@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../data/client_package.dart' show PackagePlan;
+
 // Firestore-native equivalents of mobile/lib/data/models.dart. No salonId
 // anywhere - each salon is its own Firebase project, so the project itself
 // is the tenant boundary (see salon_directory.dart). Every id comes from
@@ -387,6 +389,12 @@ class FSService {
   /// the salon's general one. createBill turns the earliest gap on a bill
   /// into customers/{id}.reminderDueOn, which functions/index.js sends on.
   final int? reminderDays;
+  /// 'GENTS' or 'LADIES'; absent means both, which is what every service
+  /// saved before this field existed reads as.
+  final String? audience;
+  /// Settled on the bill rather than fixed here - see SalonService.priceVaries.
+  final bool priceVaries;
+  final List<double> priceOptions;
 
   FSService({
     required this.id,
@@ -396,6 +404,9 @@ class FSService {
     this.categoryName,
     this.archived = false,
     this.reminderDays,
+    this.audience,
+    this.priceVaries = false,
+    this.priceOptions = const [],
   });
 
   factory FSService.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -408,6 +419,9 @@ class FSService {
       categoryName: d['categoryName'],
       archived: d['archived'] ?? false,
       reminderDays: d['reminderDays'] == null ? null : _int(d['reminderDays']),
+      audience: d['audience'],
+      priceVaries: d['priceVaries'] ?? false,
+      priceOptions: [for (final o in d['priceOptions'] as List? ?? const []) _num(o)],
     );
   }
 
@@ -417,6 +431,9 @@ class FSService {
         'categoryId': categoryId,
         'categoryName': categoryName,
         if (reminderDays != null) 'reminderDays': reminderDays,
+        if (audience != null) 'audience': audience,
+        if (priceVaries) 'priceVaries': true,
+        if (priceOptions.isNotEmpty) 'priceOptions': priceOptions,
       };
 }
 
@@ -563,6 +580,12 @@ class FSBill {
   /// The approved discount request this bill used, if any. A request on a
   /// bill is used up - the staff bill screen stops offering it.
   final String? discountRequestId;
+  /// Prepaid credit spent on this bill: inside [amountPaid], but not money
+  /// received. A bill settled wholly by it has paymentMethod PACKAGE.
+  final double packageAmount;
+  /// clientPackages id -> credit taken from it, so a package's history can be
+  /// read off the client's bills without a ledger of its own.
+  final Map<String, double> packageDraws;
 
   FSBill({
     required this.id,
@@ -580,6 +603,8 @@ class FSBill {
     this.createdAt,
     this.items = const [],
     this.discountRequestId,
+    this.packageAmount = 0,
+    this.packageDraws = const {},
   });
 
   factory FSBill.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc, {List<FSBillItem> items = const []}) {
@@ -600,6 +625,7 @@ class FSBill {
       // finalAmount keeps them out of the dues list rather than resurrecting
       // the entire back catalogue as unpaid.
       amountPaid: _num(d['amountPaid'] ?? d['finalAmount']),
+      packageAmount: _num(d['packageAmount']),
       createdBy: d['createdBy'] ?? '',
       createdAt: _ts(d['createdAt']),
       items: items,
@@ -620,6 +646,8 @@ class FSBill {
         'amountPaid': amountPaid,
         'createdBy': createdBy,
         if (discountRequestId != null) 'discountRequestId': discountRequestId,
+        if (packageAmount > 0) 'packageAmount': packageAmount,
+        if (packageDraws.isNotEmpty) 'packageDraws': packageDraws,
         if (isCreate) 'createdAt': FieldValue.serverTimestamp(),
       };
 }
@@ -1009,6 +1037,10 @@ class FSSettings {
   /// Null until the owner adds them in their Profile.
   final String? paymentQrUrl;
   final String? reviewQrUrl;
+  /// The packages this salon sells: "pay X, get services worth Y for Z
+  /// months". On the settings doc because every screen already has it, so
+  /// offering them costs no read.
+  final List<PackagePlan> packagePlans;
 
   FSSettings({
     required this.salonName,
@@ -1026,6 +1058,7 @@ class FSSettings {
     this.whatsappReminderDays = kDefaultReminderDays,
     this.paymentQrUrl,
     this.reviewQrUrl,
+    this.packagePlans = const [],
   });
 
   factory FSSettings.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -1054,6 +1087,10 @@ class FSSettings {
       whatsappReminderDays: d['whatsappReminderDays'] == null ? kDefaultReminderDays : _int(d['whatsappReminderDays']),
       paymentQrUrl: d['paymentQrUrl'],
       reviewQrUrl: d['reviewQrUrl'],
+      packagePlans: [
+        for (final p in d['packagePlans'] as List? ?? const [])
+          PackagePlan.fromMap(Map<String, dynamic>.from(p as Map)),
+      ],
     );
   }
 

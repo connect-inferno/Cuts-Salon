@@ -104,6 +104,7 @@ flutter:
   assets:
     - assets/images/stylux_icon.png
     - assets/images/stylux_mark.png
+    - assets/menus/cuts.json
 
   # Plus Jakarta Sans bundled locally (static instances cut from the
   # variable font) instead of fetched at runtime via google_fonts - a CDN
